@@ -1,0 +1,84 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Pokrov Bootstrap Runtime Config
+description: Schema for the bootstrap runtime YAML configuration.
+type: object
+required:
+  - server
+  - logging
+  - shutdown
+properties:
+  server:
+    type: object
+    additionalProperties: false
+    required:
+      - host
+      - port
+    properties:
+      host:
+        type: string
+        minLength: 1
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+  logging:
+    type: object
+    additionalProperties: false
+    required:
+      - level
+      - format
+    properties:
+      level:
+        type: string
+        enum:
+          - trace
+          - debug
+          - info
+          - warn
+          - error
+      format:
+        type: string
+        enum:
+          - json
+  shutdown:
+    type: object
+    additionalProperties: false
+    required:
+      - drain_timeout_ms
+      - grace_period_ms
+    properties:
+      drain_timeout_ms:
+        type: integer
+        minimum: 1
+      grace_period_ms:
+        type: integer
+        minimum: 1
+  security:
+    type: object
+    additionalProperties: false
+    properties:
+      api_keys:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+            - key
+            - profile
+          properties:
+            key:
+              type: string
+              pattern: "^(env|file):.+$"
+            profile:
+              type: string
+              pattern: "^[a-z0-9][a-z0-9_-]*$"
+  policies:
+    type: object
+    description: Reserved for subsequent features; ignored by bootstrap readiness.
+  llm:
+    type: object
+    description: Reserved for subsequent features; ignored by bootstrap readiness.
+  mcp:
+    type: object
+    description: Reserved for subsequent features; ignored by bootstrap readiness.
+additionalProperties: true
