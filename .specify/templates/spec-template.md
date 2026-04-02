@@ -1,128 +1,133 @@
-# Feature Specification: [FEATURE NAME]
+# Спецификация фичи: [FEATURE NAME]
 
-**Feature Branch**: `[###-feature-name]`  
-**Created**: [DATE]  
-**Status**: Draft  
-**Input**: User description: "$ARGUMENTS"
+**Ветка фичи**: `[###-feature-name]`  
+**Дата создания**: [DATE]  
+**Статус**: Draft  
+**Вход**: Описание пользователя: "$ARGUMENTS"
 
-## User Scenarios & Testing *(mandatory)*
+## Пользовательские сценарии и тестирование *(обязательно)*
 
 <!--
-  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
-  
-  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
-  Think of each story as a standalone slice of functionality that can be:
-  - Developed independently
-  - Tested independently
-  - Deployed independently
-  - Demonstrated to users independently
+  IMPORTANT: Пользовательские истории должны быть приоритизированы как независимые
+  пользовательские пути. Каждая история должна быть independently testable: если
+  реализована только одна история, она все равно дает самостоятельную ценность.
 -->
 
-### User Story 1 - [Brief Title] (Priority: P1)
+### Пользовательская история 1 - [Короткий заголовок] (Приоритет: P1)
 
-[Describe this user journey in plain language]
+[Опишите пользовательский путь простым языком]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**Почему этот приоритет**: [Объясните ценность и причину приоритета]
 
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
+**Независимая проверка**: [Как проверить историю отдельно от остальных]
 
-**Acceptance Scenarios**:
+**Сценарии приемки**:
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-2. **Given** [initial state], **When** [action], **Then** [expected outcome]
-
----
-
-### User Story 2 - [Brief Title] (Priority: P2)
-
-[Describe this user journey in plain language]
-
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **Given** [исходное состояние], **When** [действие], **Then** [ожидаемый результат]
+2. **Given** [исходное состояние], **When** [действие], **Then** [ожидаемый результат]
 
 ---
 
-### User Story 3 - [Brief Title] (Priority: P3)
+### Пользовательская история 2 - [Короткий заголовок] (Приоритет: P2)
 
-[Describe this user journey in plain language]
+[Опишите пользовательский путь простым языком]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**Почему этот приоритет**: [Объясните ценность и причину приоритета]
 
-**Independent Test**: [Describe how this can be tested independently]
+**Независимая проверка**: [Как проверить историю отдельно от остальных]
 
-**Acceptance Scenarios**:
+**Сценарии приемки**:
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **Given** [исходное состояние], **When** [действие], **Then** [ожидаемый результат]
 
 ---
 
-[Add more user stories as needed, each with an assigned priority]
+### Пользовательская история 3 - [Короткий заголовок] (Приоритет: P3)
+
+[Опишите пользовательский путь простым языком]
+
+**Почему этот приоритет**: [Объясните ценность и причину приоритета]
+
+**Независимая проверка**: [Как проверить историю отдельно от остальных]
+
+**Сценарии приемки**:
+
+1. **Given** [исходное состояние], **When** [действие], **Then** [ожидаемый результат]
+
+---
+
+[Добавьте дополнительные истории по мере необходимости]
 
 ### Edge Cases
 
 <!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
+  ACTION REQUIRED: Зафиксируйте реальные пограничные и аварийные сценарии.
 -->
 
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+- Что происходит при [граничное условие]?
+- Как система ведет себя при [ошибка/недоступность/пустой вход]?
 
-## Requirements *(mandatory)*
+## Требования *(обязательно)*
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
+### Функциональные требования
 
-### Functional Requirements
+- **FR-001**: Система MUST [конкретная возможность]
+- **FR-002**: Система MUST [проверяемое поведение]
+- **FR-003**: Пользователь MUST иметь возможность [ключевое взаимодействие]
+- **FR-004**: Система MUST [требование к данным или протоколу]
+- **FR-005**: Система MUST [поведение по логированию, аудиту или безопасности]
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]  
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+*Пример фиксации неясности:*
 
-*Example of marking unclear requirements:*
+- **FR-006**: Система MUST аутентифицировать запросы через
+  [NEEDS CLARIFICATION: точный механизм не указан]
+- **FR-007**: Система MUST хранить данные в течение
+  [NEEDS CLARIFICATION: срок хранения не указан]
 
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+### Ключевые сущности *(добавляйте, если фича работает с данными)*
 
-### Key Entities *(include if feature involves data)*
+- **[Сущность 1]**: [что представляет, ключевые атрибуты без реализации]
+- **[Сущность 2]**: [что представляет, связи и ограничения]
 
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+## Ограничения безопасности и приватности *(обязательно)*
 
-## Success Criteria *(mandatory)*
+- [Опишите, какие данные считаются чувствительными и что MUST NOT попадать в логи]
+- [Опишите политику block/mask/redact и ограничения на хранение данных]
+- [Опишите требования к auth, allowlist, secrets handling или privacy boundaries]
 
-<!--
-  ACTION REQUIRED: Define measurable success criteria.
-  These must be technology-agnostic and measurable.
--->
+## Операционная готовность *(обязательно для runtime-изменений)*
 
-### Measurable Outcomes
+- **Логи**: [какие structured logs или поля MUST появиться]
+- **Метрики**: [какие счетчики/latency metrics MUST обновиться]
+- **Health/Readiness**: [как изменение влияет на `/health` и `/ready`]
+- **Документация/конфиг**: [какие docs, quickstart, config examples MUST быть обновлены]
 
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+## Required Test Coverage *(обязательно)*
+
+- **Unit**: [что тестируется изолированно]
+- **Integration**: [какой happy path и block path MUST быть покрыт]
+- **Performance**: [что проверяется, если фича влияет на latency/throughput]
+- **Security**: [что проверяется для logging safety, auth, policy enforcement]
+
+## Success Criteria *(обязательно)*
+
+### Измеримые результаты
+
+- **SC-001**: [измеримый пользовательский или системный результат]
+- **SC-002**: [измеримый throughput/latency/reliability результат]
+- **SC-003**: [измеримый результат по качеству или приемке]
+- **SC-004**: [измеримый продуктовый или операционный эффект]
+
+## Acceptance Evidence *(обязательно)*
+
+- [Как будет доказан happy path]
+- [Как будет доказан block/error path]
+- [Как будет доказано отсутствие утечки raw sensitive payload]
+- [Какие команды, артефакты или отчеты подтверждают готовность]
 
 ## Assumptions
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right assumptions based on reasonable defaults
-  chosen when the feature description did not specify certain details.
--->
-
-- [Assumption about target users, e.g., "Users have stable internet connectivity"]
-- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
-- [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
-- [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+- [Предположение о пользователях, окружении или доступности сервисов]
+- [Предположение о границах scope и out-of-scope]
+- [Предположение об existing system или внешней зависимости]
+- [Предположение о rollout, конфиге или операционных ограничениях]
