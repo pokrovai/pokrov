@@ -79,6 +79,55 @@ security:
     shutdown_task.await.expect("shutdown task should join").expect("shutdown should succeed");
 }
 
+#[tokio::test]
+async fn shutdown_fails_when_grace_period_is_exceeded() {
+    let config_path = write_temp_config(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 100
+  grace_period_ms: 300
+security:
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+"#,
+    );
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+    let base_url = handle.base_url();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("client should build");
+
+    let inflight = {
+        let client = client.clone();
+        let url = format!("{}/health?delay_ms=3000", base_url);
+        tokio::spawn(async move { client.get(url).send().await })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let shutdown_result = tokio::time::timeout(Duration::from_secs(2), handle.shutdown())
+        .await
+        .expect("shutdown should return before test timeout");
+    match shutdown_result {
+        Err(pokrov_runtime::bootstrap::BootstrapError::Serve(error)) => {
+            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        }
+        other => panic!("expected serve timeout error, got: {other:?}"),
+    }
+
+    let _ = tokio::time::timeout(Duration::from_secs(1), inflight).await;
+}
+
 fn write_temp_config(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp config should be created");
     file.write_all(content.as_bytes()).expect("temp config should be written");
