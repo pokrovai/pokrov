@@ -1,13 +1,13 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header::HeaderName, HeaderValue, Request},
+    http::{header::HeaderName, HeaderValue, Request, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use uuid::Uuid;
 
-use crate::app::AppState;
+use crate::app::{AppState, RuntimeStateView};
 use crate::middleware::request_id::normalize_or_generate_request_id;
 
 pub mod request_id;
@@ -42,6 +42,21 @@ pub async fn active_requests_middleware(
         request.extensions().get::<String>().cloned().unwrap_or_else(|| Uuid::new_v4().to_string());
     let method = request.method().clone();
     let path = request.uri().path().to_string();
+    let runtime_state = state.lifecycle.state();
+
+    if matches!(runtime_state, RuntimeStateView::Draining | RuntimeStateView::Stopped)
+        && path != "/ready"
+    {
+        tracing::info!(
+            component = "runtime",
+            action = "request_rejected",
+            request_id = %request_id,
+            method = %method,
+            path = %path,
+            reason = "runtime_draining"
+        );
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
 
     state.lifecycle.on_request_started();
     state.metrics.on_request_started();

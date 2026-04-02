@@ -69,8 +69,23 @@ pub fn parse_args(args: &[String]) -> Result<BootstrapArgs, BootstrapError> {
     let mut config_path = None;
 
     while let Some(arg) = iter.next() {
-        if arg == "--config" {
-            config_path = iter.next().map(PathBuf::from);
+        match arg.as_str() {
+            "--config" => {
+                let path = iter.next().ok_or_else(|| {
+                    BootstrapError::InvalidArguments("expected --config <path>".to_string())
+                })?;
+                if config_path.is_some() {
+                    return Err(BootstrapError::InvalidArguments(
+                        "--config must be provided only once".to_string(),
+                    ));
+                }
+                config_path = Some(PathBuf::from(path));
+            }
+            _ => {
+                return Err(BootstrapError::InvalidArguments(format!(
+                    "unknown argument: {arg}"
+                )));
+            }
         }
     }
 
@@ -91,9 +106,7 @@ pub async fn run(args: BootstrapArgs) -> Result<(), BootstrapError> {
     let lifecycle = Arc::new(RuntimeLifecycle::new());
     let metrics = Arc::new(RuntimeMetricsRegistry::default());
 
-    run_with_listener(config, listener, lifecycle, metrics, async {
-        let _ = tokio::signal::ctrl_c().await;
-    })
+    run_with_listener(config, listener, lifecycle, metrics, async { wait_for_shutdown_signal().await })
     .await
 }
 
@@ -125,6 +138,7 @@ pub async fn spawn_runtime_for_tests(
     let addr = listener.local_addr().map_err(BootstrapError::Bind)?;
 
     let lifecycle = Arc::new(RuntimeLifecycle::new());
+    let readiness_lifecycle = lifecycle.clone();
     let metrics = Arc::new(RuntimeMetricsRegistry::default());
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
@@ -135,7 +149,7 @@ pub async fn spawn_runtime_for_tests(
         .await
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_until_runtime_started(readiness_lifecycle).await;
 
     Ok(RuntimeHandle { addr, shutdown_tx: Some(shutdown_tx), task })
 }
@@ -178,23 +192,20 @@ where
             lifecycle.mark_draining().await;
             metrics.on_lifecycle_event(LifecycleEvent::Draining);
             log_lifecycle_event("runtime", "lifecycle_transition", None, "draining");
-            lifecycle.wait_for_drain(drain_timeout).await;
-            lifecycle.mark_stopped().await;
-            metrics.on_lifecycle_event(LifecycleEvent::Stopped);
-            log_lifecycle_event("runtime", "lifecycle_transition", None, "stopped");
-            info!(action = "shutdown", "runtime lifecycle moved to stopped");
         }
     };
 
     let serve = axum::serve(listener, app).with_graceful_shutdown(graceful).into_future();
     let mut serve = std::pin::pin!(serve);
-    tokio::select! {
+    let serve_result = tokio::select! {
         result = &mut serve => map_serve_result(result),
         changed = shutdown_started_rx.changed() => {
             if changed.is_ok() && *shutdown_started_rx.borrow() {
                 match tokio::time::timeout(grace_period, &mut serve).await {
                     Ok(result) => map_serve_result(result),
                     Err(_) => {
+                        lifecycle.wait_for_drain(drain_timeout).await;
+                        mark_runtime_stopped(&lifecycle, &metrics).await;
                         let timeout_error = std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
                             format!(
@@ -214,7 +225,14 @@ where
                 map_serve_result(serve.await)
             }
         }
+    };
+
+    if serve_result.is_ok() && *shutdown_started_rx.borrow() {
+        lifecycle.wait_for_drain(drain_timeout).await;
+        mark_runtime_stopped(&lifecycle, &metrics).await;
     }
+
+    serve_result
 }
 
 fn map_serve_result(result: Result<(), std::io::Error>) -> Result<(), BootstrapError> {
@@ -222,4 +240,70 @@ fn map_serve_result(result: Result<(), std::io::Error>) -> Result<(), BootstrapE
         error!(action = "shutdown", error = %error, "runtime serve failed");
         BootstrapError::Serve(error)
     })
+}
+
+async fn mark_runtime_stopped(
+    lifecycle: &SharedRuntimeLifecycle,
+    metrics: &Arc<RuntimeMetricsRegistry>,
+) {
+    lifecycle.mark_stopped().await;
+    metrics.on_lifecycle_event(LifecycleEvent::Stopped);
+    log_lifecycle_event("runtime", "lifecycle_transition", None, "stopped");
+    info!(action = "shutdown", "runtime lifecycle moved to stopped");
+}
+
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate_signal) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = terminate_signal.recv() => {}
+                }
+            }
+            Err(sigterm_error) => {
+                error!(
+                    action = "shutdown",
+                    error = %sigterm_error,
+                    "failed to install SIGTERM handler; using SIGINT-only shutdown signal"
+                );
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+async fn wait_until_runtime_started(lifecycle: SharedRuntimeLifecycle) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while lifecycle.state().await == crate::lifecycle::RuntimeState::Starting {
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_args;
+
+    #[test]
+    fn parse_args_rejects_unknown_argument() {
+        let args = vec![
+            "--config".to_string(),
+            "config.yaml".to_string(),
+            "--unknown".to_string(),
+        ];
+
+        let error = parse_args(&args).expect_err("unknown argument must fail parsing");
+        assert!(error.to_string().contains("unknown argument: --unknown"));
+    }
 }
