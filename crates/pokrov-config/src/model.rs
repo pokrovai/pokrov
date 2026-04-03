@@ -73,6 +73,8 @@ pub struct ShutdownConfig {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SecurityConfig {
     #[serde(default)]
+    pub fail_on_unresolved_api_keys: bool,
+    #[serde(default)]
     pub api_keys: Vec<ApiKeyBinding>,
 }
 
@@ -162,6 +164,8 @@ pub struct CategoryActionsConfig {
     pub secrets: PolicyAction,
     pub pii: PolicyAction,
     pub corporate_markers: PolicyAction,
+    #[serde(default)]
+    pub custom: Option<PolicyAction>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -208,7 +212,7 @@ fn to_policy_profile(profile_id: &str, profile: &SanitizationProfile) -> PolicyP
             secrets: profile.categories.secrets,
             pii: profile.categories.pii,
             corporate_markers: profile.categories.corporate_markers,
-            custom: profile.categories.corporate_markers,
+            custom: profile.categories.custom.unwrap_or(profile.categories.corporate_markers),
         },
         mask_visible_suffix: profile.mask_visible_suffix,
         custom_rules_enabled: true,
@@ -259,6 +263,7 @@ fn default_minimal_profile() -> SanitizationProfile {
             secrets: PolicyAction::Mask,
             pii: PolicyAction::Allow,
             corporate_markers: PolicyAction::Allow,
+            custom: None,
         },
         mask_visible_suffix: 4,
         custom_rules: Vec::new(),
@@ -273,6 +278,7 @@ fn default_strict_profile() -> SanitizationProfile {
             secrets: PolicyAction::Block,
             pii: PolicyAction::Redact,
             corporate_markers: PolicyAction::Mask,
+            custom: None,
         },
         mask_visible_suffix: 4,
         custom_rules: Vec::new(),
@@ -287,9 +293,126 @@ fn default_custom_profile() -> SanitizationProfile {
             secrets: PolicyAction::Redact,
             pii: PolicyAction::Mask,
             corporate_markers: PolicyAction::Mask,
+            custom: None,
         },
         mask_visible_suffix: 4,
         custom_rules: Vec::new(),
         allow_empty_matches: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pokrov_core::types::PolicyAction;
+
+    use super::RuntimeConfig;
+
+    #[test]
+    fn evaluator_config_uses_explicit_custom_action_when_present_in_yaml() {
+        let raw = r#"
+server:
+  host: 127.0.0.1
+  port: 8080
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 1000
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+sanitization:
+  enabled: true
+  default_profile: strict
+  profiles:
+    minimal:
+      mode_default: enforce
+      categories:
+        secrets: mask
+        pii: allow
+        corporate_markers: allow
+      mask_visible_suffix: 4
+    strict:
+      mode_default: enforce
+      categories:
+        secrets: block
+        pii: redact
+        corporate_markers: mask
+        custom: block
+      mask_visible_suffix: 4
+    custom:
+      mode_default: dry_run
+      categories:
+        secrets: redact
+        pii: mask
+        corporate_markers: mask
+      mask_visible_suffix: 4
+"#;
+
+        let config: RuntimeConfig =
+            serde_yaml::from_str(raw).expect("runtime config with custom category must parse");
+        let evaluator = config.evaluator_config();
+
+        let strict = evaluator
+            .profiles
+            .get("strict")
+            .expect("strict profile must exist in evaluator config");
+        assert_eq!(strict.category_actions.custom, PolicyAction::Block);
+    }
+
+    #[test]
+    fn evaluator_config_falls_back_to_corporate_markers_for_custom_action_when_omitted() {
+        let raw = r#"
+server:
+  host: 127.0.0.1
+  port: 8080
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 1000
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+sanitization:
+  enabled: true
+  default_profile: strict
+  profiles:
+    minimal:
+      mode_default: enforce
+      categories:
+        secrets: mask
+        pii: allow
+        corporate_markers: allow
+      mask_visible_suffix: 4
+    strict:
+      mode_default: enforce
+      categories:
+        secrets: block
+        pii: redact
+        corporate_markers: mask
+      mask_visible_suffix: 4
+    custom:
+      mode_default: dry_run
+      categories:
+        secrets: redact
+        pii: mask
+        corporate_markers: mask
+      mask_visible_suffix: 4
+"#;
+
+        let config: RuntimeConfig =
+            serde_yaml::from_str(raw).expect("runtime config without explicit custom category must parse");
+        let evaluator = config.evaluator_config();
+
+        let strict = evaluator
+            .profiles
+            .get("strict")
+            .expect("strict profile must exist in evaluator config");
+        assert_eq!(strict.category_actions.custom, strict.category_actions.corporate_markers);
     }
 }

@@ -41,6 +41,7 @@ pub enum BootstrapError {
     InvalidArguments(String),
     Config(ConfigError),
     Sanitization(EvaluateError),
+    Security(String),
     Bind(std::io::Error),
     Serve(std::io::Error),
     Join(tokio::task::JoinError),
@@ -52,6 +53,7 @@ impl fmt::Display for BootstrapError {
             Self::InvalidArguments(message) => write!(f, "invalid arguments: {message}"),
             Self::Config(error) => write!(f, "{error}"),
             Self::Sanitization(error) => write!(f, "failed to initialize sanitization engine: {error}"),
+            Self::Security(message) => write!(f, "security bootstrap failed: {message}"),
             Self::Bind(error) => write!(f, "failed to bind listener: {error}"),
             Self::Serve(error) => write!(f, "runtime server failed: {error}"),
             Self::Join(error) => write!(f, "runtime task failed: {error}"),
@@ -67,7 +69,7 @@ impl Error for BootstrapError {
             Self::Bind(error) => Some(error),
             Self::Serve(error) => Some(error),
             Self::Join(error) => Some(error),
-            Self::InvalidArguments(_) => None,
+            Self::InvalidArguments(_) | Self::Security(_) => None,
         }
     }
 }
@@ -188,7 +190,7 @@ where
         None
     };
 
-    let resolved_keys = resolve_api_key_bindings(&config);
+    let resolved_keys = resolve_api_key_bindings(&config)?;
     let policy_loaded = !config.sanitization.enabled || evaluator.is_some();
     lifecycle.set_config_loaded(policy_loaded).await;
 
@@ -262,8 +264,9 @@ where
     serve_result
 }
 
-fn resolve_api_key_bindings(config: &RuntimeConfig) -> Vec<ResolvedApiKeyBinding> {
+fn resolve_api_key_bindings(config: &RuntimeConfig) -> Result<Vec<ResolvedApiKeyBinding>, BootstrapError> {
     let mut bindings = Vec::new();
+    let mut unresolved_bindings = 0usize;
 
     for binding in &config.security.api_keys {
         let Some(secret_ref) = SecretRef::parse(&binding.key) else {
@@ -278,6 +281,7 @@ fn resolve_api_key_bindings(config: &RuntimeConfig) -> Vec<ResolvedApiKeyBinding
         };
 
         let Some(secret) = secret else {
+            unresolved_bindings += 1;
             warn!(
                 component = "runtime",
                 action = "api_key_binding_skipped",
@@ -293,7 +297,13 @@ fn resolve_api_key_bindings(config: &RuntimeConfig) -> Vec<ResolvedApiKeyBinding
         });
     }
 
-    bindings
+    if config.security.fail_on_unresolved_api_keys && unresolved_bindings > 0 {
+        return Err(BootstrapError::Security(format!(
+            "failed to resolve {unresolved_bindings} API key binding(s)"
+        )));
+    }
+
+    Ok(bindings)
 }
 
 fn map_serve_result(result: Result<(), std::io::Error>) -> Result<(), BootstrapError> {
