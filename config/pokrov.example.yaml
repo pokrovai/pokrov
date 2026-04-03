@@ -12,6 +12,7 @@ shutdown:
   grace_period_ms: 10000
 
 security:
+  fail_on_unresolved_api_keys: false
   api_keys:
     - key: env:POKROV_API_KEY
       profile: strict

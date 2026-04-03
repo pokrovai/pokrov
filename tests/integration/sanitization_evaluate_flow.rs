@@ -96,6 +96,7 @@ async fn evaluate_returns_structured_error_for_invalid_json_shape() {
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert_eq!(body["request_id"], header_request_id);
     assert_eq!(body["error"]["code"], "invalid_request");
+    assert_eq!(body["error"]["message"], "invalid request body");
 
     handle.shutdown().await.expect("shutdown should succeed");
 }

@@ -109,6 +109,6 @@ fn map_evaluate_error(request_id: String, error: EvaluateError) -> ApiError {
     }
 }
 
-fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {
-    ApiError::invalid_request(request_id, rejection.body_text())
+fn map_json_rejection(request_id: String, _rejection: JsonRejection) -> ApiError {
+    ApiError::invalid_request(request_id, "invalid request body")
 }

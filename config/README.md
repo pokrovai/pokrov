@@ -12,6 +12,8 @@ sanitization profiles for `POST /v1/sanitize/evaluate`.
 - `sanitization.enabled`, `sanitization.default_profile`, `sanitization.profiles`
 
 Secrets must be provided only as references (`env:NAME` or `file:/path`).
+`security.fail_on_unresolved_api_keys` is optional (default `false`) and enables
+fail-fast startup when at least one configured key reference cannot be resolved.
 
 ## Policy Profiles
 

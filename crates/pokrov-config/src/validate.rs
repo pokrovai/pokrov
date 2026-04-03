@@ -109,13 +109,16 @@ fn validate_profile(profile_id: &str, profile: &SanitizationProfile, issues: &mu
 }
 
 fn validate_categories(profile_id: &str, categories: &CategoryActionsConfig, issues: &mut Vec<ValidationIssue>) {
-    let fields = [
-        ("secrets", categories.secrets),
-        ("pii", categories.pii),
-        ("corporate_markers", categories.corporate_markers),
-    ];
+    for (category, action) in [
+        ("secrets", Some(categories.secrets)),
+        ("pii", Some(categories.pii)),
+        ("corporate_markers", Some(categories.corporate_markers)),
+        ("custom", categories.custom),
+    ] {
+        let Some(action) = action else {
+            continue;
+        };
 
-    for (category, action) in fields {
         if action == pokrov_core::types::PolicyAction::Replace {
             issues.push(ValidationIssue::new(
                 format!("sanitization.profiles.{profile_id}.categories.{category}"),
@@ -193,6 +196,7 @@ mod tests {
             },
             shutdown: ShutdownConfig { drain_timeout_ms: 5000, grace_period_ms: 10000 },
             security: SecurityConfig {
+                fail_on_unresolved_api_keys: false,
                 api_keys: vec![ApiKeyBinding {
                     key: "env:POKROV_API_KEY".to_string(),
                     profile: "strict".to_string(),
@@ -208,6 +212,7 @@ mod tests {
                             secrets: PolicyAction::Mask,
                             pii: PolicyAction::Allow,
                             corporate_markers: PolicyAction::Allow,
+                            custom: None,
                         },
                         mask_visible_suffix: 4,
                         custom_rules: Vec::new(),
@@ -219,6 +224,7 @@ mod tests {
                             secrets: PolicyAction::Block,
                             pii: PolicyAction::Redact,
                             corporate_markers: PolicyAction::Mask,
+                            custom: None,
                         },
                         mask_visible_suffix: 4,
                         custom_rules: Vec::new(),
@@ -230,6 +236,7 @@ mod tests {
                             secrets: PolicyAction::Redact,
                             pii: PolicyAction::Mask,
                             corporate_markers: PolicyAction::Mask,
+                            custom: None,
                         },
                         mask_visible_suffix: 4,
                         custom_rules: vec![CustomRuleConfig {

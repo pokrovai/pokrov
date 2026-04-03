@@ -117,6 +117,90 @@ sanitization:
     handle.shutdown().await.expect("shutdown should succeed");
 }
 
+#[tokio::test]
+async fn runtime_with_unresolved_api_key_binding_starts_when_strict_resolution_disabled() {
+    let missing_key_path = format!(
+        "/tmp/pokrov-missing-key-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after unix epoch")
+            .as_nanos()
+    );
+    let config_path = write_temp_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: file:{missing_key_path}
+      profile: strict
+"#
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start when strict api key resolution is disabled");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .expect("client should build");
+
+    let ready = client
+        .get(format!("{}/ready", handle.base_url()))
+        .send()
+        .await
+        .expect("ready request should succeed");
+    assert_eq!(ready.status(), StatusCode::OK);
+
+    handle.shutdown().await.expect("shutdown should succeed");
+}
+
+#[tokio::test]
+async fn runtime_with_unresolved_api_key_binding_fails_when_strict_resolution_enabled() {
+    let missing_key_path = format!(
+        "/tmp/pokrov-missing-key-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after unix epoch")
+            .as_nanos()
+    );
+    let config_path = write_temp_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 1000
+security:
+  fail_on_unresolved_api_keys: true
+  api_keys:
+    - key: file:{missing_key_path}
+      profile: strict
+"#
+    ));
+
+    let startup = tokio::time::timeout(
+        Duration::from_secs(2),
+        pokrov_runtime::bootstrap::run(pokrov_runtime::bootstrap::BootstrapArgs { config_path }),
+    )
+    .await
+    .expect("startup should resolve quickly");
+
+    let error = startup.expect_err("runtime startup must fail when strict api key resolution is enabled");
+    assert!(error.to_string().contains("failed to resolve"));
+}
+
 fn write_temp_config(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp config should be created");
     file.write_all(content.as_bytes()).expect("temp config should be written");
