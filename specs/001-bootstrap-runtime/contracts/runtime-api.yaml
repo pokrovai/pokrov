@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: Pokrov Runtime API
+  title: Pokrov Bootstrap Runtime API
   version: 0.1.0
-  description: Bootstrap runtime service contracts for health and readiness endpoints.
+  description: Bootstrap runtime contracts for liveness and readiness probes.
 servers:
   - url: http://localhost:8080
 paths:
@@ -13,6 +13,11 @@ paths:
       responses:
         '200':
           description: Process is alive
+          headers:
+            X-Request-Id:
+              description: Correlation identifier for the request
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -24,12 +29,22 @@ paths:
       responses:
         '200':
           description: Service is ready to receive traffic
+          headers:
+            X-Request-Id:
+              description: Correlation identifier for the request
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReadyResponse'
         '503':
-          description: Service is not ready yet or is draining
+          description: Service is still starting or is draining
+          headers:
+            X-Request-Id:
+              description: Correlation identifier for the request
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -38,17 +53,20 @@ components:
   schemas:
     HealthResponse:
       type: object
+      additionalProperties: false
       required:
         - status
         - request_id
       properties:
         status:
           type: string
-          enum: [ok]
+          enum:
+            - ok
         request_id:
           type: string
     ReadyResponse:
       type: object
+      additionalProperties: false
       required:
         - status
         - request_id
@@ -56,18 +74,34 @@ components:
       properties:
         status:
           type: string
-          enum: [ready, not_ready, draining]
+          enum:
+            - ready
+            - starting
+            - draining
         request_id:
           type: string
         checks:
-          type: object
-          required:
-            - config
-            - runtime
-          properties:
-            config:
-              type: string
-              enum: [ok, failed, pending]
-            runtime:
-              type: string
-              enum: [ok, pending, draining]
+          $ref: '#/components/schemas/ReadyChecks'
+    ReadyChecks:
+      type: object
+      additionalProperties: false
+      required:
+        - config
+        - runtime
+        - active_requests
+      properties:
+        config:
+          type: string
+          enum:
+            - ok
+            - pending
+            - failed
+        runtime:
+          type: string
+          enum:
+            - ok
+            - pending
+            - draining
+        active_requests:
+          type: integer
+          minimum: 0
