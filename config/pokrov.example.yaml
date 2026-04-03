@@ -1,0 +1,18 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+
+logging:
+  level: info
+  format: json
+  component: runtime
+
+shutdown:
+  drain_timeout_ms: 5000
+  grace_period_ms: 10000
+
+security:
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+

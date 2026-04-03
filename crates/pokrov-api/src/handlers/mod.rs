@@ -1,0 +1,22 @@
+pub mod health;
+pub mod ready;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct HealthResponse {
+    pub status: &'static str,
+    pub request_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReadyChecks {
+    pub config: &'static str,
+    pub runtime: &'static str,
+    pub active_requests: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReadyResponse {
+    pub status: &'static str,
+    pub request_id: String,
+    pub checks: ReadyChecks,
+}
