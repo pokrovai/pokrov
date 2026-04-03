@@ -8,5 +8,7 @@ mod llm_proxy_api_contract;
 mod llm_proxy_metadata_contract;
 #[path = "contract/llm_proxy_stream_contract.rs"]
 mod llm_proxy_stream_contract;
+#[path = "contract/mcp_mediation_api_contract.rs"]
+mod mcp_mediation_api_contract;
 #[path = "contract/sanitization_evaluate_contract.rs"]
 mod sanitization_evaluate_contract;

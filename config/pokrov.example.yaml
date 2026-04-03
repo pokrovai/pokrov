@@ -69,3 +69,34 @@ llm:
     profile_id: strict
     output_sanitization: true
     stream_sanitization_max_buffer_bytes: 1048576
+
+mcp:
+  defaults:
+    profile_id: strict
+    upstream_timeout_ms: 10000
+    output_sanitization: true
+  servers:
+    - id: repo-tools
+      endpoint: http://repo-tools.internal
+      enabled: true
+      allowed_tools:
+        - read_file
+        - grep
+      blocked_tools:
+        - write_file
+      tools:
+        read_file:
+          enabled: true
+          output_sanitization: true
+          argument_constraints:
+            required_keys:
+              - path
+            forbidden_keys:
+              - command
+            allowed_path_prefixes:
+              - src/
+              - docs/
+            max_string_length: 512
+        grep:
+          enabled: true
+          output_sanitization: true

@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  title: Pokrov MCP Mediation API
+  version: 0.1.0
+  description: >-
+    MCP mediation contract for allowlisted server/tool invocation with
+    deterministic policy enforcement, argument validation, output sanitization,
+    and metadata-only audit-safe responses.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/mcp/tool-call:
+    post:
+      summary: Invoke approved MCP tool through Pokrov mediation layer
+      operationId: postMcpToolCall
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpToolCallRequest'
+      responses:
+        '200':
+          description: Tool call allowed, executed upstream, output sanitized
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolCallResponse'
+        '400':
+          description: Invalid request structure
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpErrorResponse'
+        '403':
+          description: Request blocked by server/tool policy before upstream
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpErrorResponse'
+        '422':
+          description: Tool arguments violate schema/policy constraints or unsupported pilot variant requested
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpErrorResponse'
+        '502':
+          description: Upstream MCP response failed to process safely
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpErrorResponse'
+        '503':
+          description: Upstream MCP server unavailable or timed out
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    McpToolCallRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - server
+        - tool
+        - arguments
+      properties:
+        server:
+          type: string
+          minLength: 1
+        tool:
+          type: string
+          minLength: 1
+        arguments:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          properties:
+            agent_id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            profile:
+              type: string
+              enum:
+                - minimal
+                - strict
+                - custom
+
+    McpToolCallResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - allowed
+        - sanitized
+        - result
+        - pokrov
+      properties:
+        request_id:
+          type: string
+        allowed:
+          type: boolean
+          enum: [true]
+        sanitized:
+          type: boolean
+        result:
+          type: object
+          additionalProperties: true
+          required:
+            - content
+          properties:
+            content:
+              description: Sanitized tool output preserving original JSON shape.
+        pokrov:
+          $ref: '#/components/schemas/PokrovMetadata'
+
+    PokrovMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - profile
+        - action
+        - rule_hits
+      properties:
+        profile:
+          type: string
+        action:
+          type: string
+          enum:
+            - allow
+            - mask
+            - replace
+            - redact
+            - block
+        rule_hits:
+          type: integer
+          minimum: 0
+        server:
+          type: string
+        tool:
+          type: string
+
+    McpErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - allowed
+        - error
+      properties:
+        request_id:
+          type: string
+        allowed:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unauthorized
+                - tool_call_blocked
+                - argument_validation_failed
+                - unsupported_variant
+                - upstream_error
+                - upstream_unavailable
+            message:
+              type: string
+              maxLength: 256
+            details:
+              type: object
+              additionalProperties: false
+              properties:
+                server:
+                  type: string
+                tool:
+                  type: string
+                reason:
+                  type: string
+                violation_count:
+                  type: integer
+                  minimum: 0
+
+x-safety-notes:
+  metadata_only_audit: true
+  forbidden_fields:
+    - raw_arguments
+    - raw_tool_output
+    - raw_rule_matches

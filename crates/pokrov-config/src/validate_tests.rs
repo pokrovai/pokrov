@@ -1,0 +1,283 @@
+    use std::path::Path;
+
+    use pokrov_core::types::{DetectionCategory, EvaluationMode, PolicyAction};
+
+    use super::validate_runtime_config;
+    use crate::model::{
+        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, LlmConfig, LlmDefaultsConfig,
+        LlmProviderAuthConfig, LlmProviderConfig, LlmRouteConfig, LogFormat, LogLevel,
+        LoggingConfig, McpConfig, McpDefaultsConfig, McpServerDefinition, McpToolPolicy,
+        RuntimeConfig, SanitizationConfig, SanitizationProfile, SanitizationProfiles, SecurityConfig,
+        ServerConfig, ShutdownConfig, ToolArgumentConstraints,
+    };
+
+    fn valid_config() -> RuntimeConfig {
+        RuntimeConfig {
+            server: ServerConfig { host: "127.0.0.1".to_string(), port: 8080 },
+            logging: LoggingConfig {
+                level: LogLevel::Info,
+                format: LogFormat::Json,
+                component: "runtime".to_string(),
+            },
+            shutdown: ShutdownConfig { drain_timeout_ms: 5000, grace_period_ms: 10000 },
+            security: SecurityConfig {
+                fail_on_unresolved_api_keys: false,
+                fail_on_unresolved_provider_keys: false,
+                api_keys: vec![ApiKeyBinding {
+                    key: "env:POKROV_API_KEY".to_string(),
+                    profile: "strict".to_string(),
+                }],
+            },
+            sanitization: SanitizationConfig {
+                enabled: true,
+                default_profile: "strict".to_string(),
+                profiles: SanitizationProfiles {
+                    minimal: SanitizationProfile {
+                        mode_default: EvaluationMode::Enforce,
+                        categories: CategoryActionsConfig {
+                            secrets: PolicyAction::Mask,
+                            pii: PolicyAction::Allow,
+                            corporate_markers: PolicyAction::Allow,
+                            custom: None,
+                        },
+                        mask_visible_suffix: 4,
+                        custom_rules: Vec::new(),
+                        allow_empty_matches: false,
+                    },
+                    strict: SanitizationProfile {
+                        mode_default: EvaluationMode::Enforce,
+                        categories: CategoryActionsConfig {
+                            secrets: PolicyAction::Block,
+                            pii: PolicyAction::Redact,
+                            corporate_markers: PolicyAction::Mask,
+                            custom: None,
+                        },
+                        mask_visible_suffix: 4,
+                        custom_rules: Vec::new(),
+                        allow_empty_matches: false,
+                    },
+                    custom: SanitizationProfile {
+                        mode_default: EvaluationMode::DryRun,
+                        categories: CategoryActionsConfig {
+                            secrets: PolicyAction::Redact,
+                            pii: PolicyAction::Mask,
+                            corporate_markers: PolicyAction::Mask,
+                            custom: None,
+                        },
+                        mask_visible_suffix: 4,
+                        custom_rules: vec![CustomRuleConfig {
+                            id: "custom.pattern".to_string(),
+                            category: DetectionCategory::Custom,
+                            pattern: "(?i)project\\s+andromeda".to_string(),
+                            action: PolicyAction::Redact,
+                            priority: 100,
+                            replacement: None,
+                            enabled: true,
+                        }],
+                        allow_empty_matches: false,
+                    },
+                },
+            },
+            policies: None,
+            llm: None,
+            mcp: None,
+        }
+    }
+
+    fn valid_llm_config() -> LlmConfig {
+        LlmConfig {
+            providers: vec![LlmProviderConfig {
+                id: "openai".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+                auth: LlmProviderAuthConfig {
+                    api_key: "env:OPENAI_API_KEY".to_string(),
+                },
+                timeout_ms: 30_000,
+                retry_budget: 1,
+                enabled: true,
+            }],
+            routes: vec![LlmRouteConfig {
+                model: "gpt-4o-mini".to_string(),
+                provider_id: "openai".to_string(),
+                output_sanitization: Some(true),
+                enabled: true,
+            }],
+            defaults: LlmDefaultsConfig {
+                profile_id: "strict".to_string(),
+                output_sanitization: true,
+                stream_sanitization_max_buffer_bytes: 1024 * 1024,
+            },
+        }
+    }
+
+    fn valid_mcp_config() -> McpConfig {
+        McpConfig {
+            defaults: McpDefaultsConfig {
+                profile_id: "strict".to_string(),
+                upstream_timeout_ms: 10_000,
+                output_sanitization: true,
+            },
+            servers: vec![McpServerDefinition {
+                id: "repo-tools".to_string(),
+                endpoint: "http://repo-tools.internal".to_string(),
+                enabled: true,
+                allowed_tools: vec!["read_file".to_string()],
+                blocked_tools: Vec::new(),
+                tools: std::collections::BTreeMap::from([(
+                    "read_file".to_string(),
+                    McpToolPolicy {
+                        enabled: true,
+                        argument_schema: None,
+                        argument_constraints: ToolArgumentConstraints::default(),
+                        output_sanitization: Some(true),
+                    },
+                )]),
+            }],
+        }
+    }
+
+    #[test]
+    fn accepts_valid_runtime_config() {
+        let config = valid_config();
+        validate_runtime_config(&config, Path::new("config.yaml")).expect("config should be valid");
+    }
+
+    #[test]
+    fn rejects_plaintext_secret() {
+        let mut config = valid_config();
+        config.security.api_keys[0].key = "plaintext".to_string();
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("config should fail validation");
+        assert!(error.to_string().contains("must use env:VAR or file:/path format"));
+    }
+
+    #[test]
+    fn rejects_invalid_shutdown_budget() {
+        let mut config = valid_config();
+        config.shutdown.drain_timeout_ms = 5000;
+        config.shutdown.grace_period_ms = 1000;
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("config should fail validation");
+        assert!(error.to_string().contains("must be greater than or equal to drain_timeout_ms"));
+    }
+
+    #[test]
+    fn rejects_duplicate_api_bindings() {
+        let mut config = valid_config();
+        let duplicate = config.security.api_keys[0].clone();
+        config.security.api_keys.push(duplicate);
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("config should fail validation");
+        assert!(error.to_string().contains("duplicate binding"));
+    }
+
+    #[test]
+    fn rejects_unknown_api_key_profile() {
+        let mut config = valid_config();
+        config.security.api_keys[0].profile = "unknown".to_string();
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("config should fail validation");
+        assert!(error.to_string().contains("must be one of minimal|strict|custom"));
+    }
+
+    #[test]
+    fn rejects_replace_custom_rule_without_replacement_template() {
+        let mut config = valid_config();
+        config.sanitization.profiles.custom.custom_rules[0].action = PolicyAction::Replace;
+        config.sanitization.profiles.custom.custom_rules[0].replacement = None;
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("config should fail validation");
+
+        assert!(error.to_string().contains("is required when action=replace"));
+    }
+
+    #[test]
+    fn accepts_valid_llm_configuration() {
+        let mut config = valid_config();
+        config.llm = Some(valid_llm_config());
+
+        validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect("llm configuration should be valid");
+    }
+
+    #[test]
+    fn rejects_route_bound_to_disabled_provider() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.providers[0].enabled = false;
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("llm configuration should fail validation");
+
+        assert!(error.to_string().contains("must reference an existing enabled provider"));
+    }
+
+    #[test]
+    fn rejects_duplicate_enabled_model_routes() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.routes.push(LlmRouteConfig {
+            model: "gpt-4o-mini".to_string(),
+            provider_id: "openai".to_string(),
+            output_sanitization: Some(false),
+            enabled: true,
+        });
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("duplicate enabled routes must fail validation");
+
+        assert!(error.to_string().contains("must map to at most one enabled route"));
+    }
+
+    #[test]
+    fn rejects_invalid_stream_sanitization_buffer_size() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.defaults.stream_sanitization_max_buffer_bytes = 32;
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("invalid stream sanitization buffer size must fail validation");
+
+        assert!(error.to_string().contains("must be in range 1024..=16777216"));
+    }
+
+    #[test]
+    fn accepts_valid_mcp_configuration() {
+        let mut config = valid_config();
+        config.mcp = Some(valid_mcp_config());
+
+        validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect("mcp configuration should be valid");
+    }
+
+    #[test]
+    fn rejects_duplicate_mcp_server_ids() {
+        let mut config = valid_config();
+        let mut mcp = valid_mcp_config();
+        mcp.servers.push(mcp.servers[0].clone());
+        config.mcp = Some(mcp);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("duplicate mcp server ids must fail validation");
+
+        assert!(error.to_string().contains("mcp.servers[1].id"));
+        assert!(error.to_string().contains("must be unique"));
+    }
+
+    #[test]
+    fn rejects_tool_declared_in_both_allowed_and_blocked_lists() {
+        let mut config = valid_config();
+        let mut mcp = valid_mcp_config();
+        mcp.servers[0].allowed_tools = vec!["read_file".to_string()];
+        mcp.servers[0].blocked_tools = vec!["read_file".to_string()];
+        config.mcp = Some(mcp);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("blocked>allowed conflicts must fail validation");
+
+        assert!(error.to_string().contains("blocked tool cannot be listed in allowed_tools"));
+    }

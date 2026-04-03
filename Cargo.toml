@@ -11,6 +11,7 @@ members = [
   "crates/pokrov-core",
   "crates/pokrov-metrics",
   "crates/pokrov-proxy-llm",
+  "crates/pokrov-proxy-mcp",
   "crates/pokrov-runtime",
 ]
 resolver = "2"
@@ -40,6 +41,7 @@ pokrov-config = { path = "crates/pokrov-config" }
 pokrov-core = { path = "crates/pokrov-core" }
 pokrov-metrics = { path = "crates/pokrov-metrics" }
 pokrov-proxy-llm = { path = "crates/pokrov-proxy-llm" }
+pokrov-proxy-mcp = { path = "crates/pokrov-proxy-mcp" }
 pokrov-runtime = { path = "crates/pokrov-runtime" }
 reqwest = { workspace = true }
 serde_json = { workspace = true }

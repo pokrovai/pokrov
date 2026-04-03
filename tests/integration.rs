@@ -2,6 +2,8 @@
 mod readiness_shutdown_flow;
 #[path = "common/llm_proxy_test_support.rs"]
 pub mod llm_proxy_test_support;
+#[path = "common/mcp_test_support.rs"]
+pub mod mcp_test_support;
 #[path = "integration/request_id_logging_flow.rs"]
 mod request_id_logging_flow;
 #[path = "integration/llm_proxy_block_path.rs"]
@@ -20,6 +22,18 @@ mod llm_proxy_stream_output_sanitization_path;
 mod llm_proxy_streaming_path;
 #[path = "integration/llm_proxy_upstream_error_path.rs"]
 mod llm_proxy_upstream_error_path;
+#[path = "integration/mcp_allowed_tool_path.rs"]
+mod mcp_allowed_tool_path;
+#[path = "integration/mcp_argument_validation_path.rs"]
+mod mcp_argument_validation_path;
+#[path = "integration/mcp_blocked_tool_path.rs"]
+mod mcp_blocked_tool_path;
+#[path = "integration/mcp_output_sanitization_path.rs"]
+mod mcp_output_sanitization_path;
+#[path = "integration/mcp_pilot_subset_path.rs"]
+mod mcp_pilot_subset_path;
+#[path = "integration/mcp_upstream_unavailable_path.rs"]
+mod mcp_upstream_unavailable_path;
 #[path = "integration/sanitization_audit_explain_flow.rs"]
 mod sanitization_audit_explain_flow;
 #[path = "integration/sanitization_evaluate_flow.rs"]

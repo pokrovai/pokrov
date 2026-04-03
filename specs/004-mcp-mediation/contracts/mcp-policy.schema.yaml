@@ -1,0 +1,146 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Pokrov MCP Policy Configuration
+version: 1.0.0
+type: object
+additionalProperties: false
+required:
+  - mcp
+properties:
+  mcp:
+    type: object
+    additionalProperties: false
+    required:
+      - servers
+      - defaults
+    properties:
+      servers:
+        type: array
+        minItems: 1
+        maxItems: 64
+        items:
+          $ref: '#/$defs/McpServer'
+      defaults:
+        $ref: '#/$defs/McpDefaults'
+
+$defs:
+  ProfileId:
+    type: string
+    enum:
+      - minimal
+      - strict
+      - custom
+
+  ToolName:
+    type: string
+    minLength: 1
+    maxLength: 128
+    pattern: '^[a-zA-Z0-9_\-\.]+$'
+
+  McpDefaults:
+    type: object
+    additionalProperties: false
+    required:
+      - profile_id
+      - upstream_timeout_ms
+      - output_sanitization
+    properties:
+      profile_id:
+        $ref: '#/$defs/ProfileId'
+      upstream_timeout_ms:
+        type: integer
+        minimum: 100
+        maximum: 120000
+      output_sanitization:
+        type: boolean
+
+  McpServer:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - endpoint
+      - enabled
+      - allowed_tools
+      - blocked_tools
+    properties:
+      id:
+        type: string
+        minLength: 2
+        maxLength: 64
+        pattern: '^[a-zA-Z0-9_\-]+$'
+      endpoint:
+        type: string
+        format: uri
+      enabled:
+        type: boolean
+      allowed_tools:
+        type: array
+        maxItems: 512
+        items:
+          $ref: '#/$defs/ToolName'
+      blocked_tools:
+        type: array
+        maxItems: 512
+        items:
+          $ref: '#/$defs/ToolName'
+      tools:
+        type: object
+        additionalProperties:
+          $ref: '#/$defs/McpToolPolicy'
+
+  McpToolPolicy:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      argument_schema:
+        type: object
+        description: >-
+          Optional JSON Schema fragment used for deterministic argument validation
+          before upstream execution.
+      argument_constraints:
+        $ref: '#/$defs/ArgumentConstraints'
+      output_sanitization:
+        type: boolean
+
+  ArgumentConstraints:
+    type: object
+    additionalProperties: false
+    properties:
+      required_keys:
+        type: array
+        maxItems: 128
+        items:
+          type: string
+          minLength: 1
+      forbidden_keys:
+        type: array
+        maxItems: 128
+        items:
+          type: string
+          minLength: 1
+      max_depth:
+        type: integer
+        minimum: 1
+        maximum: 16
+      max_string_length:
+        type: integer
+        minimum: 1
+        maximum: 16384
+      allowed_path_prefixes:
+        type: array
+        maxItems: 64
+        items:
+          type: string
+          minLength: 1
+
+x-validation-rules:
+  - server ids must be unique
+  - enabled servers must have unique endpoints
+  - each blocked_tools entry takes precedence over allowed_tools
+  - tools map keys should reference tools listed in allowed_tools
+  - if tool policy enabled=false, invocation must be blocked before upstream
+  - secrets in MCP config must be referenced indirectly (env/file) if introduced
+  - pilot subset supports only http_json tool_call mediation surface

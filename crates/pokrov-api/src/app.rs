@@ -8,9 +8,10 @@ use axum::{
 use pokrov_core::SanitizationEngine;
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
 use pokrov_proxy_llm::handler::LLMProxyHandler;
+use pokrov_proxy_mcp::handler::McpProxyHandler;
 
 use crate::{
-    handlers::{chat_completions, evaluate, health, ready},
+    handlers::{chat_completions, evaluate, health, mcp_tool_call, ready},
     middleware::{active_requests_middleware, request_id_middleware},
 };
 
@@ -27,6 +28,7 @@ pub trait RuntimeStateReader: Send + Sync {
     fn state(&self) -> RuntimeStateView;
     fn config_loaded(&self) -> bool;
     fn llm_routes_loaded(&self) -> bool;
+    fn mcp_routes_loaded(&self) -> bool;
     fn active_requests(&self) -> usize;
     fn on_request_started(&self);
     fn on_request_finished(&self);
@@ -105,11 +107,27 @@ impl Default for LlmProxyState {
 }
 
 #[derive(Clone)]
+pub struct McpProxyState {
+    pub enabled: bool,
+    pub handler: Option<Arc<McpProxyHandler>>,
+}
+
+impl Default for McpProxyState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            handler: None,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub lifecycle: Arc<dyn RuntimeStateReader>,
     pub metrics: SharedRuntimeMetricsHooks,
     pub sanitization: SanitizationState,
     pub llm: LlmProxyState,
+    pub mcp: McpProxyState,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -118,6 +136,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/ready", get(ready::handle_ready))
         .route("/v1/sanitize/evaluate", post(evaluate::handle_evaluate))
         .route("/v1/chat/completions", post(chat_completions::handle_chat_completions))
+        .route("/v1/mcp/tool-call", post(mcp_tool_call::handle_mcp_tool_call))
         .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state(state.clone(), active_requests_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), request_id_middleware))
