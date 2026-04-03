@@ -40,3 +40,19 @@ pub fn log_lifecycle_event(component: &str, action: &str, request_id: Option<&st
         state = state
     );
 }
+
+pub fn log_evaluate_event(
+    request_id: &str,
+    profile_id: &str,
+    final_action: pokrov_core::types::PolicyAction,
+    rule_hits_total: u32,
+) {
+    tracing::info!(
+        component = "sanitization",
+        action = "evaluate",
+        request_id = request_id,
+        profile_id = profile_id,
+        final_action = ?final_action,
+        rule_hits_total
+    );
+}

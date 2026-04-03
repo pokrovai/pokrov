@@ -8,6 +8,7 @@ publish = false
 members = [
   "crates/pokrov-api",
   "crates/pokrov-config",
+  "crates/pokrov-core",
   "crates/pokrov-metrics",
   "crates/pokrov-runtime",
 ]
@@ -16,9 +17,11 @@ resolver = "2"
 [workspace.dependencies]
 axum = { version = "0.8.1", features = ["http1", "json", "tokio"] }
 http = "1.3.1"
+regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_yaml = "0.9.34"
+thiserror = "2.0.12"
 tokio = { version = "1.44.2", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tower = { version = "0.5.2", features = ["util"] }
 tower-http = { version = "0.6.2", features = ["trace"] }
@@ -30,6 +33,7 @@ uuid = { version = "1.16.0", features = ["serde", "v4"] }
 axum = { workspace = true }
 pokrov-api = { path = "crates/pokrov-api" }
 pokrov-config = { path = "crates/pokrov-config" }
+pokrov-core = { path = "crates/pokrov-core" }
 pokrov-metrics = { path = "crates/pokrov-metrics" }
 pokrov-runtime = { path = "crates/pokrov-runtime" }
 reqwest = { version = "0.12.15", default-features = false, features = ["http2", "json", "rustls-tls"] }

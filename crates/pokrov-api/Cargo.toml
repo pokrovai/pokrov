@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 axum = { workspace = true }
 http = { workspace = true }
+pokrov-config = { path = "../pokrov-config" }
+pokrov-core = { path = "../pokrov-core" }
 pokrov-metrics = { path = "../pokrov-metrics" }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,0 +1,244 @@
+openapi: 3.1.0
+info:
+  title: Pokrov Sanitization Evaluate API
+  version: 0.1.0
+  description: >-
+    Public contract for deterministic sanitization evaluation with enforce and
+    dry-run modes, metadata-only audit summaries, and JSON-safe transformed
+    payload output.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/sanitize/evaluate:
+    post:
+      summary: Evaluate payload through sanitization core policy pipeline
+      operationId: postSanitizeEvaluate
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvaluateRequest'
+      responses:
+        '200':
+          description: Deterministic evaluate result
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+              description: Request correlation identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluateResponse'
+        '400':
+          description: Invalid request body or unsupported payload shape
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Profile exists but policy configuration is invalid
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    EvaluateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - profile_id
+        - mode
+        - payload
+      properties:
+        request_id:
+          type: string
+          minLength: 1
+          description: Optional client-provided correlation id.
+        profile_id:
+          type: string
+          enum:
+            - minimal
+            - strict
+            - custom
+        mode:
+          type: string
+          enum:
+            - enforce
+            - dry_run
+        path_class:
+          type: string
+          enum:
+            - direct
+            - llm
+            - mcp
+          default: direct
+        payload:
+          description: Arbitrary JSON payload to sanitize.
+
+    EvaluateResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - profile_id
+        - mode
+        - final_action
+        - executed
+        - explain
+        - audit
+      properties:
+        request_id:
+          type: string
+        profile_id:
+          type: string
+        mode:
+          type: string
+          enum:
+            - enforce
+            - dry_run
+        final_action:
+          type: string
+          enum:
+            - allow
+            - mask
+            - replace
+            - redact
+            - block
+        executed:
+          type: boolean
+          description: False for dry-run mode.
+        sanitized_payload:
+          description: >-
+            Present only for non-block decisions. Must preserve original JSON
+            structure while mutating only string leaves.
+        explain:
+          $ref: '#/components/schemas/ExplainSummary'
+        audit:
+          $ref: '#/components/schemas/AuditSummary'
+
+    ExplainSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - rule_hits_total
+        - categories
+      properties:
+        rule_hits_total:
+          type: integer
+          minimum: 0
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryHitSummary'
+
+    CategoryHitSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - category
+        - hits
+        - effective_action
+      properties:
+        category:
+          type: string
+        hits:
+          type: integer
+          minimum: 0
+        effective_action:
+          type: string
+          enum:
+            - allow
+            - mask
+            - replace
+            - redact
+            - block
+
+    AuditSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - rule_hits_total
+        - hits_by_category
+        - final_action
+        - duration_ms
+      properties:
+        rule_hits_total:
+          type: integer
+          minimum: 0
+        hits_by_category:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        final_action:
+          type: string
+          enum:
+            - allow
+            - mask
+            - replace
+            - redact
+            - block
+        duration_ms:
+          type: integer
+          minimum: 0
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - error
+      properties:
+        request_id:
+          type: string
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unauthorized
+                - invalid_profile
+            message:
+              type: string
+              maxLength: 256
+
+x-safety-notes:
+  metadata_only_outputs: true
+  forbidden_response_fields:
+    - raw_payload
+    - raw_fragments
+    - raw_detection_samples

@@ -73,6 +73,50 @@ security:
     assert!(startup.is_err(), "invalid config must fail startup");
 }
 
+#[tokio::test]
+async fn runtime_with_disabled_sanitization_reports_ready() {
+    let config_path = write_temp_config(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+sanitization:
+  enabled: false
+"#,
+    );
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .expect("client should build");
+
+    let ready = client
+        .get(format!("{}/ready", handle.base_url()))
+        .send()
+        .await
+        .expect("ready request should succeed");
+    assert_eq!(ready.status(), StatusCode::OK);
+
+    let body: serde_json::Value = ready.json().await.expect("json body expected");
+    assert_eq!(body["checks"]["policy"], "ok");
+
+    handle.shutdown().await.expect("shutdown should succeed");
+}
+
 fn write_temp_config(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp config should be created");
     file.write_all(content.as_bytes()).expect("temp config should be written");

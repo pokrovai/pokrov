@@ -1,0 +1,137 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Pokrov Sanitization Policy Profiles
+version: 1.0.0
+type: object
+additionalProperties: false
+required:
+  - sanitization
+properties:
+  sanitization:
+    type: object
+    additionalProperties: false
+    required:
+      - enabled
+      - default_profile
+      - profiles
+    properties:
+      enabled:
+        type: boolean
+      default_profile:
+        type: string
+        enum:
+          - minimal
+          - strict
+          - custom
+      profiles:
+        type: object
+        additionalProperties: false
+        required:
+          - minimal
+          - strict
+          - custom
+        properties:
+          minimal:
+            $ref: '#/$defs/Profile'
+          strict:
+            $ref: '#/$defs/Profile'
+          custom:
+            $ref: '#/$defs/Profile'
+
+$defs:
+  Action:
+    type: string
+    enum:
+      - allow
+      - mask
+      - replace
+      - redact
+      - block
+
+  CategoryActions:
+    type: object
+    additionalProperties: false
+    required:
+      - secrets
+      - pii
+      - corporate_markers
+    properties:
+      secrets:
+        $ref: '#/$defs/Action'
+      pii:
+        $ref: '#/$defs/Action'
+      corporate_markers:
+        $ref: '#/$defs/Action'
+
+  CustomRule:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - category
+      - pattern
+      - action
+    properties:
+      id:
+        type: string
+        minLength: 3
+        maxLength: 128
+        pattern: '^[a-zA-Z0-9_\-\.]+$'
+      category:
+        type: string
+        enum:
+          - secrets
+          - pii
+          - corporate_markers
+          - custom
+      pattern:
+        type: string
+        minLength: 1
+        maxLength: 1024
+      action:
+        $ref: '#/$defs/Action'
+      priority:
+        type: integer
+        minimum: 0
+        maximum: 1000
+        default: 100
+      replacement:
+        type: string
+        minLength: 1
+        maxLength: 256
+      enabled:
+        type: boolean
+        default: true
+
+  Profile:
+    type: object
+    additionalProperties: false
+    required:
+      - categories
+    properties:
+      mode_default:
+        type: string
+        enum:
+          - enforce
+          - dry_run
+        default: enforce
+      categories:
+        $ref: '#/$defs/CategoryActions'
+      mask_visible_suffix:
+        type: integer
+        minimum: 0
+        maximum: 8
+        default: 4
+      custom_rules:
+        type: array
+        items:
+          $ref: '#/$defs/CustomRule'
+        maxItems: 256
+      allow_empty_matches:
+        type: boolean
+        default: false
+
+x-safety-notes:
+  metadata_only_enforcement: true
+  forbidden:
+    - raw_payload_examples_in_config
+    - rule_fields_with_plaintext_secrets

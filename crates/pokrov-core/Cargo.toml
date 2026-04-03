@@ -1,11 +1,10 @@
 [package]
-name = "pokrov-config"
+name = "pokrov-core"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pokrov-core = { path = "../pokrov-core" }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
+thiserror = { workspace = true }

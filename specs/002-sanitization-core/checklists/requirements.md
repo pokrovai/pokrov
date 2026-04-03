@@ -32,3 +32,8 @@
 ## Notes
 
 - Spec bounded to PRD sanitization core and evaluate behavior only; transport-specific proxy logic intentionally excluded.
+- Acceptance evidence captured on 2026-04-03:
+  - `cargo test` => all suites passed (`contract`, `integration`, `security`, `performance`).
+  - Deterministic replay validated in `tests/integration/sanitization_evaluate_flow.rs`.
+  - Metadata-only leakage checks validated in `tests/security/sanitization_metadata_leakage.rs`.
+  - Baseline latency validated in `tests/performance/sanitization_evaluate_latency.rs` (p95/p99 assertions).
