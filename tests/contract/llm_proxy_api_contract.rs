@@ -5,6 +5,11 @@ fn contract_path() -> PathBuf {
         .join("specs/003-llm-proxy/contracts/llm-proxy-api.yaml")
 }
 
+fn hardening_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/005-hardening-release/contracts/hardening-api.yaml")
+}
+
 #[test]
 fn llm_contract_defines_chat_completions_and_non_stream_success_shape() {
     let raw = std::fs::read_to_string(contract_path()).expect("contract file should exist");
@@ -38,4 +43,17 @@ fn llm_contract_exposes_policy_blocked_error_response() {
         error_code_values.contains(&"policy_blocked"),
         "policy_blocked code must be part of ErrorResponse enum"
     );
+}
+
+#[test]
+fn hardening_contract_declares_predictable_rate_limit_error_shape_for_chat_path() {
+    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should parse");
+
+    let response = &api["paths"]["/v1/chat/completions"]["post"]["responses"]["429"];
+    assert!(response.is_mapping(), "429 response must be declared for chat completions");
+    assert!(response["headers"]["Retry-After"].is_mapping());
+    assert!(response["headers"]["X-RateLimit-Limit"].is_mapping());
+    assert!(response["headers"]["X-RateLimit-Remaining"].is_mapping());
+    assert!(response["headers"]["X-RateLimit-Reset"].is_mapping());
 }

@@ -18,6 +18,21 @@ security:
     - key: env:POKROV_API_KEY
       profile: strict
 
+rate_limit:
+  enabled: true
+  default_profile: strict
+  profiles:
+    strict:
+      requests_per_minute: 120
+      token_units_per_minute: 24000
+      burst_multiplier: 1.5
+      enforcement_mode: enforce
+    custom:
+      requests_per_minute: 240
+      token_units_per_minute: 48000
+      burst_multiplier: 1.0
+      enforcement_mode: dry_run
+
 sanitization:
   enabled: true
   default_profile: strict

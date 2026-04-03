@@ -68,6 +68,9 @@ pub struct LLMResponseMetadata {
     pub sanitized_output: bool,
     pub action: PolicyAction,
     pub rule_hits: u32,
+    pub estimated_token_units: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observed_token_units: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }

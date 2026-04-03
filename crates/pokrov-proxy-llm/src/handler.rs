@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::{
     audit::LLMAuditEvent,
     errors::LLMProxyError,
-    normalize::{normalize_request, resolve_profile_id},
+    normalize::{estimate_token_units, normalize_request, resolve_profile_id},
     routing::ProviderRouteTable,
     stream::sanitize_sse_stream,
     types::{
@@ -59,6 +59,7 @@ impl LLMProxyHandler {
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let started = Instant::now();
         let envelope = normalize_request(&request_id, payload)?;
+        let estimated_token_units = estimate_token_units(&envelope.original_payload);
         let profile_id = resolve_profile_id(
             envelope.profile_hint.as_deref(),
             api_key_profile,
@@ -113,6 +114,7 @@ impl LLMProxyHandler {
                     blocked: true,
                     upstream_status: None,
                     duration_ms: started.elapsed().as_millis() as u64,
+                    estimated_token_units,
                 });
                 return Err(error);
             }
@@ -136,6 +138,7 @@ impl LLMProxyHandler {
                     final_action,
                     total_hits,
                     sanitized_input,
+                    estimated_token_units,
                 )
                 .await;
         }
@@ -150,6 +153,7 @@ impl LLMProxyHandler {
             final_action,
             total_hits,
             sanitized_input,
+            estimated_token_units,
         )
         .await
     }
@@ -166,6 +170,7 @@ impl LLMProxyHandler {
         mut final_action: PolicyAction,
         mut total_hits: u32,
         sanitized_input: bool,
+        estimated_token_units: u32,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
@@ -247,6 +252,7 @@ impl LLMProxyHandler {
             total_hits,
             sanitized_input,
             sanitized_output,
+            estimated_token_units,
             &mut body,
         )?;
 
@@ -261,6 +267,7 @@ impl LLMProxyHandler {
             blocked: false,
             upstream_status: Some(status.as_u16()),
             duration_ms: started.elapsed().as_millis() as u64,
+            estimated_token_units,
         });
 
         Ok(LLMProxyResponse {
@@ -282,6 +289,7 @@ impl LLMProxyHandler {
         mut final_action: PolicyAction,
         mut total_hits: u32,
         _sanitized_input: bool,
+        estimated_token_units: u32,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
@@ -402,6 +410,7 @@ impl LLMProxyHandler {
                     blocked: false,
                     upstream_status: Some(status.as_u16()),
                     duration_ms: started.elapsed().as_millis() as u64,
+                    estimated_token_units,
                 });
 
                 return Ok(LLMProxyResponse {
@@ -423,6 +432,7 @@ impl LLMProxyHandler {
             blocked: false,
             upstream_status: Some(status.as_u16()),
             duration_ms: started.elapsed().as_millis() as u64,
+            estimated_token_units,
         });
 
         Ok(LLMProxyResponse {
@@ -456,6 +466,7 @@ impl LLMProxyHandler {
             blocked: matches!(error, LLMProxyError::PolicyBlocked { .. }),
             upstream_status: upstream_status.or_else(|| error.upstream_status()),
             duration_ms: started.elapsed().as_millis() as u64,
+            estimated_token_units: 0,
         });
     }
 
@@ -471,6 +482,7 @@ impl LLMProxyHandler {
             blocked: event.blocked,
             upstream_status: event.upstream_status,
             duration_ms: event.duration_ms,
+            estimated_token_units: event.estimated_token_units,
         };
         audit.emit();
 
@@ -496,6 +508,7 @@ struct TerminalEvent<'a> {
     blocked: bool,
     upstream_status: Option<u16>,
     duration_ms: u64,
+    estimated_token_units: u32,
 }
 
 fn attach_pokrov_metadata(
@@ -506,6 +519,7 @@ fn attach_pokrov_metadata(
     total_hits: u32,
     sanitized_input: bool,
     sanitized_output: bool,
+    estimated_token_units: u32,
     payload: &mut Value,
 ) -> Result<(), LLMProxyError> {
     let object = payload.as_object_mut().ok_or_else(|| {
@@ -528,6 +542,8 @@ fn attach_pokrov_metadata(
             sanitized_output,
             action: final_action,
             rule_hits: total_hits,
+            estimated_token_units,
+            observed_token_units: None,
             provider: Some(provider_id.to_string()),
         })
         .map_err(|error| {

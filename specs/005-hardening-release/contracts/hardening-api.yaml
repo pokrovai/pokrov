@@ -96,6 +96,18 @@ paths:
               schema:
                 type: integer
                 minimum: 0
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+                minimum: 1
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+                minimum: 0
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+                minimum: 0
           content:
             application/json:
               schema:

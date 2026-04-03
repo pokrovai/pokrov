@@ -10,6 +10,7 @@ sanitization profiles for `POST /v1/sanitize/evaluate` and LLM routing for
 - `logging.level`, `logging.format=json`
 - `shutdown.drain_timeout_ms`, `shutdown.grace_period_ms`
 - `security.api_keys[*].key` and `security.api_keys[*].profile`
+- `rate_limit.enabled`, `rate_limit.default_profile`, `rate_limit.profiles`
 - `sanitization.enabled`, `sanitization.default_profile`, `sanitization.profiles`
 - `llm.providers`, `llm.routes`, `llm.defaults` (required when LLM proxy path is enabled)
 - `mcp.defaults`, `mcp.servers` (required when MCP mediation path is enabled)
@@ -25,6 +26,16 @@ fail-fast startup when at least one LLM provider auth reference cannot be resolv
 - `minimal`: low-friction profile with `mask` defaults for secrets.
 - `strict`: enforcement-first profile with `block`/`redact` defaults.
 - `custom`: user-tunable profile with optional custom regex rules.
+
+## Rate-Limit Profiles
+
+- `rate_limit.enabled=true` enables deterministic dual-bucket checks before upstream forwarding.
+- `requests_per_minute` limits request admission per API key/profile.
+- `token_units_per_minute` limits token-like budget from sanitized payload estimation.
+- `burst_multiplier` scales both limits in range `1.0..=5.0`.
+- `enforcement_mode` supports:
+  - `enforce`: over-budget requests return `429 rate_limit_exceeded`.
+  - `dry_run`: over-budget events are recorded in telemetry but request is still allowed.
 
 ### Custom Rule Constraints
 

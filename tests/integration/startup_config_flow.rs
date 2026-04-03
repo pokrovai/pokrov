@@ -192,7 +192,12 @@ security:
 
     let startup = tokio::time::timeout(
         Duration::from_secs(2),
-        pokrov_runtime::bootstrap::run(pokrov_runtime::bootstrap::BootstrapArgs { config_path }),
+        pokrov_runtime::bootstrap::run(pokrov_runtime::bootstrap::BootstrapArgs {
+            config_path: Some(config_path),
+            release_evidence_output: None,
+            release_id: None,
+            evidence_artifacts: Vec::new(),
+        }),
     )
     .await
     .expect("startup should resolve quickly");
@@ -292,7 +297,12 @@ llm:
 
     let startup = tokio::time::timeout(
         Duration::from_secs(2),
-        pokrov_runtime::bootstrap::run(pokrov_runtime::bootstrap::BootstrapArgs { config_path }),
+        pokrov_runtime::bootstrap::run(pokrov_runtime::bootstrap::BootstrapArgs {
+            config_path: Some(config_path),
+            release_evidence_output: None,
+            release_id: None,
+            evidence_artifacts: Vec::new(),
+        }),
     )
     .await
     .expect("startup should resolve quickly");

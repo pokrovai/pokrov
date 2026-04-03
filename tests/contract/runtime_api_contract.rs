@@ -10,6 +10,11 @@ fn mcp_contract_path() -> PathBuf {
         .join("specs/004-mcp-mediation/contracts/mcp-mediation-api.yaml")
 }
 
+fn hardening_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/005-hardening-release/contracts/hardening-api.yaml")
+}
+
 #[test]
 fn runtime_api_contract_contains_expected_probe_routes() {
     let raw = std::fs::read_to_string(contract_path()).expect("contract file should exist");
@@ -48,4 +53,12 @@ fn runtime_contract_suite_covers_mcp_mediation_route() {
         api["paths"]["/v1/mcp/tool-call"]["post"].is_mapping(),
         "mcp tool call route must be covered by contract suite"
     );
+}
+
+#[test]
+fn hardening_runtime_contract_includes_metrics_endpoint() {
+    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract file should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should be valid yaml");
+
+    assert!(api["paths"]["/metrics"]["get"].is_mapping());
 }

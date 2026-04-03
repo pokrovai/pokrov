@@ -207,6 +207,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-04
 - In-memory request context + provider routing/policy bindings from YAML config; metadata-only audit sink (structured logs/events) (003-llm-proxy)
 - Rust stable 1.85+ + axum, tokio, serde, serde_json, serde_yaml, tower, tracing, uuid, reqwest, thiserror (004-mcp-mediation)
 - In-memory request context + statically loaded MCP policy/config from YAML; metadata-only audit/log sink (004-mcp-mediation)
+- Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_json, serde_yaml, prometheus, uuid, reqwest, bytes, futures-util, thiserror (005-hardening-release)
+- In-memory rate-limit/runtime state + metadata-only audit/log sinks; file-based release evidence artifacts (005-hardening-release)
 
 ## Project Structure
 
@@ -232,9 +234,9 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 005-hardening-release: Added Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_json, serde_yaml, prometheus, uuid, reqwest, bytes, futures-util, thiserror
 - 004-mcp-mediation: Added Rust stable 1.85+ + axum, tokio, serde, serde_json, serde_yaml, tower, tracing, uuid, reqwest, thiserror
 - 003-llm-proxy: Added Rust stable 1.85+ + axum, tokio, serde, serde_json, tower, tower-http, tracing, uuid, reqwest, bytes, futures-util
-- 002-sanitization-core: Added Rust stable 1.85+ + serde, serde_json, serde_yaml, regex, thiserror, axum, tokio, tracing
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

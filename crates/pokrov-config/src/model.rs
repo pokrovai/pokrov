@@ -5,6 +5,8 @@ use pokrov_core::types::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::rate_limit::RateLimitConfig;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuntimeConfig {
     pub server: ServerConfig,
@@ -20,6 +22,8 @@ pub struct RuntimeConfig {
     pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub mcp: Option<McpConfig>,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

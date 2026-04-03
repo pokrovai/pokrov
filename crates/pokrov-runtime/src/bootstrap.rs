@@ -9,8 +9,10 @@ use std::{
 };
 
 use pokrov_api::app::{
-    build_router, AppState, LlmProxyState, McpProxyState, ResolvedApiKeyBinding, SanitizationState,
+    build_router, AppState, LlmProxyState, McpProxyState, RateLimitState, ResolvedApiKeyBinding,
+    SanitizationState,
 };
+use pokrov_api::middleware::rate_limit::RateLimiter;
 use pokrov_config::{
     error::ConfigError,
     loader::load_runtime_config,
@@ -28,16 +30,24 @@ use tokio::{
     sync::{oneshot, watch},
     task::JoinHandle,
 };
+use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
 use crate::{
     lifecycle::{RuntimeLifecycle, SharedRuntimeLifecycle},
     observability::{init_json_observability, log_lifecycle_event},
+    release_evidence::{
+        collect_artifact_checksums, write_release_evidence, ArtifactChecksum, GateStatus,
+        OperationalEvidence, PerformanceEvidence, ReleaseEvidence, SecurityEvidence,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootstrapArgs {
-    pub config_path: PathBuf,
+    pub config_path: Option<PathBuf>,
+    pub release_evidence_output: Option<PathBuf>,
+    pub release_id: Option<String>,
+    pub evidence_artifacts: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -48,6 +58,7 @@ pub enum BootstrapError {
     LlmProxy(String),
     McpProxy(String),
     Security(String),
+    EvidenceIo(std::io::Error),
     Bind(std::io::Error),
     Serve(std::io::Error),
     Join(tokio::task::JoinError),
@@ -62,6 +73,7 @@ impl fmt::Display for BootstrapError {
             Self::LlmProxy(message) => write!(f, "failed to initialize llm proxy: {message}"),
             Self::McpProxy(message) => write!(f, "failed to initialize mcp proxy: {message}"),
             Self::Security(message) => write!(f, "security bootstrap failed: {message}"),
+            Self::EvidenceIo(error) => write!(f, "failed to write release evidence: {error}"),
             Self::Bind(error) => write!(f, "failed to bind listener: {error}"),
             Self::Serve(error) => write!(f, "runtime server failed: {error}"),
             Self::Join(error) => write!(f, "runtime task failed: {error}"),
@@ -74,6 +86,7 @@ impl Error for BootstrapError {
         match self {
             Self::Config(error) => Some(error),
             Self::Sanitization(error) => Some(error),
+            Self::EvidenceIo(error) => Some(error),
             Self::Bind(error) => Some(error),
             Self::Serve(error) => Some(error),
             Self::Join(error) => Some(error),
@@ -87,6 +100,9 @@ impl Error for BootstrapError {
 pub fn parse_args(args: &[String]) -> Result<BootstrapArgs, BootstrapError> {
     let mut iter = args.iter();
     let mut config_path = None;
+    let mut release_evidence_output = None;
+    let mut release_id = None;
+    let mut evidence_artifacts = Vec::new();
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -101,6 +117,26 @@ pub fn parse_args(args: &[String]) -> Result<BootstrapArgs, BootstrapError> {
                 }
                 config_path = Some(PathBuf::from(path));
             }
+            "--release-evidence-output" => {
+                let path = iter.next().ok_or_else(|| {
+                    BootstrapError::InvalidArguments(
+                        "expected --release-evidence-output <path>".to_string(),
+                    )
+                })?;
+                release_evidence_output = Some(PathBuf::from(path));
+            }
+            "--release-id" => {
+                let value = iter.next().ok_or_else(|| {
+                    BootstrapError::InvalidArguments("expected --release-id <value>".to_string())
+                })?;
+                release_id = Some(value.to_string());
+            }
+            "--artifact" => {
+                let path = iter.next().ok_or_else(|| {
+                    BootstrapError::InvalidArguments("expected --artifact <path>".to_string())
+                })?;
+                evidence_artifacts.push(PathBuf::from(path));
+            }
             _ => {
                 return Err(BootstrapError::InvalidArguments(format!(
                     "unknown argument: {arg}"
@@ -109,14 +145,30 @@ pub fn parse_args(args: &[String]) -> Result<BootstrapArgs, BootstrapError> {
         }
     }
 
-    match config_path {
-        Some(config_path) => Ok(BootstrapArgs { config_path }),
-        None => Err(BootstrapError::InvalidArguments("expected --config <path>".to_string())),
+    if config_path.is_none() && release_evidence_output.is_none() {
+        return Err(BootstrapError::InvalidArguments(
+            "expected --config <path> or --release-evidence-output <path>".to_string(),
+        ));
     }
+
+    Ok(BootstrapArgs {
+        config_path,
+        release_evidence_output,
+        release_id,
+        evidence_artifacts,
+    })
 }
 
 pub async fn run(args: BootstrapArgs) -> Result<(), BootstrapError> {
-    let config = load_runtime_config(&args.config_path).map_err(BootstrapError::Config)?;
+    if args.release_evidence_output.is_some() {
+        return generate_release_evidence(args);
+    }
+
+    let config_path = args
+        .config_path
+        .as_ref()
+        .ok_or_else(|| BootstrapError::InvalidArguments("expected --config <path>".to_string()))?;
+    let config = load_runtime_config(config_path).map_err(BootstrapError::Config)?;
     init_json_observability(config.logging.level.as_str());
 
     let listener = bind_listener(&config).await?;
@@ -128,6 +180,60 @@ pub async fn run(args: BootstrapArgs) -> Result<(), BootstrapError> {
 
     run_with_listener(config, listener, lifecycle, metrics, async { wait_for_shutdown_signal().await })
     .await
+}
+
+fn generate_release_evidence(args: BootstrapArgs) -> Result<(), BootstrapError> {
+    let output_path = args.release_evidence_output.as_ref().ok_or_else(|| {
+        BootstrapError::InvalidArguments("expected --release-evidence-output <path>".to_string())
+    })?;
+    let release_id = args
+        .release_id
+        .unwrap_or_else(|| format!("release-{}", OffsetDateTime::now_utc().unix_timestamp()));
+    let git_commit = resolve_git_commit();
+    let mut artifacts =
+        collect_artifact_checksums(&args.evidence_artifacts).map_err(BootstrapError::EvidenceIo)?;
+    if artifacts.is_empty() {
+        artifacts.push(ArtifactChecksum {
+            path: "placeholder".to_string(),
+            sha256: "0".repeat(64),
+        });
+    }
+
+    let evidence = ReleaseEvidence::build(
+        release_id,
+        git_commit,
+        "manual".to_string(),
+        PerformanceEvidence {
+            runs: 3,
+            p50_ms: 0.0,
+            p95_ms: 0.0,
+            p99_ms: 0.0,
+            throughput_rps: 0.0,
+            startup_seconds: 0.0,
+            pass: false,
+        },
+        SecurityEvidence {
+            invalid_auth: GateStatus::Fail,
+            rate_limit_abuse: GateStatus::Fail,
+            log_safety: GateStatus::Fail,
+            secret_handling: GateStatus::Fail,
+            pass: false,
+        },
+        OperationalEvidence {
+            metrics_coverage_percent: 0,
+            readiness_behavior: GateStatus::Fail,
+            graceful_shutdown_behavior: GateStatus::Fail,
+            observability_behavior: GateStatus::Fail,
+            pass: false,
+        },
+        artifacts,
+        vec![
+            "Evidence file was generated before verification steps were provided".to_string(),
+            "Populate performance/security/operational sections from validated test outputs".to_string(),
+        ],
+    );
+
+    write_release_evidence(output_path, &evidence).map_err(BootstrapError::EvidenceIo)
 }
 
 pub struct RuntimeHandle {
@@ -232,10 +338,22 @@ where
     let app_state = AppState {
         lifecycle: lifecycle.clone(),
         metrics: metrics.clone(),
+        metrics_registry: metrics.clone(),
         sanitization: SanitizationState {
             enabled: config.sanitization.enabled,
             evaluator,
             api_key_bindings: Arc::new(resolved_keys),
+        },
+        rate_limit: RateLimitState {
+            enabled: config.rate_limit.enabled,
+            limiter: if config.rate_limit.enabled {
+                Some(Arc::new(RateLimiter::new(
+                    config.rate_limit.default_profile.clone(),
+                    config.rate_limit.profiles.clone(),
+                )))
+            } else {
+                None
+            },
         },
         llm: LlmProxyState {
             enabled: llm_enabled,
@@ -434,6 +552,17 @@ fn resolve_llm_provider_keys(
     }
 
     Ok(keys)
+}
+
+fn resolve_git_commit() -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--short=12", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "0000000".to_string())
 }
 
 fn map_serve_result(result: Result<(), std::io::Error>) -> Result<(), BootstrapError> {

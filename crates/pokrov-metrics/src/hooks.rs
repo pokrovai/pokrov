@@ -24,6 +24,26 @@ pub trait RuntimeMetricsHooks: Send + Sync {
     fn on_mcp_tool_call(&self) {}
     fn on_mcp_tool_call_blocked(&self) {}
     fn on_mcp_tool_call_duration_ms(&self, _duration_ms: u64) {}
+    fn on_request_outcome(
+        &self,
+        _route: &str,
+        _path_class: &str,
+        _status: u16,
+        _decision: &str,
+    ) {
+    }
+    fn on_blocked_request(&self, _route: &str, _block_reason: &str, _policy_profile: &str) {}
+    fn on_rate_limit_event(
+        &self,
+        _route: &str,
+        _limit_kind: &str,
+        _decision: &str,
+        _policy_profile: &str,
+    ) {
+    }
+    fn on_upstream_error(&self, _route: &str, _provider: &str, _error_class: &str) {}
+    fn on_request_duration_seconds(&self, _route: &str, _path_class: &str, _decision: &str, _seconds: f64) {
+    }
 }
 
 #[derive(Debug, Default)]
