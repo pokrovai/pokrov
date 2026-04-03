@@ -1,3 +1,4 @@
+pub mod evaluate;
 pub mod health;
 pub mod ready;
 
@@ -10,6 +11,7 @@ pub struct HealthResponse {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ReadyChecks {
     pub config: &'static str,
+    pub policy: &'static str,
     pub runtime: &'static str,
     pub active_requests: u64,
 }

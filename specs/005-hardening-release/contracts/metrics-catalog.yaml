@@ -1,0 +1,102 @@
+version: 1
+name: pokrov-hardening-metrics-catalog
+description: Mandatory Prometheus series for v1 hardening release.
+series:
+  - name: pokrov_requests_total
+    type: counter
+    unit: requests
+    labels:
+      - route
+      - path_class
+      - status
+      - decision
+    cardinality_policy:
+      route: allowlist
+      path_class: allowlist
+      status: bounded_http_code_class
+      decision: [allowed, masked, redacted, blocked, errored]
+    required: true
+
+  - name: pokrov_blocked_total
+    type: counter
+    unit: requests
+    labels:
+      - route
+      - block_reason
+      - policy_profile
+    cardinality_policy:
+      route: allowlist
+      block_reason: allowlist
+      policy_profile: bounded_profile_set
+    required: true
+
+  - name: pokrov_rate_limit_events_total
+    type: counter
+    unit: events
+    labels:
+      - route
+      - limit_kind
+      - decision
+      - policy_profile
+    cardinality_policy:
+      route: allowlist
+      limit_kind: [requests, token_units]
+      decision: [blocked, dry_run]
+      policy_profile: bounded_profile_set
+    required: true
+
+  - name: pokrov_upstream_errors_total
+    type: counter
+    unit: errors
+    labels:
+      - route
+      - provider
+      - error_class
+    cardinality_policy:
+      route: allowlist
+      provider: allowlist
+      error_class: allowlist
+    required: true
+
+  - name: pokrov_request_duration_seconds
+    type: histogram
+    unit: seconds
+    labels:
+      - route
+      - path_class
+      - decision
+    buckets:
+      - 0.005
+      - 0.01
+      - 0.025
+      - 0.05
+      - 0.1
+      - 0.25
+      - 0.5
+      - 1
+      - 2.5
+    cardinality_policy:
+      route: allowlist
+      path_class: allowlist
+      decision: [allowed, masked, redacted, blocked, errored]
+    required: true
+
+constraints:
+  metadata_only: true
+  forbidden_labels:
+    - request_id
+    - api_key
+    - raw_path
+    - user_input
+    - prompt
+    - tool_args
+    - model_output
+  collection_requirements:
+    scrape_interval_seconds: 15
+    max_label_cardinality_per_series: 200
+    stale_series_ttl_seconds: 300
+
+acceptance:
+  metrics_coverage_percent: 100
+  zero_missing_required_series: true
+  zero_forbidden_label_usage: true

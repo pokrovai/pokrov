@@ -1,0 +1,337 @@
+openapi: 3.1.0
+info:
+  title: Pokrov Hardening API Contract
+  version: 0.1.0
+  description: >-
+    Operational API contract for rate limiting, observability endpoints,
+    and metadata-only error semantics in hardening release stage.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/chat/completions:
+    post:
+      summary: OpenAI-compatible LLM proxy request
+      operationId: postChatCompletions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Request accepted and proxied
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+              description: Correlation identifier for logs/audit/metrics.
+        '401':
+          description: Missing or invalid API key
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthError'
+        '429':
+          description: Request rejected by rate-limit policy
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 0
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+                minimum: 1
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+                minimum: 0
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+                minimum: 0
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitError'
+        '502':
+          description: Upstream provider error in metadata-only form
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpstreamError'
+  /v1/mcp/tools/{toolName}/invoke:
+    post:
+      summary: MCP tool invocation through mediation layer
+      operationId: postMcpToolInvoke
+      parameters:
+        - name: toolName
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Tool invocation allowed and sanitized
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+        '429':
+          description: Tool invocation blocked by rate limit
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 0
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitError'
+        '403':
+          description: Tool/server not allowed by policy
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyError'
+  /metrics:
+    get:
+      summary: Prometheus exposition endpoint
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+  /health:
+    get:
+      summary: Liveness endpoint
+      operationId: getHealth
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ready:
+    get:
+      summary: Readiness endpoint
+      operationId: getReady
+      responses:
+        '200':
+          description: Service is ready to accept traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Service is degraded, starting, or draining
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    ErrorBase:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - error
+      properties:
+        request_id:
+          type: string
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+              maxLength: 256
+    AuthError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - unauthorized
+                message:
+                  type: string
+                  enum:
+                    - API key is missing or invalid
+    PolicyError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - policy_blocked
+                message:
+                  type: string
+                  enum:
+                    - Request blocked by policy
+    UpstreamError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - upstream_error
+                message:
+                  type: string
+                  enum:
+                    - Upstream request failed
+    RateLimitError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          additionalProperties: false
+          required:
+            - request_id
+            - error
+            - retry_after_ms
+            - limit
+            - remaining
+            - reset_at
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - rate_limit_exceeded
+                message:
+                  type: string
+                  enum:
+                    - Rate limit exceeded
+            retry_after_ms:
+              type: integer
+              minimum: 1
+            limit:
+              type: integer
+              minimum: 1
+            remaining:
+              type: integer
+              minimum: 0
+            reset_at:
+              type: string
+              format: date-time
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - request_id
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+        request_id:
+          type: string
+    ReadyResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - request_id
+        - checks
+      properties:
+        status:
+          type: string
+          enum:
+            - ready
+            - starting
+            - degraded
+            - draining
+        request_id:
+          type: string
+        checks:
+          type: object
+          additionalProperties: false
+          required:
+            - config
+            - routing
+            - limiter
+            - active_requests
+          properties:
+            config:
+              type: string
+              enum:
+                - ok
+                - failed
+            routing:
+              type: string
+              enum:
+                - ok
+                - degraded
+                - failed
+            limiter:
+              type: string
+              enum:
+                - ok
+                - degraded
+                - failed
+            active_requests:
+              type: integer
+              minimum: 0

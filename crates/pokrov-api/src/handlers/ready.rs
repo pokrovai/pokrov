@@ -15,23 +15,29 @@ pub async fn handle_ready(
 ) -> (StatusCode, Json<ReadyResponse>) {
     let runtime_state = state.lifecycle.state();
     let config_ok = state.lifecycle.config_loaded();
+    let policy_ok = !state.sanitization.enabled || state.sanitization.evaluator.is_some();
     let active_requests = state.lifecycle.active_requests() as u64;
 
+    let runtime_ready = matches!(runtime_state, RuntimeStateView::Ready);
+    let all_ready = runtime_ready && config_ok && policy_ok;
+
     let (status, runtime, code) = match runtime_state {
-        RuntimeStateView::Ready => ("ready", "ok", StatusCode::OK),
+        RuntimeStateView::Ready if all_ready => ("ready", "ok", StatusCode::OK),
+        RuntimeStateView::Ready => ("starting", "pending", StatusCode::SERVICE_UNAVAILABLE),
         RuntimeStateView::Draining => ("draining", "draining", StatusCode::SERVICE_UNAVAILABLE),
         RuntimeStateView::Starting => ("starting", "pending", StatusCode::SERVICE_UNAVAILABLE),
         RuntimeStateView::Stopped => ("draining", "draining", StatusCode::SERVICE_UNAVAILABLE),
     };
 
     let config = if config_ok { "ok" } else { "pending" };
+    let policy = if policy_ok { "ok" } else { "pending" };
 
     (
         code,
         Json(ReadyResponse {
             status,
             request_id,
-            checks: ReadyChecks { config, runtime, active_requests },
+            checks: ReadyChecks { config, policy, runtime, active_requests },
         }),
     )
 }

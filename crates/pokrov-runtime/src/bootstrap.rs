@@ -8,8 +8,13 @@ use std::{
     time::Duration,
 };
 
-use pokrov_api::app::{build_router, AppState};
-use pokrov_config::{error::ConfigError, loader::load_runtime_config, model::RuntimeConfig};
+use pokrov_api::app::{build_router, AppState, ResolvedApiKeyBinding, SanitizationState};
+use pokrov_config::{
+    error::ConfigError,
+    loader::load_runtime_config,
+    model::{RuntimeConfig, SecretRef},
+};
+use pokrov_core::{types::EvaluateError, SanitizationEngine};
 use pokrov_metrics::{
     hooks::{LifecycleEvent, RuntimeMetricsHooks},
     registry::RuntimeMetricsRegistry,
@@ -19,7 +24,7 @@ use tokio::{
     sync::{oneshot, watch},
     task::JoinHandle,
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
     lifecycle::{RuntimeLifecycle, SharedRuntimeLifecycle},
@@ -35,6 +40,7 @@ pub struct BootstrapArgs {
 pub enum BootstrapError {
     InvalidArguments(String),
     Config(ConfigError),
+    Sanitization(EvaluateError),
     Bind(std::io::Error),
     Serve(std::io::Error),
     Join(tokio::task::JoinError),
@@ -45,6 +51,7 @@ impl fmt::Display for BootstrapError {
         match self {
             Self::InvalidArguments(message) => write!(f, "invalid arguments: {message}"),
             Self::Config(error) => write!(f, "{error}"),
+            Self::Sanitization(error) => write!(f, "failed to initialize sanitization engine: {error}"),
             Self::Bind(error) => write!(f, "failed to bind listener: {error}"),
             Self::Serve(error) => write!(f, "runtime server failed: {error}"),
             Self::Join(error) => write!(f, "runtime task failed: {error}"),
@@ -56,6 +63,7 @@ impl Error for BootstrapError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Config(error) => Some(error),
+            Self::Sanitization(error) => Some(error),
             Self::Bind(error) => Some(error),
             Self::Serve(error) => Some(error),
             Self::Join(error) => Some(error),
@@ -171,9 +179,28 @@ where
 {
     metrics.on_lifecycle_event(LifecycleEvent::Starting);
     log_lifecycle_event("runtime", "lifecycle_transition", None, "starting");
-    lifecycle.set_config_loaded(true).await;
 
-    let app_state = AppState { lifecycle: lifecycle.clone(), metrics: metrics.clone() };
+    let evaluator = if config.sanitization.enabled {
+        Some(Arc::new(
+            SanitizationEngine::new(config.evaluator_config()).map_err(BootstrapError::Sanitization)?,
+        ))
+    } else {
+        None
+    };
+
+    let resolved_keys = resolve_api_key_bindings(&config);
+    let policy_loaded = !config.sanitization.enabled || evaluator.is_some();
+    lifecycle.set_config_loaded(policy_loaded).await;
+
+    let app_state = AppState {
+        lifecycle: lifecycle.clone(),
+        metrics: metrics.clone(),
+        sanitization: SanitizationState {
+            enabled: config.sanitization.enabled,
+            evaluator,
+            api_key_bindings: Arc::new(resolved_keys),
+        },
+    };
 
     let app = build_router(app_state);
     lifecycle.mark_ready().await;
@@ -233,6 +260,40 @@ where
     }
 
     serve_result
+}
+
+fn resolve_api_key_bindings(config: &RuntimeConfig) -> Vec<ResolvedApiKeyBinding> {
+    let mut bindings = Vec::new();
+
+    for binding in &config.security.api_keys {
+        let Some(secret_ref) = SecretRef::parse(&binding.key) else {
+            continue;
+        };
+
+        let secret = match secret_ref {
+            SecretRef::Env(ref name) => std::env::var(name).ok(),
+            SecretRef::File(ref path) => std::fs::read_to_string(path)
+                .ok()
+                .map(|content| content.trim().to_string()),
+        };
+
+        let Some(secret) = secret else {
+            warn!(
+                component = "runtime",
+                action = "api_key_binding_skipped",
+                profile = %binding.profile,
+                "failed to resolve API key reference; binding skipped"
+            );
+            continue;
+        };
+
+        bindings.push(ResolvedApiKeyBinding {
+            key: secret,
+            profile: binding.profile.clone(),
+        });
+    }
+
+    bindings
 }
 
 fn map_serve_result(result: Result<(), std::io::Error>) -> Result<(), BootstrapError> {

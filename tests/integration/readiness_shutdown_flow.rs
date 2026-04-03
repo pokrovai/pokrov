@@ -11,6 +11,7 @@ async fn ready_returns_not_ready_while_startup_is_pending() {
     let app = pokrov_api::app::build_router(pokrov_api::app::AppState {
         lifecycle,
         metrics: Arc::new(pokrov_metrics::registry::RuntimeMetricsRegistry::default()),
+        sanitization: pokrov_api::app::SanitizationState::default(),
     });
 
     let response = app
@@ -28,6 +29,7 @@ async fn draining_rejects_new_health_requests() {
     let app = pokrov_api::app::build_router(pokrov_api::app::AppState {
         lifecycle,
         metrics: Arc::new(pokrov_metrics::registry::RuntimeMetricsRegistry::default()),
+        sanitization: pokrov_api::app::SanitizationState::default(),
     });
 
     let health_response = app

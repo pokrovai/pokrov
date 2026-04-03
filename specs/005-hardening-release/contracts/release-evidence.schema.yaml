@@ -1,0 +1,183 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Pokrov Hardening Release Evidence
+version: 1.0.0
+type: object
+additionalProperties: false
+required:
+  - release_id
+  - generated_at
+  - git_commit
+  - environment
+  - performance
+  - security
+  - operational
+  - artifacts
+  - gate_status
+properties:
+  release_id:
+    type: string
+    minLength: 1
+  generated_at:
+    type: string
+    format: date-time
+  git_commit:
+    type: string
+    pattern: "^[0-9a-f]{7,40}$"
+  environment:
+    type: object
+    additionalProperties: false
+    required:
+      - rust_version
+      - os
+      - cpu
+      - benchmark_tool
+    properties:
+      rust_version:
+        type: string
+      os:
+        type: string
+      cpu:
+        type: string
+      benchmark_tool:
+        type: string
+  performance:
+    type: object
+    additionalProperties: false
+    required:
+      - runs
+      - p50_ms
+      - p95_ms
+      - p99_ms
+      - throughput_rps
+      - startup_seconds
+      - pass
+    properties:
+      runs:
+        type: integer
+        minimum: 3
+      p50_ms:
+        type: number
+        minimum: 0
+      p95_ms:
+        type: number
+        minimum: 0
+      p99_ms:
+        type: number
+        minimum: 0
+      throughput_rps:
+        type: number
+        minimum: 0
+      startup_seconds:
+        type: number
+        minimum: 0
+      pass:
+        type: boolean
+  security:
+    type: object
+    additionalProperties: false
+    required:
+      - invalid_auth
+      - rate_limit_abuse
+      - log_safety
+      - secret_handling
+      - pass
+    properties:
+      invalid_auth:
+        type: string
+        enum:
+          - pass
+          - fail
+      rate_limit_abuse:
+        type: string
+        enum:
+          - pass
+          - fail
+      log_safety:
+        type: string
+        enum:
+          - pass
+          - fail
+      secret_handling:
+        type: string
+        enum:
+          - pass
+          - fail
+      pass:
+        type: boolean
+  operational:
+    type: object
+    additionalProperties: false
+    required:
+      - metrics_coverage_percent
+      - readiness_behavior
+      - graceful_shutdown_behavior
+      - observability_behavior
+      - pass
+    properties:
+      metrics_coverage_percent:
+        type: integer
+        minimum: 0
+        maximum: 100
+      readiness_behavior:
+        type: string
+        enum:
+          - pass
+          - fail
+      graceful_shutdown_behavior:
+        type: string
+        enum:
+          - pass
+          - fail
+      observability_behavior:
+        type: string
+        enum:
+          - pass
+          - fail
+      pass:
+        type: boolean
+  artifacts:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - path
+        - sha256
+      properties:
+        path:
+          type: string
+          minLength: 1
+        sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+  notes:
+    type: array
+    items:
+      type: string
+      maxLength: 512
+  gate_status:
+    type: string
+    enum:
+      - pass
+      - fail
+
+allOf:
+  - if:
+      properties:
+        performance:
+          properties:
+            pass:
+              const: true
+        security:
+          properties:
+            pass:
+              const: true
+        operational:
+          properties:
+            pass:
+              const: true
+    then:
+      properties:
+        gate_status:
+          const: pass

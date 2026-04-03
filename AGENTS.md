@@ -199,6 +199,10 @@ Auto-generated from all feature plans. Last updated: 2026-04-03
 
 ## Active Technologies
 - Rust stable 1.85+ + axum, tokio, serde, serde_yaml, tower, tower-http, tracing, tracing-subscriber, uuid (001-bootstrap-runtime)
+- Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_yaml, prometheus, uuid (005-hardening-release)
+- In-memory rate-limit state + metadata-only audit/log sinks; file-based release evidence artifacts (005-hardening-release)
+- Rust stable 1.85+ + serde, serde_json, serde_yaml, regex, thiserror, axum, tokio, tracing (002-sanitization-core)
+- In-memory evaluation results + policy profiles from YAML config; metadata-only audit sink (logs/structured events) (002-sanitization-core)
 
 ## Project Structure
 
@@ -224,6 +228,8 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 002-sanitization-core: Added Rust stable 1.85+ + serde, serde_json, serde_yaml, regex, thiserror, axum, tokio, tracing
+- 005-hardening-release: Added Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_yaml, prometheus, uuid
 - 001-bootstrap-runtime: Added Rust stable 1.85+ + axum, tokio, serde, serde_yaml, tower, tower-http, tracing, tracing-subscriber, uuid
 
 <!-- MANUAL ADDITIONS START -->
