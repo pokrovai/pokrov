@@ -203,6 +203,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-03
 - In-memory rate-limit state + metadata-only audit/log sinks; file-based release evidence artifacts (005-hardening-release)
 - Rust stable 1.85+ + serde, serde_json, serde_yaml, regex, thiserror, axum, tokio, tracing (002-sanitization-core)
 - In-memory evaluation results + policy profiles from YAML config; metadata-only audit sink (logs/structured events) (002-sanitization-core)
+- Rust stable 1.85+ + axum, tokio, serde, serde_json, tower, tower-http, tracing, uuid, reqwest, bytes, futures-util (003-llm-proxy)
+- In-memory request context + provider routing/policy bindings from YAML config; metadata-only audit sink (structured logs/events) (003-llm-proxy)
 
 ## Project Structure
 
@@ -228,9 +230,9 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 003-llm-proxy: Added Rust stable 1.85+ + axum, tokio, serde, serde_json, tower, tower-http, tracing, uuid, reqwest, bytes, futures-util
 - 002-sanitization-core: Added Rust stable 1.85+ + serde, serde_json, serde_yaml, regex, thiserror, axum, tokio, tracing
 - 005-hardening-release: Added Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_yaml, prometheus, uuid
-- 001-bootstrap-runtime: Added Rust stable 1.85+ + axum, tokio, serde, serde_yaml, tower, tower-http, tracing, tracing-subscriber, uuid
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
