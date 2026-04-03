@@ -1,19 +1,16 @@
 [package]
-name = "pokrov-api"
+name = "pokrov-proxy-mcp"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { workspace = true }
 http = { workspace = true }
 pokrov-config = { path = "../pokrov-config" }
 pokrov-core = { path = "../pokrov-core" }
 pokrov-metrics = { path = "../pokrov-metrics" }
-pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
-pokrov-proxy-mcp = { path = "../pokrov-proxy-mcp" }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
-tower = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true }

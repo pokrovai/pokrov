@@ -2,7 +2,7 @@
 
 `pokrov.example.yaml` describes the v1 runtime bootstrap configuration, including
 sanitization profiles for `POST /v1/sanitize/evaluate` and LLM routing for
-`POST /v1/chat/completions`.
+`POST /v1/chat/completions`, plus MCP mediation for `POST /v1/mcp/tool-call`.
 
 ## Required Sections
 
@@ -12,6 +12,7 @@ sanitization profiles for `POST /v1/sanitize/evaluate` and LLM routing for
 - `security.api_keys[*].key` and `security.api_keys[*].profile`
 - `sanitization.enabled`, `sanitization.default_profile`, `sanitization.profiles`
 - `llm.providers`, `llm.routes`, `llm.defaults` (required when LLM proxy path is enabled)
+- `mcp.defaults`, `mcp.servers` (required when MCP mediation path is enabled)
 
 Secrets must be provided only as references (`env:NAME` or `file:/path`).
 `security.fail_on_unresolved_api_keys` is optional (default `false`) and enables
@@ -89,3 +90,16 @@ curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
   when stream output sanitization is enabled (default `1048576` bytes).
 - Known v1 limitation: sanitized stream responses are buffered up to this limit before
   forwarding to the client; oversized streams fail with upstream error.
+
+## MCP Mediation Section
+
+- `mcp.servers[*].id` must be unique and only enabled servers are routable.
+- `mcp.servers[*].endpoint` must be a valid `http/https` URL and unique across enabled servers.
+- `mcp.servers[*].blocked_tools` takes precedence over `allowed_tools`.
+- `mcp.servers[*].tools` contains per-tool policy:
+  - `enabled=false` blocks the tool before upstream execution.
+  - `argument_schema` (optional) enables deterministic schema-stage checks.
+  - `argument_constraints` applies required/forbidden keys, depth, string length, and path prefixes.
+  - `output_sanitization` overrides the global MCP default per tool.
+- `mcp.defaults.profile_id` controls profile fallback when request metadata omits `profile`.
+- `mcp.defaults.upstream_timeout_ms` applies per mediated tool call.

@@ -8,7 +8,9 @@ use std::{
     time::Duration,
 };
 
-use pokrov_api::app::{build_router, AppState, LlmProxyState, ResolvedApiKeyBinding, SanitizationState};
+use pokrov_api::app::{
+    build_router, AppState, LlmProxyState, McpProxyState, ResolvedApiKeyBinding, SanitizationState,
+};
 use pokrov_config::{
     error::ConfigError,
     loader::load_runtime_config,
@@ -20,6 +22,7 @@ use pokrov_metrics::{
     registry::RuntimeMetricsRegistry,
 };
 use pokrov_proxy_llm::{handler::LLMProxyHandler, routing::ProviderRouteTable};
+use pokrov_proxy_mcp::handler::McpProxyHandler;
 use tokio::{
     net::TcpListener,
     sync::{oneshot, watch},
@@ -43,6 +46,7 @@ pub enum BootstrapError {
     Config(ConfigError),
     Sanitization(EvaluateError),
     LlmProxy(String),
+    McpProxy(String),
     Security(String),
     Bind(std::io::Error),
     Serve(std::io::Error),
@@ -56,6 +60,7 @@ impl fmt::Display for BootstrapError {
             Self::Config(error) => write!(f, "{error}"),
             Self::Sanitization(error) => write!(f, "failed to initialize sanitization engine: {error}"),
             Self::LlmProxy(message) => write!(f, "failed to initialize llm proxy: {message}"),
+            Self::McpProxy(message) => write!(f, "failed to initialize mcp proxy: {message}"),
             Self::Security(message) => write!(f, "security bootstrap failed: {message}"),
             Self::Bind(error) => write!(f, "failed to bind listener: {error}"),
             Self::Serve(error) => write!(f, "runtime server failed: {error}"),
@@ -72,7 +77,9 @@ impl Error for BootstrapError {
             Self::Bind(error) => Some(error),
             Self::Serve(error) => Some(error),
             Self::Join(error) => Some(error),
-            Self::InvalidArguments(_) | Self::LlmProxy(_) | Self::Security(_) => None,
+            Self::InvalidArguments(_) | Self::LlmProxy(_) | Self::McpProxy(_) | Self::Security(_) => {
+                None
+            }
         }
     }
 }
@@ -199,6 +206,9 @@ where
     lifecycle
         .set_llm_routes_loaded(!is_llm_enabled(&config))
         .await;
+    lifecycle
+        .set_mcp_routes_loaded(!is_mcp_enabled(&config))
+        .await;
 
     let llm_handler = build_llm_handler(&config, evaluator.clone(), metrics.clone())?;
     let llm_enabled = is_llm_enabled(&config);
@@ -208,6 +218,15 @@ where
         .unwrap_or(false);
     lifecycle
         .set_llm_routes_loaded(!llm_enabled || llm_routes_loaded)
+        .await;
+    let mcp_handler = build_mcp_handler(&config, evaluator.clone(), metrics.clone())?;
+    let mcp_enabled = is_mcp_enabled(&config);
+    let mcp_routes_loaded = mcp_handler
+        .as_ref()
+        .map(McpProxyHandler::routes_loaded)
+        .unwrap_or(false);
+    lifecycle
+        .set_mcp_routes_loaded(!mcp_enabled || mcp_routes_loaded)
         .await;
 
     let app_state = AppState {
@@ -221,6 +240,10 @@ where
         llm: LlmProxyState {
             enabled: llm_enabled,
             handler: llm_handler.map(Arc::new),
+        },
+        mcp: McpProxyState {
+            enabled: mcp_enabled,
+            handler: mcp_handler.map(Arc::new),
         },
     };
 
@@ -330,6 +353,10 @@ fn is_llm_enabled(config: &RuntimeConfig) -> bool {
     config.llm.is_some()
 }
 
+fn is_mcp_enabled(config: &RuntimeConfig) -> bool {
+    config.mcp.is_some()
+}
+
 fn build_llm_handler(
     config: &RuntimeConfig,
     evaluator: Option<Arc<SanitizationEngine>>,
@@ -348,6 +375,21 @@ fn build_llm_handler(
 
     let handler = LLMProxyHandler::new(evaluator, metrics, routes)
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
+
+    Ok(Some(handler))
+}
+
+fn build_mcp_handler(
+    config: &RuntimeConfig,
+    evaluator: Option<Arc<SanitizationEngine>>,
+    metrics: Arc<RuntimeMetricsRegistry>,
+) -> Result<Option<McpProxyHandler>, BootstrapError> {
+    let Some(mcp_config) = config.mcp.clone() else {
+        return Ok(None);
+    };
+
+    let handler = McpProxyHandler::new(evaluator, metrics, mcp_config)
+        .map_err(|error| BootstrapError::McpProxy(error.to_string()))?;
 
     Ok(Some(handler))
 }

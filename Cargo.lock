@@ -700,6 +700,7 @@ dependencies = [
  "pokrov-core",
  "pokrov-metrics",
  "pokrov-proxy-llm",
+ "pokrov-proxy-mcp",
  "pokrov-runtime",
  "reqwest",
  "serde_json",
@@ -721,6 +722,7 @@ dependencies = [
  "pokrov-core",
  "pokrov-metrics",
  "pokrov-proxy-llm",
+ "pokrov-proxy-mcp",
  "serde",
  "serde_json",
  "tokio",
@@ -777,6 +779,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pokrov-proxy-mcp"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "pokrov-config",
+ "pokrov-core",
+ "pokrov-metrics",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pokrov-runtime"
 version = "0.1.0"
 dependencies = [
@@ -786,6 +804,7 @@ dependencies = [
  "pokrov-core",
  "pokrov-metrics",
  "pokrov-proxy-llm",
+ "pokrov-proxy-mcp",
  "serde",
  "serde_json",
  "tokio",

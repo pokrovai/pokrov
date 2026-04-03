@@ -21,6 +21,9 @@ pub trait RuntimeMetricsHooks: Send + Sync {
     fn on_llm_blocked_request(&self) {}
     fn on_llm_upstream_status(&self, _status: u16) {}
     fn on_llm_request_duration_ms(&self, _duration_ms: u64) {}
+    fn on_mcp_tool_call(&self) {}
+    fn on_mcp_tool_call_blocked(&self) {}
+    fn on_mcp_tool_call_duration_ms(&self, _duration_ms: u64) {}
 }
 
 #[derive(Debug, Default)]

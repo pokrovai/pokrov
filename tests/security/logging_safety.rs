@@ -32,6 +32,19 @@ fn structured_logging_remains_metadata_only() {
             path = "/health",
             status_code = 200u16
         );
+
+        pokrov_proxy_mcp::audit::McpAuditEvent {
+            request_id: "req-test-1".to_string(),
+            server_id: "repo-tools".to_string(),
+            tool_id: "read_file".to_string(),
+            profile_id: "strict".to_string(),
+            final_action: "allow",
+            rule_hits_total: 1,
+            blocked: false,
+            upstream_status: Some(200),
+            duration_ms: 3,
+        }
+        .emit();
     });
 
     let logs = String::from_utf8(captured.lock().expect("writer lock").clone())
@@ -39,6 +52,7 @@ fn structured_logging_remains_metadata_only() {
 
     assert!(logs.contains("\"request_id\":\"req-test-1\""));
     assert!(logs.contains("\"action\":\"startup\""));
+    assert!(logs.contains("\"action\":\"tool_call_completed\""));
     assert!(!logs.contains(secret));
     assert!(!logs.contains(payload));
 }

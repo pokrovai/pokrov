@@ -25,6 +25,9 @@ pub struct RuntimeMetricsRegistry {
     llm_upstream_4xx_total: AtomicU64,
     llm_upstream_5xx_total: AtomicU64,
     llm_request_duration_ms_total: AtomicU64,
+    mcp_tool_calls_total: AtomicU64,
+    mcp_tool_calls_blocked_total: AtomicU64,
+    mcp_tool_call_duration_ms_total: AtomicU64,
 }
 
 impl RuntimeMetricsRegistry {
@@ -49,6 +52,11 @@ impl RuntimeMetricsRegistry {
             llm_upstream_4xx_total: self.llm_upstream_4xx_total.load(Ordering::Relaxed),
             llm_upstream_5xx_total: self.llm_upstream_5xx_total.load(Ordering::Relaxed),
             llm_request_duration_ms_total: self.llm_request_duration_ms_total.load(Ordering::Relaxed),
+            mcp_tool_calls_total: self.mcp_tool_calls_total.load(Ordering::Relaxed),
+            mcp_tool_calls_blocked_total: self.mcp_tool_calls_blocked_total.load(Ordering::Relaxed),
+            mcp_tool_call_duration_ms_total: self
+                .mcp_tool_call_duration_ms_total
+                .load(Ordering::Relaxed),
         }
     }
 }
@@ -134,6 +142,20 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
         self.llm_request_duration_ms_total
             .fetch_add(duration_ms, Ordering::Relaxed);
     }
+
+    fn on_mcp_tool_call(&self) {
+        self.mcp_tool_calls_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn on_mcp_tool_call_blocked(&self) {
+        self.mcp_tool_calls_blocked_total
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn on_mcp_tool_call_duration_ms(&self, duration_ms: u64) {
+        self.mcp_tool_call_duration_ms_total
+            .fetch_add(duration_ms, Ordering::Relaxed);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -157,4 +179,7 @@ pub struct RuntimeMetricsSnapshot {
     pub llm_upstream_4xx_total: u64,
     pub llm_upstream_5xx_total: u64,
     pub llm_request_duration_ms_total: u64,
+    pub mcp_tool_calls_total: u64,
+    pub mcp_tool_calls_blocked_total: u64,
+    pub mcp_tool_call_duration_ms_total: u64,
 }

@@ -5,6 +5,11 @@ fn contract_path() -> PathBuf {
         .join("specs/001-bootstrap-runtime/contracts/runtime-api.yaml")
 }
 
+fn mcp_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/004-mcp-mediation/contracts/mcp-mediation-api.yaml")
+}
+
 #[test]
 fn runtime_api_contract_contains_expected_probe_routes() {
     let raw = std::fs::read_to_string(contract_path()).expect("contract file should exist");
@@ -31,5 +36,16 @@ fn runtime_api_contract_readiness_statuses_and_headers_match_expectations() {
     assert!(
         ready_responses["503"]["headers"][header_name].is_mapping(),
         "ready 503 must expose request id header"
+    );
+}
+
+#[test]
+fn runtime_contract_suite_covers_mcp_mediation_route() {
+    let raw = std::fs::read_to_string(mcp_contract_path()).expect("mcp contract file should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("mcp contract should be valid yaml");
+
+    assert!(
+        api["paths"]["/v1/mcp/tool-call"]["post"].is_mapping(),
+        "mcp tool call route must be covered by contract suite"
     );
 }
