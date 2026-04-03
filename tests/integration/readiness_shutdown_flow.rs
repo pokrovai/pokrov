@@ -21,6 +21,30 @@ async fn ready_returns_not_ready_while_startup_is_pending() {
 }
 
 #[tokio::test]
+async fn draining_rejects_new_health_requests() {
+    let lifecycle = Arc::new(pokrov_runtime::lifecycle::RuntimeLifecycle::new());
+    lifecycle.set_config_loaded(true).await;
+    lifecycle.mark_draining().await;
+    let app = pokrov_api::app::build_router(pokrov_api::app::AppState {
+        lifecycle,
+        metrics: Arc::new(pokrov_metrics::registry::RuntimeMetricsRegistry::default()),
+    });
+
+    let health_response = app
+        .clone()
+        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .await
+        .expect("health request should complete");
+    assert_eq!(health_response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let ready_response = app
+        .oneshot(Request::builder().uri("/ready").body(Body::empty()).unwrap())
+        .await
+        .expect("ready request should complete");
+    assert_eq!(ready_response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn runtime_enters_draining_before_shutdown_with_inflight_request() {
     let config_path = write_temp_config(
         r#"
@@ -60,18 +84,23 @@ security:
 
     let shutdown_task = tokio::spawn(async move { handle.shutdown().await });
 
-    let mut seen_draining = false;
+    let mut seen_not_ready = false;
     for _ in 0..10 {
         tokio::time::sleep(Duration::from_millis(30)).await;
-        if let Ok(response) = client.get(format!("{}/ready", base_url)).send().await {
-            if response.status() == StatusCode::SERVICE_UNAVAILABLE {
-                seen_draining = true;
+        match client.get(format!("{}/ready", base_url)).send().await {
+            Ok(response) if response.status() == StatusCode::SERVICE_UNAVAILABLE => {
+                seen_not_ready = true;
                 break;
             }
+            Err(_) => {
+                seen_not_ready = true;
+                break;
+            }
+            _ => {}
         }
     }
 
-    assert!(seen_draining, "runtime should expose not-ready during draining");
+    assert!(seen_not_ready, "runtime should stop serving ready responses during draining");
 
     let inflight_result = inflight.await.expect("inflight task should finish");
     assert_eq!(inflight_result.expect("inflight response should succeed").status(), StatusCode::OK);
