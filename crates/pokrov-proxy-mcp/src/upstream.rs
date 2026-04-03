@@ -8,6 +8,9 @@ use crate::{
 };
 
 pub const MCP_TOOL_CALL_UPSTREAM_PATH: &str = "/tool-call";
+const SYSTEM_REQUEST_ID: &str = "system";
+const SYSTEM_SERVER_ID: &str = "mcp_upstream_client";
+const SYSTEM_TOOL_ID: &str = "client_init";
 
 #[derive(Debug, Clone)]
 pub struct McpUpstreamClient {
@@ -21,9 +24,9 @@ impl McpUpstreamClient {
             .build()
             .map_err(|error| {
                 McpProxyError::upstream_unavailable(
-                    "system",
-                    "unknown",
-                    "unknown",
+                    SYSTEM_REQUEST_ID,
+                    SYSTEM_SERVER_ID,
+                    SYSTEM_TOOL_ID,
                     format!("failed to initialize upstream client: {error}"),
                 )
             })?;

@@ -142,12 +142,14 @@ impl McpProxyHandler {
             &result,
         )?;
 
+        // Output blocking is post-hoc by design: the tool call is already executed upstream,
+        // but the response payload is withheld from the caller after policy evaluation.
         if sanitization.action == PolicyAction::Block {
             return Err(McpProxyError::tool_call_blocked(
                 &request_id,
                 &request.server,
                 &request.tool,
-                McpPolicyReason::ArgumentInvalid.as_str(),
+                McpPolicyReason::OutputBlocked.as_str(),
                 sanitization.rule_hits_total.max(1),
             ));
         }

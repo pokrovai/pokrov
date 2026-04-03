@@ -1,11 +1,12 @@
 use pokrov_config::model::{McpToolPolicy, ToolArgumentConstraints};
 use serde_json::Value;
-use std::path::Component;
 
 use crate::{
     errors::McpProxyError,
     types::{ToolValidationResult, ValidationStage, ValidationViolation},
 };
+
+const MAX_STRING_LENGTH_VIOLATIONS: usize = 64;
 
 /// Validates MCP tool arguments against schema and policy constraints before upstream execution.
 pub fn validate_tool_arguments(
@@ -169,7 +170,13 @@ fn validate_constraints(
     }
 
     if let Some(max_string_length) = constraints.max_string_length {
-        collect_long_strings(arguments, "$", max_string_length, &mut violations);
+        collect_long_strings(
+            arguments,
+            "$",
+            max_string_length,
+            &mut violations,
+            MAX_STRING_LENGTH_VIOLATIONS,
+        );
     }
 
     if !constraints.allowed_path_prefixes.is_empty() {
@@ -190,7 +197,12 @@ fn collect_long_strings(
     path: &str,
     max_string_length: usize,
     violations: &mut Vec<ValidationViolation>,
+    max_violations: usize,
 ) {
+    if violations.len() >= max_violations {
+        return;
+    }
+
     match value {
         Value::String(text) => {
             if text.len() > max_string_length {
@@ -203,12 +215,30 @@ fn collect_long_strings(
         }
         Value::Array(items) => {
             for (index, item) in items.iter().enumerate() {
-                collect_long_strings(item, &format!("{path}[{index}]"), max_string_length, violations);
+                collect_long_strings(
+                    item,
+                    &format!("{path}[{index}]"),
+                    max_string_length,
+                    violations,
+                    max_violations,
+                );
+                if violations.len() >= max_violations {
+                    break;
+                }
             }
         }
         Value::Object(map) => {
             for (key, item) in map {
-                collect_long_strings(item, &format!("{path}.{key}"), max_string_length, violations);
+                collect_long_strings(
+                    item,
+                    &format!("{path}.{key}"),
+                    max_string_length,
+                    violations,
+                    max_violations,
+                );
+                if violations.len() >= max_violations {
+                    break;
+                }
             }
         }
         _ => {}
@@ -276,17 +306,37 @@ fn path_matches_allowed_prefixes(candidate_path: &str, allowed_prefixes: &[Strin
 }
 
 fn normalized_path_segments(path: &str) -> Option<Vec<String>> {
+    if path.starts_with('/') || path.starts_with('\\') {
+        return None;
+    }
+
+    if path
+        .as_bytes()
+        .get(1)
+        .copied()
+        .map(|byte| byte == b':')
+        .unwrap_or(false)
+        && path
+            .as_bytes()
+            .first()
+            .copied()
+            .map(char::from)
+            .map(|ch| ch.is_ascii_alphabetic())
+            .unwrap_or(false)
+    {
+        return None;
+    }
+
     let mut segments = Vec::new();
-    for component in std::path::Path::new(path).components() {
+    for component in path.split(['/', '\\']) {
         match component {
-            Component::CurDir => {}
-            Component::Normal(segment) => segments.push(segment.to_string_lossy().into_owned()),
-            Component::ParentDir => {
+            "" | "." => {}
+            ".." => {
                 if segments.pop().is_none() {
                     return None;
                 }
             }
-            Component::RootDir | Component::Prefix(_) => return None,
+            segment => segments.push(segment.to_string()),
         }
     }
     Some(segments)
@@ -446,5 +496,66 @@ mod tests {
         .expect_err("path traversal form must not pass allowlisted path prefix checks");
 
         assert_eq!(error.code(), McpErrorCode::ArgumentValidationFailed);
+    }
+
+    #[test]
+    fn caps_long_string_violations_to_bounded_count() {
+        let policy = McpToolPolicy {
+            enabled: true,
+            argument_schema: None,
+            argument_constraints: ToolArgumentConstraints {
+                required_keys: Vec::new(),
+                forbidden_keys: Vec::new(),
+                max_depth: None,
+                max_string_length: Some(4),
+                allowed_path_prefixes: Vec::new(),
+            },
+            output_sanitization: Some(true),
+        };
+
+        let payload = serde_json::json!({
+            "items": vec!["12345"; 128],
+        });
+
+        let error = validate_tool_arguments(
+            "req-5",
+            "repo-tools",
+            "read_file",
+            &payload,
+            Some(&policy),
+        )
+        .expect_err("validation must fail when strings exceed configured max length");
+
+        assert_eq!(error.code(), McpErrorCode::ArgumentValidationFailed);
+        assert_eq!(
+            error.details().and_then(|details| details.violation_count),
+            Some(64)
+        );
+    }
+
+    #[test]
+    fn accepts_windows_style_path_when_prefix_is_allowlisted() {
+        let policy = McpToolPolicy {
+            enabled: true,
+            argument_schema: None,
+            argument_constraints: ToolArgumentConstraints {
+                required_keys: vec!["path".to_string()],
+                forbidden_keys: Vec::new(),
+                max_depth: None,
+                max_string_length: None,
+                allowed_path_prefixes: vec!["src/".to_string()],
+            },
+            output_sanitization: Some(true),
+        };
+
+        let result = validate_tool_arguments(
+            "req-6",
+            "repo-tools",
+            "read_file",
+            &serde_json::json!({"path": "src\\lib.rs"}),
+            Some(&policy),
+        );
+
+        assert!(result.is_ok(), "windows separator should be treated as a path separator");
     }
 }
