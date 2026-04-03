@@ -190,12 +190,10 @@ impl LLMProxyError {
         match self {
             Self::InvalidRequest { message, .. }
             | Self::Unauthorized { message, .. }
-            | Self::PolicyBlocked { message, .. }
-            | Self::UpstreamError { message, .. }
-            | Self::UpstreamUnavailable { message, .. } => message.clone(),
-            Self::ModelNotRouted { model, .. } => {
-                format!("model '{}' is not routed to a configured provider", model)
-            }
+            | Self::PolicyBlocked { message, .. } => message.clone(),
+            Self::ModelNotRouted { .. } => "requested model is not routed to a configured provider".to_string(),
+            Self::UpstreamError { .. } => "upstream request failed".to_string(),
+            Self::UpstreamUnavailable { .. } => "upstream provider is unavailable".to_string(),
         }
     }
 }

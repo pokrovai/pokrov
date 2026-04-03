@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use http::StatusCode;
 use serde_json::Value;
+use tokio::time::sleep;
 
 use crate::{
     errors::LLMProxyError,
@@ -66,6 +67,10 @@ impl UpstreamClient {
                     }
 
                     if should_retry_status(response.status()) && attempt < route.retry_budget {
+                        let delay = compute_retry_delay(response.status(), response.headers(), attempt);
+                        if !delay.is_zero() {
+                            sleep(delay).await;
+                        }
                         continue;
                     }
 
@@ -125,6 +130,10 @@ impl UpstreamClient {
                     }
 
                     if should_retry_status(response.status()) && attempt < route.retry_budget {
+                        let delay = compute_retry_delay(response.status(), response.headers(), attempt);
+                        if !delay.is_zero() {
+                            sleep(delay).await;
+                        }
                         continue;
                     }
 
@@ -163,6 +172,27 @@ fn build_endpoint(base_url: &str) -> String {
 fn should_retry_status(status: reqwest::StatusCode) -> bool {
     matches!(status, reqwest::StatusCode::TOO_MANY_REQUESTS)
         || status.is_server_error()
+}
+
+fn compute_retry_delay(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    attempt: u8,
+) -> Duration {
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        if let Some(delay) = parse_retry_after(headers) {
+            return delay;
+        }
+    }
+
+    let multiplier = 1u64 << u32::from(attempt.min(5));
+    Duration::from_millis(100 * multiplier)
+}
+
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    let raw = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
+    let seconds = raw.parse::<u64>().ok()?;
+    Some(Duration::from_secs(seconds.min(30)))
 }
 
 fn map_upstream_status_error(
@@ -209,4 +239,28 @@ fn map_upstream_transport_error(
 
 fn to_status_code(status: reqwest::StatusCode) -> StatusCode {
     StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY)
+}
+
+#[cfg(test)]
+mod tests {
+    use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+
+    use super::compute_retry_delay;
+
+    #[test]
+    fn retry_after_header_controls_429_delay() {
+        let mut headers = HeaderMap::new();
+        headers.insert(RETRY_AFTER, HeaderValue::from_static("2"));
+
+        let delay = compute_retry_delay(reqwest::StatusCode::TOO_MANY_REQUESTS, &headers, 0);
+        assert_eq!(delay, std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn backoff_is_applied_when_retry_after_is_missing() {
+        let headers = HeaderMap::new();
+
+        let delay = compute_retry_delay(reqwest::StatusCode::TOO_MANY_REQUESTS, &headers, 1);
+        assert_eq!(delay, std::time::Duration::from_millis(200));
+    }
 }

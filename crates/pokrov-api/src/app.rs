@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    extract::DefaultBodyLimit,
+    routing::{get, post},
+    Router,
+};
 use pokrov_core::SanitizationEngine;
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
 use pokrov_proxy_llm::handler::LLMProxyHandler;
@@ -114,6 +118,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/ready", get(ready::handle_ready))
         .route("/v1/sanitize/evaluate", post(evaluate::handle_evaluate))
         .route("/v1/chat/completions", post(chat_completions::handle_chat_completions))
+        .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state(state.clone(), active_requests_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), request_id_middleware))
         .with_state(state)

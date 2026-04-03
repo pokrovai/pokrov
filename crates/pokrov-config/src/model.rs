@@ -60,6 +60,8 @@ pub struct LlmRouteConfig {
 pub struct LlmDefaultsConfig {
     pub profile_id: String,
     pub output_sanitization: bool,
+    #[serde(default = "default_stream_sanitization_max_buffer_bytes")]
+    pub stream_sanitization_max_buffer_bytes: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -114,6 +116,8 @@ pub struct ShutdownConfig {
 pub struct SecurityConfig {
     #[serde(default)]
     pub fail_on_unresolved_api_keys: bool,
+    #[serde(default)]
+    pub fail_on_unresolved_provider_keys: bool,
     #[serde(default)]
     pub api_keys: Vec<ApiKeyBinding>,
 }
@@ -298,6 +302,10 @@ fn default_llm_timeout_ms() -> u64 {
 
 fn default_llm_retry_budget() -> u8 {
     0
+}
+
+fn default_stream_sanitization_max_buffer_bytes() -> usize {
+    1024 * 1024
 }
 
 fn default_rule_priority() -> u16 {

@@ -13,6 +13,7 @@ shutdown:
 
 security:
   fail_on_unresolved_api_keys: false
+  fail_on_unresolved_provider_keys: false
   api_keys:
     - key: env:POKROV_API_KEY
       profile: strict
@@ -67,3 +68,4 @@ llm:
   defaults:
     profile_id: strict
     output_sanitization: true
+    stream_sanitization_max_buffer_bytes: 1048576

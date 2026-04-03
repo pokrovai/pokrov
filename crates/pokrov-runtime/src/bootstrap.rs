@@ -339,7 +339,10 @@ fn build_llm_handler(
         return Ok(None);
     };
 
-    let resolved_provider_keys = resolve_llm_provider_keys(llm_config)?;
+    let resolved_provider_keys = resolve_llm_provider_keys(
+        llm_config,
+        config.security.fail_on_unresolved_provider_keys,
+    )?;
     let routes = ProviderRouteTable::from_config(llm_config, &resolved_provider_keys)
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
@@ -349,8 +352,12 @@ fn build_llm_handler(
     Ok(Some(handler))
 }
 
-fn resolve_llm_provider_keys(config: &LlmConfig) -> Result<std::collections::BTreeMap<String, String>, BootstrapError> {
+fn resolve_llm_provider_keys(
+    config: &LlmConfig,
+    fail_on_unresolved_provider_keys: bool,
+) -> Result<std::collections::BTreeMap<String, String>, BootstrapError> {
     let mut keys = std::collections::BTreeMap::new();
+    let mut unresolved_provider_keys = 0usize;
 
     for provider in &config.providers {
         let Some(secret_ref) = SecretRef::parse(&provider.auth.api_key) else {
@@ -365,6 +372,7 @@ fn resolve_llm_provider_keys(config: &LlmConfig) -> Result<std::collections::BTr
         };
 
         let Some(secret) = secret else {
+            unresolved_provider_keys += 1;
             warn!(
                 component = "runtime",
                 action = "llm_provider_key_skipped",
@@ -375,6 +383,12 @@ fn resolve_llm_provider_keys(config: &LlmConfig) -> Result<std::collections::BTr
         };
 
         keys.insert(provider.id.clone(), secret);
+    }
+
+    if fail_on_unresolved_provider_keys && unresolved_provider_keys > 0 {
+        return Err(BootstrapError::Security(format!(
+            "failed to resolve {unresolved_provider_keys} llm provider key binding(s)"
+        )));
     }
 
     Ok(keys)

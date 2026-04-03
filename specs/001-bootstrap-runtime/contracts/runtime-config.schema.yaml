@@ -57,6 +57,12 @@ properties:
     type: object
     additionalProperties: false
     properties:
+      fail_on_unresolved_api_keys:
+        type: boolean
+        default: false
+      fail_on_unresolved_provider_keys:
+        type: boolean
+        default: false
       api_keys:
         type: array
         items:

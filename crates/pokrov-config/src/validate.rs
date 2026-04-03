@@ -194,6 +194,13 @@ fn validate_llm(config: Option<&LlmConfig>, issues: &mut Vec<ValidationIssue>) {
         ));
     }
 
+    if !(1_024..=16 * 1024 * 1024).contains(&config.defaults.stream_sanitization_max_buffer_bytes) {
+        issues.push(ValidationIssue::new(
+            "llm.defaults.stream_sanitization_max_buffer_bytes",
+            "must be in range 1024..=16777216",
+        ));
+    }
+
     let mut provider_ids = HashSet::new();
     let mut enabled_provider_ids = HashSet::new();
 
@@ -348,6 +355,7 @@ mod tests {
             shutdown: ShutdownConfig { drain_timeout_ms: 5000, grace_period_ms: 10000 },
             security: SecurityConfig {
                 fail_on_unresolved_api_keys: false,
+                fail_on_unresolved_provider_keys: false,
                 api_keys: vec![ApiKeyBinding {
                     key: "env:POKROV_API_KEY".to_string(),
                     profile: "strict".to_string(),
@@ -430,6 +438,7 @@ mod tests {
             defaults: LlmDefaultsConfig {
                 profile_id: "strict".to_string(),
                 output_sanitization: true,
+                stream_sanitization_max_buffer_bytes: 1024 * 1024,
             },
         }
     }
@@ -528,5 +537,18 @@ mod tests {
             .expect_err("duplicate enabled routes must fail validation");
 
         assert!(error.to_string().contains("must map to at most one enabled route"));
+    }
+
+    #[test]
+    fn rejects_invalid_stream_sanitization_buffer_size() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.defaults.stream_sanitization_max_buffer_bytes = 32;
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("invalid stream sanitization buffer size must fail validation");
+
+        assert!(error.to_string().contains("must be in range 1024..=16777216"));
     }
 }

@@ -109,6 +109,11 @@ $defs:
           - custom
       output_sanitization:
         type: boolean
+      stream_sanitization_max_buffer_bytes:
+        type: integer
+        minimum: 1024
+        maximum: 16777216
+        default: 1048576
 
 x-validation-rules:
   - provider ids must be unique

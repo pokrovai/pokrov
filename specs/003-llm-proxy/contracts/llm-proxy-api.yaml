@@ -68,6 +68,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Request body exceeds configured maximum size
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
           description: Model is not routed to any configured provider
           headers:
@@ -248,8 +258,6 @@ components:
             message:
               type: string
               maxLength: 256
-        provider_id:
-          type: string
 
 x-safety-notes:
   metadata_only_audit: true

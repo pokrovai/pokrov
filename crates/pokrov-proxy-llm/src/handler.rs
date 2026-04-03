@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
+use futures_util::StreamExt;
 use pokrov_core::{
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
@@ -311,14 +312,47 @@ impl LLMProxyHandler {
 
         if route.output_sanitization {
             if let Some(evaluator) = self.evaluator.as_ref() {
-                let body = match upstream_body.text().await {
+                let body = match read_stream_body_with_limit(
+                    &request_id,
+                    &route.provider_id,
+                    upstream_body,
+                    route.stream_sanitization_max_buffer_bytes,
+                )
+                .await
+                {
                     Ok(body) => body,
                     Err(cause) => {
-                        let error = LLMProxyError::upstream_error(
-                            request_id.clone(),
+                        self.emit_error_event(
+                            started,
+                            &request_id,
+                            &profile_id,
                             Some(route.provider_id.clone()),
-                            format!("failed to read stream body: {cause}"),
+                            &model,
+                            true,
+                            final_action,
+                            total_hits,
+                            Some(status.as_u16()),
+                            &cause,
                         );
+                        return Err(cause);
+                    }
+                };
+
+                let evaluator = Arc::clone(evaluator);
+                let request_id_for_task = request_id.clone();
+                let profile_id_for_task = profile_id.clone();
+                let sanitized = match tokio::task::spawn_blocking(move || {
+                    sanitize_sse_stream(
+                        &request_id_for_task,
+                        &profile_id_for_task,
+                        &body,
+                        evaluator.as_ref(),
+                    )
+                })
+                .await
+                {
+                    Ok(Ok(sanitized)) => sanitized,
+                    Ok(Err(error)) => {
                         self.emit_error_event(
                             started,
                             &request_id,
@@ -333,11 +367,12 @@ impl LLMProxyHandler {
                         );
                         return Err(error);
                     }
-                };
-
-                let sanitized = match sanitize_sse_stream(&request_id, &profile_id, &body, evaluator) {
-                    Ok(sanitized) => sanitized,
-                    Err(error) => {
+                    Err(join_error) => {
+                        let error = LLMProxyError::upstream_error(
+                            request_id.clone(),
+                            Some(route.provider_id.clone()),
+                            format!("failed to execute stream sanitization task: {join_error}"),
+                        );
                         self.emit_error_event(
                             started,
                             &request_id,
@@ -512,4 +547,45 @@ fn max_action(left: PolicyAction, right: PolicyAction) -> PolicyAction {
     } else {
         left
     }
+}
+
+async fn read_stream_body_with_limit(
+    request_id: &str,
+    provider_id: &str,
+    upstream_body: reqwest::Response,
+    max_buffer_bytes: usize,
+) -> Result<String, LLMProxyError> {
+    let mut bytes = Vec::new();
+    let mut stream = upstream_body.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            LLMProxyError::upstream_error(
+                request_id,
+                Some(provider_id.to_string()),
+                format!("failed to read stream body chunk: {error}"),
+            )
+        })?;
+        let next_len = bytes.len().saturating_add(chunk.len());
+
+        if next_len > max_buffer_bytes {
+            return Err(LLMProxyError::upstream_error(
+                request_id,
+                Some(provider_id.to_string()),
+                format!(
+                    "sanitized stream buffer exceeded configured limit of {max_buffer_bytes} bytes"
+                ),
+            ));
+        }
+
+        bytes.extend_from_slice(&chunk);
+    }
+
+    String::from_utf8(bytes).map_err(|error| {
+        LLMProxyError::upstream_error(
+            request_id,
+            Some(provider_id.to_string()),
+            format!("failed to decode stream body as utf-8: {error}"),
+        )
+    })
 }
