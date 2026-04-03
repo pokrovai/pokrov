@@ -1,3 +1,4 @@
+pub mod chat_completions;
 pub mod evaluate;
 pub mod health;
 pub mod ready;
@@ -12,6 +13,7 @@ pub struct HealthResponse {
 pub struct ReadyChecks {
     pub config: &'static str,
     pub policy: &'static str,
+    pub llm: &'static str,
     pub runtime: &'static str,
     pub active_requests: u64,
 }

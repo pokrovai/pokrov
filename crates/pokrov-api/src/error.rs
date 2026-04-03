@@ -1,4 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse, Json};
+use pokrov_proxy_llm::errors::LLMProxyError;
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -6,6 +7,7 @@ pub struct ApiError {
     pub code: &'static str,
     pub message: String,
     pub request_id: String,
+    pub provider_id: Option<String>,
 }
 
 impl ApiError {
@@ -15,6 +17,7 @@ impl ApiError {
             code: "invalid_request",
             message: message.into(),
             request_id: request_id.into(),
+            provider_id: None,
         }
     }
 
@@ -24,6 +27,7 @@ impl ApiError {
             code: "unauthorized",
             message: message.into(),
             request_id: request_id.into(),
+            provider_id: None,
         }
     }
 
@@ -33,6 +37,7 @@ impl ApiError {
             code: "invalid_profile",
             message: message.into(),
             request_id: request_id.into(),
+            provider_id: None,
         }
     }
 
@@ -42,19 +47,33 @@ impl ApiError {
             code: "internal_error",
             message: message.into(),
             request_id: request_id.into(),
+            provider_id: None,
+        }
+    }
+
+    pub fn from_llm_proxy(error: LLMProxyError) -> Self {
+        Self {
+            status: error.status_code(),
+            code: error.code().as_str(),
+            message: error.message(),
+            request_id: error.request_id().to_string(),
+            provider_id: error.provider_id().map(str::to_string),
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "request_id": self.request_id,
             "error": {
                 "code": self.code,
                 "message": self.message,
             },
         });
+        if let Some(provider_id) = self.provider_id {
+            payload["provider_id"] = serde_json::Value::String(provider_id);
+        }
         (self.status, Json(payload)).into_response()
     }
 }

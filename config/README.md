@@ -1,7 +1,8 @@
 # Pokrov Runtime Config
 
 `pokrov.example.yaml` describes the v1 runtime bootstrap configuration, including
-sanitization profiles for `POST /v1/sanitize/evaluate`.
+sanitization profiles for `POST /v1/sanitize/evaluate` and LLM routing for
+`POST /v1/chat/completions`.
 
 ## Required Sections
 
@@ -10,6 +11,7 @@ sanitization profiles for `POST /v1/sanitize/evaluate`.
 - `shutdown.drain_timeout_ms`, `shutdown.grace_period_ms`
 - `security.api_keys[*].key` and `security.api_keys[*].profile`
 - `sanitization.enabled`, `sanitization.default_profile`, `sanitization.profiles`
+- `llm.providers`, `llm.routes`, `llm.defaults` (required when LLM proxy path is enabled)
 
 Secrets must be provided only as references (`env:NAME` or `file:/path`).
 `security.fail_on_unresolved_api_keys` is optional (default `false`) and enables
@@ -58,3 +60,26 @@ curl -sS -X POST http://127.0.0.1:8080/v1/sanitize/evaluate \
     }
   }'
 ```
+
+LLM proxy check:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
+  -H "Authorization: Bearer $POKROV_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-4o-mini",
+    "stream": false,
+    "messages": [{"role": "user", "content": "hello"}]
+  }' | jq
+```
+
+## LLM Routing Section
+
+- `llm.providers[*].id` must be unique and referenced by `llm.routes[*].provider_id`.
+- Provider secrets must use `env:` or `file:` references in `llm.providers[*].auth.api_key`.
+- Only enabled providers and enabled routes are loaded into the runtime route table.
+- `llm.defaults.profile_id` controls fallback profile selection when payload metadata
+  does not specify a valid profile.
+- `llm.routes[*].output_sanitization` overrides `llm.defaults.output_sanitization`
+  per model route.

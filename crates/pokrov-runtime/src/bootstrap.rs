@@ -8,17 +8,18 @@ use std::{
     time::Duration,
 };
 
-use pokrov_api::app::{build_router, AppState, ResolvedApiKeyBinding, SanitizationState};
+use pokrov_api::app::{build_router, AppState, LlmProxyState, ResolvedApiKeyBinding, SanitizationState};
 use pokrov_config::{
     error::ConfigError,
     loader::load_runtime_config,
-    model::{RuntimeConfig, SecretRef},
+    model::{LlmConfig, RuntimeConfig, SecretRef},
 };
 use pokrov_core::{types::EvaluateError, SanitizationEngine};
 use pokrov_metrics::{
     hooks::{LifecycleEvent, RuntimeMetricsHooks},
     registry::RuntimeMetricsRegistry,
 };
+use pokrov_proxy_llm::{handler::LLMProxyHandler, routing::ProviderRouteTable};
 use tokio::{
     net::TcpListener,
     sync::{oneshot, watch},
@@ -41,6 +42,7 @@ pub enum BootstrapError {
     InvalidArguments(String),
     Config(ConfigError),
     Sanitization(EvaluateError),
+    LlmProxy(String),
     Security(String),
     Bind(std::io::Error),
     Serve(std::io::Error),
@@ -53,6 +55,7 @@ impl fmt::Display for BootstrapError {
             Self::InvalidArguments(message) => write!(f, "invalid arguments: {message}"),
             Self::Config(error) => write!(f, "{error}"),
             Self::Sanitization(error) => write!(f, "failed to initialize sanitization engine: {error}"),
+            Self::LlmProxy(message) => write!(f, "failed to initialize llm proxy: {message}"),
             Self::Security(message) => write!(f, "security bootstrap failed: {message}"),
             Self::Bind(error) => write!(f, "failed to bind listener: {error}"),
             Self::Serve(error) => write!(f, "runtime server failed: {error}"),
@@ -69,7 +72,7 @@ impl Error for BootstrapError {
             Self::Bind(error) => Some(error),
             Self::Serve(error) => Some(error),
             Self::Join(error) => Some(error),
-            Self::InvalidArguments(_) | Self::Security(_) => None,
+            Self::InvalidArguments(_) | Self::LlmProxy(_) | Self::Security(_) => None,
         }
     }
 }
@@ -193,6 +196,19 @@ where
     let resolved_keys = resolve_api_key_bindings(&config)?;
     let policy_loaded = !config.sanitization.enabled || evaluator.is_some();
     lifecycle.set_config_loaded(policy_loaded).await;
+    lifecycle
+        .set_llm_routes_loaded(!is_llm_enabled(&config))
+        .await;
+
+    let llm_handler = build_llm_handler(&config, evaluator.clone(), metrics.clone())?;
+    let llm_enabled = is_llm_enabled(&config);
+    let llm_routes_loaded = llm_handler
+        .as_ref()
+        .map(LLMProxyHandler::routes_loaded)
+        .unwrap_or(false);
+    lifecycle
+        .set_llm_routes_loaded(!llm_enabled || llm_routes_loaded)
+        .await;
 
     let app_state = AppState {
         lifecycle: lifecycle.clone(),
@@ -201,6 +217,10 @@ where
             enabled: config.sanitization.enabled,
             evaluator,
             api_key_bindings: Arc::new(resolved_keys),
+        },
+        llm: LlmProxyState {
+            enabled: llm_enabled,
+            handler: llm_handler.map(Arc::new),
         },
     };
 
@@ -304,6 +324,60 @@ fn resolve_api_key_bindings(config: &RuntimeConfig) -> Result<Vec<ResolvedApiKey
     }
 
     Ok(bindings)
+}
+
+fn is_llm_enabled(config: &RuntimeConfig) -> bool {
+    config.llm.is_some()
+}
+
+fn build_llm_handler(
+    config: &RuntimeConfig,
+    evaluator: Option<Arc<SanitizationEngine>>,
+    metrics: Arc<RuntimeMetricsRegistry>,
+) -> Result<Option<LLMProxyHandler>, BootstrapError> {
+    let Some(llm_config) = config.llm.as_ref() else {
+        return Ok(None);
+    };
+
+    let resolved_provider_keys = resolve_llm_provider_keys(llm_config)?;
+    let routes = ProviderRouteTable::from_config(llm_config, &resolved_provider_keys)
+        .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
+
+    let handler = LLMProxyHandler::new(evaluator, metrics, routes)
+        .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
+
+    Ok(Some(handler))
+}
+
+fn resolve_llm_provider_keys(config: &LlmConfig) -> Result<std::collections::BTreeMap<String, String>, BootstrapError> {
+    let mut keys = std::collections::BTreeMap::new();
+
+    for provider in &config.providers {
+        let Some(secret_ref) = SecretRef::parse(&provider.auth.api_key) else {
+            continue;
+        };
+
+        let secret = match secret_ref {
+            SecretRef::Env(ref name) => std::env::var(name).ok(),
+            SecretRef::File(ref path) => std::fs::read_to_string(path)
+                .ok()
+                .map(|content| content.trim().to_string()),
+        };
+
+        let Some(secret) = secret else {
+            warn!(
+                component = "runtime",
+                action = "llm_provider_key_skipped",
+                provider_id = %provider.id,
+                "failed to resolve provider auth reference; provider skipped"
+            );
+            continue;
+        };
+
+        keys.insert(provider.id.clone(), secret);
+    }
+
+    Ok(keys)
 }
 
 fn map_serve_result(result: Result<(), std::io::Error>) -> Result<(), BootstrapError> {

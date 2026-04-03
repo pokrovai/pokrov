@@ -5,8 +5,8 @@ use regex::Regex;
 use crate::{
     error::{ConfigError, ValidationIssue},
     model::{
-        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, RuntimeConfig, SanitizationProfile,
-        SecretRef,
+        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, LlmConfig, LlmProviderConfig,
+        LlmRouteConfig, RuntimeConfig, SanitizationProfile, SecretRef,
     },
 };
 
@@ -34,6 +34,7 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
 
     validate_api_key_bindings(&config.security.api_keys, &mut issues);
     validate_sanitization(config, &mut issues);
+    validate_llm(config.llm.as_ref(), &mut issues);
 
     if issues.is_empty() {
         Ok(())
@@ -173,6 +174,155 @@ fn validate_custom_rule(
     }
 }
 
+fn validate_llm(config: Option<&LlmConfig>, issues: &mut Vec<ValidationIssue>) {
+    let Some(config) = config else {
+        return;
+    };
+
+    if config.providers.is_empty() {
+        issues.push(ValidationIssue::new("llm.providers", "must contain at least one provider"));
+    }
+
+    if config.routes.is_empty() {
+        issues.push(ValidationIssue::new("llm.routes", "must contain at least one route"));
+    }
+
+    if !matches!(config.defaults.profile_id.as_str(), "minimal" | "strict" | "custom") {
+        issues.push(ValidationIssue::new(
+            "llm.defaults.profile_id",
+            "must be one of minimal|strict|custom",
+        ));
+    }
+
+    let mut provider_ids = HashSet::new();
+    let mut enabled_provider_ids = HashSet::new();
+
+    for (idx, provider) in config.providers.iter().enumerate() {
+        validate_llm_provider(idx, provider, issues);
+
+        if !provider_ids.insert(provider.id.clone()) {
+            issues.push(ValidationIssue::new(
+                format!("llm.providers[{idx}].id"),
+                "must be unique",
+            ));
+        }
+
+        if provider.enabled {
+            enabled_provider_ids.insert(provider.id.clone());
+        }
+    }
+
+    let mut enabled_models = HashSet::new();
+    for (idx, route) in config.routes.iter().enumerate() {
+        validate_llm_route(idx, route, &enabled_provider_ids, issues);
+
+        if route.enabled && !enabled_models.insert(route.model.clone()) {
+            issues.push(ValidationIssue::new(
+                format!("llm.routes[{idx}].model"),
+                "must map to at most one enabled route",
+            ));
+        }
+    }
+}
+
+fn validate_llm_provider(idx: usize, provider: &LlmProviderConfig, issues: &mut Vec<ValidationIssue>) {
+    let provider_path = format!("llm.providers[{idx}]");
+
+    if provider.id.len() < 2 || provider.id.len() > 64 {
+        issues.push(ValidationIssue::new(
+            format!("{provider_path}.id"),
+            "length must be in range 2..=64",
+        ));
+    }
+
+    if !provider
+        .id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    {
+        issues.push(ValidationIssue::new(
+            format!("{provider_path}.id"),
+            "must match ^[a-zA-Z0-9_\\-]+$",
+        ));
+    }
+
+    if !is_valid_provider_base_url(&provider.base_url) {
+        issues.push(ValidationIssue::new(
+            format!("{provider_path}.base_url"),
+            "must be a valid http/https URL",
+        ));
+    }
+
+    if SecretRef::parse(&provider.auth.api_key).is_none() {
+        issues.push(ValidationIssue::new(
+            format!("{provider_path}.auth.api_key"),
+            "must use env:VAR or file:/path format",
+        ));
+    }
+
+    if !(100..=120_000).contains(&provider.timeout_ms) {
+        issues.push(ValidationIssue::new(
+            format!("{provider_path}.timeout_ms"),
+            "must be in range 100..=120000",
+        ));
+    }
+
+    if provider.retry_budget > 3 {
+        issues.push(ValidationIssue::new(
+            format!("{provider_path}.retry_budget"),
+            "must be in range 0..=3",
+        ));
+    }
+}
+
+fn validate_llm_route(
+    idx: usize,
+    route: &LlmRouteConfig,
+    enabled_provider_ids: &HashSet<String>,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let route_path = format!("llm.routes[{idx}]");
+
+    if route.model.trim().is_empty() || route.model.len() > 128 {
+        issues.push(ValidationIssue::new(
+            format!("{route_path}.model"),
+            "length must be in range 1..=128",
+        ));
+    }
+
+    if route.provider_id.len() < 2 || route.provider_id.len() > 64 {
+        issues.push(ValidationIssue::new(
+            format!("{route_path}.provider_id"),
+            "length must be in range 2..=64",
+        ));
+    }
+
+    if route.enabled && !enabled_provider_ids.contains(&route.provider_id) {
+        issues.push(ValidationIssue::new(
+            format!("{route_path}.provider_id"),
+            "must reference an existing enabled provider",
+        ));
+    }
+}
+
+fn is_valid_provider_base_url(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let has_http_scheme = trimmed.starts_with("http://") || trimmed.starts_with("https://");
+    if !has_http_scheme {
+        return false;
+    }
+
+    if let Some(rest) = trimmed.split("://").nth(1) {
+        return !rest.trim().is_empty();
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -181,9 +331,10 @@ mod tests {
 
     use super::validate_runtime_config;
     use crate::model::{
-        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, LogFormat, LogLevel, LoggingConfig,
-        RuntimeConfig, SanitizationConfig, SanitizationProfile, SanitizationProfiles, SecurityConfig,
-        ServerConfig, ShutdownConfig,
+        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, LlmConfig, LlmDefaultsConfig,
+        LlmProviderAuthConfig, LlmProviderConfig, LlmRouteConfig, LogFormat, LogLevel,
+        LoggingConfig, RuntimeConfig, SanitizationConfig, SanitizationProfile, SanitizationProfiles,
+        SecurityConfig, ServerConfig, ShutdownConfig,
     };
 
     fn valid_config() -> RuntimeConfig {
@@ -258,6 +409,31 @@ mod tests {
         }
     }
 
+    fn valid_llm_config() -> LlmConfig {
+        LlmConfig {
+            providers: vec![LlmProviderConfig {
+                id: "openai".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+                auth: LlmProviderAuthConfig {
+                    api_key: "env:OPENAI_API_KEY".to_string(),
+                },
+                timeout_ms: 30_000,
+                retry_budget: 1,
+                enabled: true,
+            }],
+            routes: vec![LlmRouteConfig {
+                model: "gpt-4o-mini".to_string(),
+                provider_id: "openai".to_string(),
+                output_sanitization: Some(true),
+                enabled: true,
+            }],
+            defaults: LlmDefaultsConfig {
+                profile_id: "strict".to_string(),
+                output_sanitization: true,
+            },
+        }
+    }
+
     #[test]
     fn accepts_valid_runtime_config() {
         let config = valid_config();
@@ -312,5 +488,45 @@ mod tests {
             .expect_err("config should fail validation");
 
         assert!(error.to_string().contains("is required when action=replace"));
+    }
+
+    #[test]
+    fn accepts_valid_llm_configuration() {
+        let mut config = valid_config();
+        config.llm = Some(valid_llm_config());
+
+        validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect("llm configuration should be valid");
+    }
+
+    #[test]
+    fn rejects_route_bound_to_disabled_provider() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.providers[0].enabled = false;
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("llm configuration should fail validation");
+
+        assert!(error.to_string().contains("must reference an existing enabled provider"));
+    }
+
+    #[test]
+    fn rejects_duplicate_enabled_model_routes() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.routes.push(LlmRouteConfig {
+            model: "gpt-4o-mini".to_string(),
+            provider_id: "openai".to_string(),
+            output_sanitization: Some(false),
+            enabled: true,
+        });
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("duplicate enabled routes must fail validation");
+
+        assert!(error.to_string().contains("must map to at most one enabled route"));
     }
 }

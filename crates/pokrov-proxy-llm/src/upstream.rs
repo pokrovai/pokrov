@@ -1,0 +1,212 @@
+use std::time::Duration;
+
+use http::StatusCode;
+use serde_json::Value;
+
+use crate::{
+    errors::LLMProxyError,
+    types::{CHAT_COMPLETIONS_UPSTREAM_PATH, RouteResolution, UpstreamJsonResponse, UpstreamStreamResponse},
+};
+
+#[derive(Debug, Clone)]
+pub struct UpstreamClient {
+    client: reqwest::Client,
+}
+
+impl UpstreamClient {
+    pub fn new() -> Result<Self, LLMProxyError> {
+        let client = reqwest::Client::builder()
+            .pool_max_idle_per_host(16)
+            .build()
+            .map_err(|error| {
+                LLMProxyError::upstream_unavailable(
+                    "system",
+                    None,
+                    format!("failed to initialize upstream client: {error}"),
+                )
+            })?;
+
+        Ok(Self { client })
+    }
+
+    pub async fn execute_json(
+        &self,
+        request_id: &str,
+        route: &RouteResolution,
+        payload: &Value,
+    ) -> Result<UpstreamJsonResponse, LLMProxyError> {
+        let endpoint = build_endpoint(&route.base_url);
+
+        for attempt in 0..=route.retry_budget {
+            let response = self
+                .client
+                .post(&endpoint)
+                .bearer_auth(&route.api_key)
+                .timeout(Duration::from_millis(route.timeout_ms))
+                .json(payload)
+                .send()
+                .await;
+
+            match response {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let status = response.status();
+                        let body = response.json::<Value>().await.map_err(|error| {
+                            LLMProxyError::upstream_error(
+                                request_id,
+                                Some(route.provider_id.clone()),
+                                format!("upstream returned invalid JSON: {error}"),
+                            )
+                        })?;
+
+                        return Ok(UpstreamJsonResponse {
+                            status: to_status_code(status),
+                            body,
+                        });
+                    }
+
+                    if should_retry_status(response.status()) && attempt < route.retry_budget {
+                        continue;
+                    }
+
+                    return Err(map_upstream_status_error(
+                        request_id,
+                        route.provider_id.clone(),
+                        response.status(),
+                    ));
+                }
+                Err(error) => {
+                    if attempt < route.retry_budget && (error.is_timeout() || error.is_connect()) {
+                        continue;
+                    }
+
+                    return Err(map_upstream_transport_error(
+                        request_id,
+                        route.provider_id.clone(),
+                        error,
+                    ));
+                }
+            }
+        }
+
+        Err(LLMProxyError::upstream_unavailable(
+            request_id,
+            Some(route.provider_id.clone()),
+            "upstream retry budget exhausted",
+        ))
+    }
+
+    pub async fn execute_stream(
+        &self,
+        request_id: &str,
+        route: &RouteResolution,
+        payload: &Value,
+    ) -> Result<UpstreamStreamResponse, LLMProxyError> {
+        let endpoint = build_endpoint(&route.base_url);
+
+        for attempt in 0..=route.retry_budget {
+            let response = self
+                .client
+                .post(&endpoint)
+                .bearer_auth(&route.api_key)
+                .timeout(Duration::from_millis(route.timeout_ms))
+                .json(payload)
+                .send()
+                .await;
+
+            match response {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let status = to_status_code(response.status());
+                        return Ok(UpstreamStreamResponse {
+                            status,
+                            body: response,
+                        });
+                    }
+
+                    if should_retry_status(response.status()) && attempt < route.retry_budget {
+                        continue;
+                    }
+
+                    return Err(map_upstream_status_error(
+                        request_id,
+                        route.provider_id.clone(),
+                        response.status(),
+                    ));
+                }
+                Err(error) => {
+                    if attempt < route.retry_budget && (error.is_timeout() || error.is_connect()) {
+                        continue;
+                    }
+
+                    return Err(map_upstream_transport_error(
+                        request_id,
+                        route.provider_id.clone(),
+                        error,
+                    ));
+                }
+            }
+        }
+
+        Err(LLMProxyError::upstream_unavailable(
+            request_id,
+            Some(route.provider_id.clone()),
+            "upstream retry budget exhausted",
+        ))
+    }
+}
+
+fn build_endpoint(base_url: &str) -> String {
+    format!("{}{}", base_url.trim_end_matches('/'), CHAT_COMPLETIONS_UPSTREAM_PATH)
+}
+
+fn should_retry_status(status: reqwest::StatusCode) -> bool {
+    matches!(status, reqwest::StatusCode::TOO_MANY_REQUESTS)
+        || status.is_server_error()
+}
+
+fn map_upstream_status_error(
+    request_id: &str,
+    provider_id: String,
+    status: reqwest::StatusCode,
+) -> LLMProxyError {
+    if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+        return LLMProxyError::upstream_unavailable_with_status(
+            request_id,
+            Some(provider_id),
+            Some(status.as_u16()),
+            "upstream provider is unavailable",
+        );
+    }
+
+    LLMProxyError::upstream_error_with_status(
+        request_id,
+        Some(provider_id),
+        Some(status.as_u16()),
+        format!("upstream returned status {}", status.as_u16()),
+    )
+}
+
+fn map_upstream_transport_error(
+    request_id: &str,
+    provider_id: String,
+    error: reqwest::Error,
+) -> LLMProxyError {
+    if error.is_timeout() || error.is_connect() {
+        return LLMProxyError::upstream_unavailable(
+            request_id,
+            Some(provider_id),
+            "upstream request timed out or connection failed",
+        );
+    }
+
+    LLMProxyError::upstream_error(
+        request_id,
+        Some(provider_id),
+        format!("upstream request failed: {error}"),
+    )
+}
+
+fn to_status_code(status: reqwest::StatusCode) -> StatusCode {
+    StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY)
+}
