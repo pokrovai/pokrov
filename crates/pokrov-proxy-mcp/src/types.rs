@@ -56,6 +56,7 @@ pub enum McpPolicyReason {
     ToolNotAllowlisted,
     ToolBlocklisted,
     ArgumentInvalid,
+    OutputBlocked,
     Allowed,
 }
 
@@ -66,6 +67,7 @@ impl McpPolicyReason {
             Self::ToolNotAllowlisted => "tool_not_allowlisted",
             Self::ToolBlocklisted => "tool_blocklisted",
             Self::ArgumentInvalid => "argument_invalid",
+            Self::OutputBlocked => "output_blocked",
             Self::Allowed => "allowed",
         }
     }

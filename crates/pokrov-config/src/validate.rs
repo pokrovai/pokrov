@@ -326,6 +326,13 @@ fn validate_mcp_server(idx: usize, server: &McpServerDefinition, issues: &mut Ve
         }
     }
 
+    if server.enabled && server.allowed_tools.is_empty() {
+        issues.push(ValidationIssue::new(
+            format!("{server_path}.allowed_tools"),
+            "must contain at least one tool id when server is enabled",
+        ));
+    }
+
     let mut blocked_tools = HashSet::new();
     for (tool_idx, tool) in server.blocked_tools.iter().enumerate() {
         if tool.trim().is_empty() {

@@ -281,3 +281,18 @@
 
         assert!(error.to_string().contains("blocked tool cannot be listed in allowed_tools"));
     }
+
+    #[test]
+    fn rejects_enabled_mcp_server_without_allowlisted_tools() {
+        let mut config = valid_config();
+        let mut mcp = valid_mcp_config();
+        mcp.servers[0].allowed_tools.clear();
+        mcp.servers[0].tools.clear();
+        config.mcp = Some(mcp);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("enabled MCP server without allowlisted tools must fail validation");
+
+        assert!(error.to_string().contains("mcp.servers[0].allowed_tools"));
+        assert!(error.to_string().contains("must contain at least one tool id when server is enabled"));
+    }
