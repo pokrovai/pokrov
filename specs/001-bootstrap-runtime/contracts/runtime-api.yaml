@@ -1,0 +1,73 @@
+openapi: 3.1.0
+info:
+  title: Pokrov Runtime API
+  version: 0.1.0
+  description: Bootstrap runtime service contracts for health and readiness endpoints.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      summary: Process liveness probe
+      operationId: getHealth
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ready:
+    get:
+      summary: Runtime readiness probe
+      operationId: getReady
+      responses:
+        '200':
+          description: Service is ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Service is not ready yet or is draining
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - request_id
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        request_id:
+          type: string
+    ReadyResponse:
+      type: object
+      required:
+        - status
+        - request_id
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready, draining]
+        request_id:
+          type: string
+        checks:
+          type: object
+          required:
+            - config
+            - runtime
+          properties:
+            config:
+              type: string
+              enum: [ok, failed, pending]
+            runtime:
+              type: string
+              enum: [ok, pending, draining]
