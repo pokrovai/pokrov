@@ -59,6 +59,10 @@ pub fn resolve_profile_id(
     default_profile.to_string()
 }
 
+pub fn estimate_token_units(payload: &Value) -> u32 {
+    estimate_token_units_inner(payload).max(1)
+}
+
 fn normalize_messages(request_id: &str, value: &Value) -> Result<Vec<LLMMessage>, LLMProxyError> {
     let messages = value
         .as_array()
@@ -191,9 +195,29 @@ fn is_known_profile(profile: &str) -> bool {
     matches!(profile, "minimal" | "strict" | "custom")
 }
 
+fn estimate_token_units_inner(payload: &Value) -> u32 {
+    match payload {
+        Value::Null | Value::Bool(_) => 0,
+        Value::Number(_) => 1,
+        Value::String(text) => {
+            // The estimator stays deterministic and cheap on the hot path by
+            // using character length instead of provider-specific tokenization.
+            (text.chars().count() as u32 / 4).max(1)
+        }
+        Value::Array(values) => values
+            .iter()
+            .fold(0u32, |acc, value| acc.saturating_add(estimate_token_units_inner(value))),
+        Value::Object(map) => map.values().fold(0u32, |acc, value| {
+            acc.saturating_add(estimate_token_units_inner(value))
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{normalize_request, resolve_profile_id};
+    use serde_json::json;
+
+    use super::{estimate_token_units, normalize_request, resolve_profile_id};
 
     #[test]
     fn normalize_valid_request_and_resolve_profile_precedence() {
@@ -220,5 +244,18 @@ mod tests {
     fn resolve_profile_falls_back_when_hint_is_invalid() {
         let profile = resolve_profile_id(Some("unknown"), "strict", "custom");
         assert_eq!(profile, "strict");
+    }
+
+    #[test]
+    fn estimates_token_units_from_nested_json_strings() {
+        let payload = json!({
+            "messages": [
+                {"content": "abcd"},
+                {"content": ["abcdefgh", {"text": "abcdefghijkl"}]}
+            ]
+        });
+
+        let units = estimate_token_units(&payload);
+        assert_eq!(units, 6);
     }
 }

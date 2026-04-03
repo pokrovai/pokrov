@@ -5,6 +5,11 @@ fn contract_path() -> PathBuf {
         .join("specs/004-mcp-mediation/contracts/mcp-mediation-api.yaml")
 }
 
+fn hardening_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/005-hardening-release/contracts/hardening-api.yaml")
+}
+
 #[test]
 fn mcp_contract_defines_tool_call_endpoint_and_success_shape() {
     let raw = std::fs::read_to_string(contract_path()).expect("contract file should exist");
@@ -44,4 +49,17 @@ fn mcp_contract_exposes_blocked_validation_and_unsupported_variant_errors() {
     assert!(error_codes.contains(&"argument_validation_failed"));
     assert!(error_codes.contains(&"unsupported_variant"));
     assert!(error_codes.contains(&"upstream_unavailable"));
+}
+
+#[test]
+fn hardening_contract_covers_mcp_invoke_path_and_rate_limit_error() {
+    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should parse");
+
+    let operation = &api["paths"]["/v1/mcp/tools/{toolName}/invoke"]["post"];
+    assert!(operation.is_mapping(), "hardening MCP invoke endpoint must be declared");
+
+    let rate_limit_response = &operation["responses"]["429"];
+    assert!(rate_limit_response.is_mapping(), "hardening MCP invoke must declare 429 response");
+    assert!(rate_limit_response["headers"]["Retry-After"].is_mapping());
 }

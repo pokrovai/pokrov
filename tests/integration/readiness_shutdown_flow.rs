@@ -8,10 +8,13 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn ready_returns_not_ready_while_startup_is_pending() {
     let lifecycle = Arc::new(pokrov_runtime::lifecycle::RuntimeLifecycle::new());
+    let metrics_registry = Arc::new(pokrov_metrics::registry::RuntimeMetricsRegistry::default());
     let app = pokrov_api::app::build_router(pokrov_api::app::AppState {
         lifecycle,
-        metrics: Arc::new(pokrov_metrics::registry::RuntimeMetricsRegistry::default()),
+        metrics: metrics_registry.clone(),
+        metrics_registry,
         sanitization: pokrov_api::app::SanitizationState::default(),
+        rate_limit: pokrov_api::app::RateLimitState::default(),
         llm: pokrov_api::app::LlmProxyState::default(),
         mcp: pokrov_api::app::McpProxyState::default(),
     });
@@ -28,10 +31,13 @@ async fn draining_rejects_new_health_requests() {
     let lifecycle = Arc::new(pokrov_runtime::lifecycle::RuntimeLifecycle::new());
     lifecycle.set_config_loaded(true).await;
     lifecycle.mark_draining().await;
+    let metrics_registry = Arc::new(pokrov_metrics::registry::RuntimeMetricsRegistry::default());
     let app = pokrov_api::app::build_router(pokrov_api::app::AppState {
         lifecycle,
-        metrics: Arc::new(pokrov_metrics::registry::RuntimeMetricsRegistry::default()),
+        metrics: metrics_registry.clone(),
+        metrics_registry,
         sanitization: pokrov_api::app::SanitizationState::default(),
+        rate_limit: pokrov_api::app::RateLimitState::default(),
         llm: pokrov_api::app::LlmProxyState::default(),
         mcp: pokrov_api::app::McpProxyState::default(),
     });

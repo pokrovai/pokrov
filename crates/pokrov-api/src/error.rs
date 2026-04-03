@@ -1,7 +1,18 @@
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    http::{header::HeaderName, HeaderValue, StatusCode},
+    response::IntoResponse,
+    Json,
+};
 use pokrov_proxy_llm::errors::LLMProxyError;
 use pokrov_proxy_mcp::errors::McpProxyError;
 use tracing::warn;
+
+use crate::app::RateLimitDecision;
+
+const RETRY_AFTER: HeaderName = HeaderName::from_static("retry-after");
+const X_RATE_LIMIT_LIMIT: HeaderName = HeaderName::from_static("x-ratelimit-limit");
+const X_RATE_LIMIT_REMAINING: HeaderName = HeaderName::from_static("x-ratelimit-remaining");
+const X_RATE_LIMIT_RESET: HeaderName = HeaderName::from_static("x-ratelimit-reset");
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -11,6 +22,7 @@ pub struct ApiError {
     pub request_id: String,
     pub allowed: Option<bool>,
     pub details: Option<serde_json::Value>,
+    pub rate_limit: Option<RateLimitDecision>,
 }
 
 impl ApiError {
@@ -22,6 +34,7 @@ impl ApiError {
             request_id: request_id.into(),
             allowed: None,
             details: None,
+            rate_limit: None,
         }
     }
 
@@ -33,6 +46,7 @@ impl ApiError {
             request_id: request_id.into(),
             allowed: None,
             details: None,
+            rate_limit: None,
         }
     }
 
@@ -44,6 +58,7 @@ impl ApiError {
             request_id: request_id.into(),
             allowed: None,
             details: None,
+            rate_limit: None,
         }
     }
 
@@ -55,6 +70,7 @@ impl ApiError {
             request_id: request_id.into(),
             allowed: None,
             details: None,
+            rate_limit: None,
         }
     }
 
@@ -66,6 +82,19 @@ impl ApiError {
             request_id: request_id.into(),
             allowed: None,
             details: None,
+            rate_limit: None,
+        }
+    }
+
+    pub fn rate_limit_exceeded(request_id: impl Into<String>, decision: RateLimitDecision) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: "rate_limit_exceeded",
+            message: "Request rejected by rate-limit policy".to_string(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: Some(decision),
         }
     }
 
@@ -89,6 +118,7 @@ impl ApiError {
             request_id: error.request_id().to_string(),
             allowed: None,
             details: None,
+            rate_limit: None,
         }
     }
 
@@ -113,6 +143,7 @@ impl ApiError {
             details: error
                 .details()
                 .and_then(|details| serde_json::to_value(details).ok()),
+            rate_limit: None,
         }
     }
 }
@@ -146,6 +177,86 @@ impl IntoResponse for ApiError {
         }
 
         payload.insert("error".to_string(), serde_json::Value::Object(error));
-        (self.status, Json(serde_json::Value::Object(payload))).into_response()
+
+        if let Some(rate_limit) = self.rate_limit {
+            payload.insert(
+                "retry_after_ms".to_string(),
+                serde_json::Value::Number(rate_limit.retry_after_ms.into()),
+            );
+            payload.insert(
+                "limit".to_string(),
+                serde_json::Value::Number(rate_limit.limit.into()),
+            );
+            payload.insert(
+                "remaining".to_string(),
+                serde_json::Value::Number(rate_limit.remaining.into()),
+            );
+            payload.insert(
+                "reset_at".to_string(),
+                serde_json::Value::Number(rate_limit.reset_at_unix_ms.into()),
+            );
+        }
+
+        let mut response = (self.status, Json(serde_json::Value::Object(payload))).into_response();
+        if let Some(rate_limit) = self.rate_limit {
+            let retry_after_seconds = retry_after_header_seconds(rate_limit.retry_after_ms);
+            if let Ok(value) = HeaderValue::from_str(&retry_after_seconds.to_string()) {
+                response.headers_mut().insert(RETRY_AFTER, value);
+            }
+            if let Ok(value) = HeaderValue::from_str(&rate_limit.limit.to_string()) {
+                response.headers_mut().insert(X_RATE_LIMIT_LIMIT, value);
+            }
+            if let Ok(value) = HeaderValue::from_str(&rate_limit.remaining.to_string()) {
+                response.headers_mut().insert(X_RATE_LIMIT_REMAINING, value);
+            }
+            if let Ok(value) = HeaderValue::from_str(&rate_limit.reset_at_unix_ms.to_string()) {
+                response.headers_mut().insert(X_RATE_LIMIT_RESET, value);
+            }
+        }
+
+        response
+    }
+}
+
+fn retry_after_header_seconds(retry_after_ms: u64) -> u64 {
+    (retry_after_ms.saturating_add(999) / 1000).max(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::response::IntoResponse;
+    use pokrov_config::rate_limit::RateLimitEnforcementMode;
+
+    use crate::app::{RateLimitDecision, RateLimitReason};
+
+    use super::{ApiError, RETRY_AFTER, retry_after_header_seconds};
+
+    #[test]
+    fn retry_after_seconds_uses_ceiling_rounding() {
+        assert_eq!(retry_after_header_seconds(0), 1);
+        assert_eq!(retry_after_header_seconds(1), 1);
+        assert_eq!(retry_after_header_seconds(1000), 1);
+        assert_eq!(retry_after_header_seconds(1500), 2);
+    }
+
+    #[test]
+    fn rate_limit_response_headers_use_ceiling_retry_after_seconds() {
+        let decision = RateLimitDecision {
+            allowed: false,
+            reason: RateLimitReason::RequestBudgetExhausted,
+            retry_after_ms: 1500,
+            limit: 10,
+            remaining: 0,
+            reset_at_unix_ms: 1_700_000_000_000,
+            enforcement_mode: RateLimitEnforcementMode::Enforce,
+        };
+
+        let response = ApiError::rate_limit_exceeded("request-1", decision).into_response();
+        let header = response
+            .headers()
+            .get(RETRY_AFTER)
+            .and_then(|value| value.to_str().ok());
+
+        assert_eq!(header, Some("2"));
     }
 }

@@ -8,8 +8,11 @@ health/readiness probes, and serves an OpenAI-compatible LLM endpoint.
 
 - `GET /health`
 - `GET /ready`
+- `GET /metrics`
 - `POST /v1/sanitize/evaluate`
 - `POST /v1/chat/completions`
+- `POST /v1/mcp/tool-call`
+- `POST /v1/mcp/tools/{toolName}/invoke`
 
 ## Local Start
 
@@ -24,6 +27,7 @@ Probe check:
 ```bash
 curl -sS http://127.0.0.1:8080/health
 curl -sS -i http://127.0.0.1:8080/ready
+curl -sS http://127.0.0.1:8080/metrics | rg 'pokrov_'
 ```
 
 LLM check:
@@ -55,4 +59,14 @@ docker run --rm -p 8080:8080 \
 cargo check --workspace
 cargo test --workspace
 cargo clippy --all-targets --all-features
+```
+
+Release evidence scaffold:
+
+```bash
+cargo run -p pokrov-runtime -- \
+  --release-evidence-output ./config/release/release-evidence.json \
+  --release-id hardening-v1 \
+  --artifact ./config/pokrov.example.yaml \
+  --artifact ./config/release/verification-checklist.md
 ```

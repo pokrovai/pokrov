@@ -12,7 +12,9 @@ async fn main() {
         }
         Err(error) => {
             eprintln!("{error}");
-            eprintln!("usage: cargo run -p pokrov-runtime -- --config <path>");
+            eprintln!(
+                "usage: cargo run -p pokrov-runtime -- --config <path>\n   or: cargo run -p pokrov-runtime -- --release-evidence-output <path> [--release-id <id>] [--artifact <path> ...]"
+            );
             std::process::exit(2);
         }
     }

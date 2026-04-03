@@ -110,6 +110,15 @@ docker build -t pokrov-hardening:v1 .
    - verification checklist;
    - `release-evidence.json` по schema;
    - checksums для всех артефактов.
+   - evidence scaffold можно сгенерировать CLI-командой:
+
+```bash
+cargo run -p pokrov-runtime -- \
+  --release-evidence-output ./config/release/release-evidence.json \
+  --release-id hardening-v1 \
+  --artifact ./config/pokrov.example.yaml \
+  --artifact ./config/release/verification-checklist.md
+```
 3. Прогнать smoke deploy в чистом окружении и подтвердить прохождение
    базовых acceptance checks.
 

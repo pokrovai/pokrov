@@ -13,6 +13,9 @@ pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
 pokrov-proxy-mcp = { path = "../pokrov-proxy-mcp" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

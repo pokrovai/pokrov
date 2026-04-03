@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 pokrov-core = { path = "../pokrov-core" }
+prometheus = { workspace = true }
 serde = { workspace = true }

@@ -9,6 +9,7 @@ use crate::{
         LlmRouteConfig, McpConfig, McpServerDefinition, RuntimeConfig, SanitizationProfile,
         SecretRef, ToolArgumentConstraints,
     },
+    rate_limit::RateLimitConfig,
 };
 
 pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<(), ConfigError> {
@@ -37,11 +38,58 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
     validate_sanitization(config, &mut issues);
     validate_llm(config.llm.as_ref(), &mut issues);
     validate_mcp(config.mcp.as_ref(), &mut issues);
+    validate_rate_limit(&config.rate_limit, &mut issues);
 
     if issues.is_empty() {
         Ok(())
     } else {
         Err(ConfigError::Validation { path: path.to_path_buf(), issues })
+    }
+}
+
+fn validate_rate_limit(config: &RateLimitConfig, issues: &mut Vec<ValidationIssue>) {
+    if !config.enabled {
+        return;
+    }
+
+    if config.profiles.is_empty() {
+        issues.push(ValidationIssue::new(
+            "rate_limit.profiles",
+            "must contain at least one profile when rate limiting is enabled",
+        ));
+        return;
+    }
+
+    if !config.profiles.contains_key(&config.default_profile) {
+        issues.push(ValidationIssue::new(
+            "rate_limit.default_profile",
+            "must reference an existing rate-limit profile",
+        ));
+    }
+
+    for (profile_id, profile) in &config.profiles {
+        let base_path = format!("rate_limit.profiles.{profile_id}");
+
+        if profile.requests_per_minute == 0 {
+            issues.push(ValidationIssue::new(
+                format!("{base_path}.requests_per_minute"),
+                "must be greater than zero",
+            ));
+        }
+
+        if profile.token_units_per_minute == 0 {
+            issues.push(ValidationIssue::new(
+                format!("{base_path}.token_units_per_minute"),
+                "must be greater than zero",
+            ));
+        }
+
+        if !(1.0..=5.0).contains(&profile.burst_multiplier) {
+            issues.push(ValidationIssue::new(
+                format!("{base_path}.burst_multiplier"),
+                "must be in range 1.0..=5.0",
+            ));
+        }
     }
 }
 

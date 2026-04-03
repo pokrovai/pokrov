@@ -5,6 +5,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use pokrov_proxy_llm::normalize::estimate_token_units;
+use pokrov_proxy_llm::audit::LLMRateLimitAuditEvent;
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
 
@@ -27,6 +29,38 @@ pub async fn handle_chat_completions(
         ApiError::unauthorized(request_id.clone(), "invalid API key or profile binding")
     })?;
 
+    if let Some(limiter) = state.rate_limit.limiter.as_ref() {
+        let estimated_units = estimate_token_units(&payload);
+        let decision = limiter
+            .evaluate(token, &api_key_profile, estimated_units)
+            .await;
+        if !matches!(decision.reason, crate::app::RateLimitReason::WithinBudget) {
+            LLMRateLimitAuditEvent {
+                request_id: request_id.clone(),
+                profile_id: api_key_profile.clone(),
+                decision: if decision.allowed { "dry_run" } else { "blocked" }.to_string(),
+                retry_after_ms: decision.retry_after_ms,
+                limit: decision.limit,
+                remaining: decision.remaining,
+                reset_at_unix_ms: decision.reset_at_unix_ms,
+            }
+            .emit();
+            state.metrics.on_rate_limit_event(
+                "/v1/chat/completions",
+                match decision.reason {
+                    crate::app::RateLimitReason::RequestBudgetExhausted => "requests",
+                    crate::app::RateLimitReason::TokenBudgetExhausted => "token_units",
+                    crate::app::RateLimitReason::WithinBudget => "requests",
+                },
+                if decision.allowed { "dry_run" } else { "blocked" },
+                &api_key_profile,
+            );
+        }
+        if !decision.allowed {
+            return Err(ApiError::rate_limit_exceeded(request_id, decision));
+        }
+    }
+
     let handler = state.llm.handler.clone().ok_or_else(|| {
         ApiError::invalid_request(request_id.clone(), "llm proxy is not configured")
     })?;
@@ -34,7 +68,21 @@ pub async fn handle_chat_completions(
     let response = handler
         .handle_chat_completion(request_id.clone(), payload, &api_key_profile)
         .await
-        .map_err(ApiError::from_llm_proxy)?;
+        .map_err(|error| {
+            if error.code().as_str().starts_with("upstream_") {
+                let error_class = match error.upstream_status() {
+                    Some(status) if (400..500).contains(&status) => "upstream_4xx",
+                    Some(status) if (500..600).contains(&status) => "upstream_5xx",
+                    _ => "transport",
+                };
+                state.metrics.on_upstream_error(
+                    "/v1/chat/completions",
+                    error.provider_id().unwrap_or("unknown"),
+                    error_class,
+                );
+            }
+            ApiError::from_llm_proxy(error)
+        })?;
 
     match response.body {
         LLMProxyBody::Json(body) => Ok((response.status, Json(body)).into_response()),

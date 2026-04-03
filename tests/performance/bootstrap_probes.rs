@@ -26,9 +26,15 @@ security:
 "#,
     );
 
+    let startup_started = Instant::now();
     let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
         .expect("runtime should start");
+    let startup_seconds = startup_started.elapsed().as_secs_f64();
+    assert!(
+        startup_seconds <= 5.0,
+        "runtime startup should stay within 5 seconds, got {startup_seconds:.3}"
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()

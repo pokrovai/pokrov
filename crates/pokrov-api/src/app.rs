@@ -1,18 +1,25 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
+use pokrov_config::rate_limit::RateLimitEnforcementMode;
 use pokrov_core::SanitizationEngine;
+use pokrov_metrics::registry::RuntimeMetricsRegistry;
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
 use pokrov_proxy_llm::handler::LLMProxyHandler;
 use pokrov_proxy_mcp::handler::McpProxyHandler;
 
 use crate::{
-    handlers::{chat_completions, evaluate, health, mcp_tool_call, ready},
-    middleware::{active_requests_middleware, request_id_middleware},
+    handlers::{chat_completions, evaluate, health, mcp_tool_call, metrics, ready},
+    middleware::{
+        active_requests_middleware, rate_limit::RateLimiter, request_id_middleware,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -91,6 +98,62 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     diff == 0
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RateLimitReason {
+    WithinBudget,
+    RequestBudgetExhausted,
+    TokenBudgetExhausted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct RateLimitDecision {
+    pub allowed: bool,
+    pub reason: RateLimitReason,
+    pub retry_after_ms: u64,
+    pub limit: u32,
+    pub remaining: u32,
+    pub reset_at_unix_ms: u64,
+    pub enforcement_mode: RateLimitEnforcementMode,
+}
+
+#[derive(Debug, Clone)]
+pub struct RateLimitWindowState {
+    pub window_started_at: Instant,
+    pub consumed: u32,
+}
+
+impl RateLimitWindowState {
+    pub fn new(window_started_at: Instant) -> Self {
+        Self {
+            window_started_at,
+            consumed: 0,
+        }
+    }
+
+    pub fn reset_if_stale(&mut self, now: Instant, window: Duration) {
+        if now.duration_since(self.window_started_at) >= window {
+            self.window_started_at = now;
+            self.consumed = 0;
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct RateLimitState {
+    pub enabled: bool,
+    pub limiter: Option<Arc<RateLimiter>>,
+}
+
+impl Default for RateLimitState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            limiter: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct LlmProxyState {
     pub enabled: bool,
@@ -125,7 +188,9 @@ impl Default for McpProxyState {
 pub struct AppState {
     pub lifecycle: Arc<dyn RuntimeStateReader>,
     pub metrics: SharedRuntimeMetricsHooks,
+    pub metrics_registry: Arc<RuntimeMetricsRegistry>,
     pub sanitization: SanitizationState,
+    pub rate_limit: RateLimitState,
     pub llm: LlmProxyState,
     pub mcp: McpProxyState,
 }
@@ -134,9 +199,14 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::handle_health))
         .route("/ready", get(ready::handle_ready))
+        .route("/metrics", get(metrics::handle_metrics))
         .route("/v1/sanitize/evaluate", post(evaluate::handle_evaluate))
         .route("/v1/chat/completions", post(chat_completions::handle_chat_completions))
         .route("/v1/mcp/tool-call", post(mcp_tool_call::handle_mcp_tool_call))
+        .route(
+            "/v1/mcp/tools/{tool_name}/invoke",
+            post(mcp_tool_call::handle_mcp_tool_call_with_tool_name),
+        )
         .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state(state.clone(), active_requests_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), request_id_middleware))
