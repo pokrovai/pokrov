@@ -1,17 +1,18 @@
 [package]
-name = "pokrov-runtime"
+name = "pokrov-proxy-llm"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { workspace = true }
-pokrov-api = { path = "../pokrov-api" }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
 pokrov-config = { path = "../pokrov-config" }
 pokrov-core = { path = "../pokrov-core" }
 pokrov-metrics = { path = "../pokrov-metrics" }
-pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }

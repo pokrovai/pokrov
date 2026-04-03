@@ -3,9 +3,10 @@ use std::sync::Arc;
 use axum::{routing::{get, post}, Router};
 use pokrov_core::SanitizationEngine;
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
+use pokrov_proxy_llm::handler::LLMProxyHandler;
 
 use crate::{
-    handlers::{evaluate, health, ready},
+    handlers::{chat_completions, evaluate, health, ready},
     middleware::{active_requests_middleware, request_id_middleware},
 };
 
@@ -21,6 +22,7 @@ pub enum RuntimeStateView {
 pub trait RuntimeStateReader: Send + Sync {
     fn state(&self) -> RuntimeStateView;
     fn config_loaded(&self) -> bool;
+    fn llm_routes_loaded(&self) -> bool;
     fn active_requests(&self) -> usize;
     fn on_request_started(&self);
     fn on_request_finished(&self);
@@ -61,6 +63,13 @@ impl SanitizationState {
 
         matched == 1
     }
+
+    pub fn profile_for_token(&self, token: &str) -> Option<String> {
+        self.api_key_bindings
+            .iter()
+            .find(|binding| constant_time_eq(binding.key.as_bytes(), token.as_bytes()))
+            .map(|binding| binding.profile.clone())
+    }
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
@@ -77,10 +86,26 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 }
 
 #[derive(Clone)]
+pub struct LlmProxyState {
+    pub enabled: bool,
+    pub handler: Option<Arc<LLMProxyHandler>>,
+}
+
+impl Default for LlmProxyState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            handler: None,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub lifecycle: Arc<dyn RuntimeStateReader>,
     pub metrics: SharedRuntimeMetricsHooks,
     pub sanitization: SanitizationState,
+    pub llm: LlmProxyState,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -88,6 +113,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(health::handle_health))
         .route("/ready", get(ready::handle_ready))
         .route("/v1/sanitize/evaluate", post(evaluate::handle_evaluate))
+        .route("/v1/chat/completions", post(chat_completions::handle_chat_completions))
         .layer(axum::middleware::from_fn_with_state(state.clone(), active_requests_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), request_id_middleware))
         .with_state(state)

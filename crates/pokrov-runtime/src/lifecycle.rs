@@ -32,6 +32,7 @@ impl From<RuntimeState> for RuntimeStateView {
 pub struct RuntimeLifecycle {
     state: RwLock<RuntimeState>,
     config_loaded: AtomicBool,
+    llm_routes_loaded: AtomicBool,
     active_requests: AtomicUsize,
     shutdown_started_at: RwLock<Option<Instant>>,
 }
@@ -41,6 +42,7 @@ impl RuntimeLifecycle {
         Self {
             state: RwLock::new(RuntimeState::Starting),
             config_loaded: AtomicBool::new(false),
+            llm_routes_loaded: AtomicBool::new(false),
             active_requests: AtomicUsize::new(0),
             shutdown_started_at: RwLock::new(None),
         }
@@ -56,6 +58,10 @@ impl RuntimeLifecycle {
 
     pub async fn mark_ready(&self) {
         *self.state.write().await = RuntimeState::Ready;
+    }
+
+    pub async fn set_llm_routes_loaded(&self, loaded: bool) {
+        self.llm_routes_loaded.store(loaded, Ordering::Relaxed);
     }
 
     pub async fn mark_draining(&self) {
@@ -85,6 +91,10 @@ impl RuntimeLifecycle {
         self.active_requests.load(Ordering::Relaxed)
     }
 
+    pub fn llm_routes_loaded(&self) -> bool {
+        self.llm_routes_loaded.load(Ordering::Relaxed)
+    }
+
     pub fn increment_requests(&self) {
         self.active_requests.fetch_add(1, Ordering::Relaxed);
     }
@@ -112,6 +122,10 @@ impl RuntimeStateReader for RuntimeLifecycle {
 
     fn active_requests(&self) -> usize {
         self.active_requests()
+    }
+
+    fn llm_routes_loaded(&self) -> bool {
+        self.llm_routes_loaded()
     }
 
     fn on_request_started(&self) {

@@ -10,14 +10,18 @@ members = [
   "crates/pokrov-config",
   "crates/pokrov-core",
   "crates/pokrov-metrics",
+  "crates/pokrov-proxy-llm",
   "crates/pokrov-runtime",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 axum = { version = "0.8.1", features = ["http1", "json", "tokio"] }
+bytes = "1.10.1"
+futures-util = "0.3.31"
 http = "1.3.1"
 regex = "1.11.1"
+reqwest = { version = "0.12.15", default-features = false, features = ["http2", "json", "rustls-tls", "stream"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_yaml = "0.9.34"
@@ -35,8 +39,9 @@ pokrov-api = { path = "crates/pokrov-api" }
 pokrov-config = { path = "crates/pokrov-config" }
 pokrov-core = { path = "crates/pokrov-core" }
 pokrov-metrics = { path = "crates/pokrov-metrics" }
+pokrov-proxy-llm = { path = "crates/pokrov-proxy-llm" }
 pokrov-runtime = { path = "crates/pokrov-runtime" }
-reqwest = { version = "0.12.15", default-features = false, features = ["http2", "json", "rustls-tls"] }
+reqwest = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tempfile = "3.14.0"

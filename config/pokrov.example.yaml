@@ -49,3 +49,21 @@ sanitization:
           action: redact
           priority: 900
           enabled: true
+
+llm:
+  providers:
+    - id: openai
+      base_url: https://api.openai.com/v1
+      auth:
+        api_key: env:OPENAI_API_KEY
+      timeout_ms: 30000
+      retry_budget: 1
+      enabled: true
+  routes:
+    - model: gpt-4o-mini
+      provider_id: openai
+      output_sanitization: true
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: true

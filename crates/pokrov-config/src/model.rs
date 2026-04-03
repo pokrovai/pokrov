@@ -17,9 +17,49 @@ pub struct RuntimeConfig {
     #[serde(default)]
     pub policies: Option<BTreeMap<String, serde_yaml::Value>>,
     #[serde(default)]
-    pub llm: Option<BTreeMap<String, serde_yaml::Value>>,
+    pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub mcp: Option<BTreeMap<String, serde_yaml::Value>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LlmConfig {
+    pub providers: Vec<LlmProviderConfig>,
+    pub routes: Vec<LlmRouteConfig>,
+    pub defaults: LlmDefaultsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LlmProviderConfig {
+    pub id: String,
+    pub base_url: String,
+    pub auth: LlmProviderAuthConfig,
+    #[serde(default = "default_llm_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_llm_retry_budget")]
+    pub retry_budget: u8,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LlmProviderAuthConfig {
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LlmRouteConfig {
+    pub model: String,
+    pub provider_id: String,
+    #[serde(default)]
+    pub output_sanitization: Option<bool>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LlmDefaultsConfig {
+    pub profile_id: String,
+    pub output_sanitization: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -250,6 +290,14 @@ fn default_mode() -> EvaluationMode {
 
 fn default_mask_visible_suffix() -> u8 {
     4
+}
+
+fn default_llm_timeout_ms() -> u64 {
+    30_000
+}
+
+fn default_llm_retry_budget() -> u8 {
+    0
 }
 
 fn default_rule_priority() -> u16 {

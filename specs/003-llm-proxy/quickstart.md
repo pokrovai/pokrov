@@ -3,10 +3,9 @@
 ## Preconditions
 
 - Rust stable `1.85+`
-- Valid Pokrov YAML config with `security.api_keys`, `policies.profiles`, `llm.providers`, `llm.routes`
-- Provider API keys configured through `env:` or `file:` secret references
-- `jq` for response validation and `curl` with SSE support
-- Runtime launched with sanitization core enabled
+- Valid Pokrov YAML config with `security.api_keys`, `sanitization.profiles`, `llm.providers`, `llm.routes`, and `llm.defaults`
+- Provider API keys configured through `env:` or `file:` references
+- `jq` and `curl` installed
 
 ## Example Config Fragment
 
@@ -16,10 +15,17 @@ security:
     - key: env:POKROV_API_KEY
       profile: strict
 
-policies:
+sanitization:
+  enabled: true
+  default_profile: strict
   profiles:
     strict:
-      output_sanitization: true
+      mode_default: enforce
+      categories:
+        secrets: block
+        pii: redact
+        corporate_markers: mask
+      mask_visible_suffix: 4
 
 llm:
   providers:
@@ -28,16 +34,19 @@ llm:
       auth:
         api_key: env:OPENAI_API_KEY
       timeout_ms: 30000
+      retry_budget: 1
       enabled: true
   routes:
     - model: gpt-4o-mini
       provider_id: openai
       output_sanitization: true
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: true
 ```
 
 ## Local Run
-
-1. Экспортировать ключи и запустить runtime:
 
 ```bash
 export POKROV_API_KEY='llm-proxy-test-key'
@@ -45,7 +54,7 @@ export OPENAI_API_KEY='provider-test-key'
 cargo run -p pokrov-runtime -- --config ./config/pokrov.example.yaml
 ```
 
-2. Проверить probes:
+Probe checks:
 
 ```bash
 curl -sS http://127.0.0.1:8080/health
@@ -53,8 +62,6 @@ curl -sS -i http://127.0.0.1:8080/ready
 ```
 
 ## Non-Stream Happy Path Verification
-
-1. Отправить chat completion запрос:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
@@ -66,26 +73,38 @@ curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
     "messages": [
       {"role": "user", "content": "Summarize this: token sk-test-123"}
     ],
-    "metadata": {"profile": "strict"}
+    "metadata": {"profile": "minimal"}
   }' | jq
 ```
 
-2. Подтвердить:
-- присутствуют `request_id` и `pokrov` metadata;
-- `pokrov.action` отражает policy outcome;
-- в ответе нет raw sensitive content, если policy потребовала sanitization.
+Validate:
+
+- `request_id` is present in body and `X-Request-Id` header.
+- `pokrov.profile`, `pokrov.action`, and `pokrov.rule_hits` are present.
+- Sanitization happens before upstream forwarding.
 
 ## Block Path Verification
 
-1. Отправить payload, который должен быть заблокирован strict policy.
-2. Проверить ответ:
-- HTTP `403`;
-- structured error с `request_id` и `error.code=policy_blocked`;
-- upstream call не выполняется.
+```bash
+curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
+  -H "Authorization: Bearer $POKROV_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-4o-mini",
+    "stream": false,
+    "messages": [
+      {"role": "user", "content": "token sk-test-12345678"}
+    ]
+  }' | jq
+```
+
+Validate:
+
+- HTTP `403`
+- `error.code=policy_blocked`
+- No upstream provider call is executed
 
 ## Streaming Verification
-
-1. Отправить stream-запрос:
 
 ```bash
 curl -N -X POST http://127.0.0.1:8080/v1/chat/completions \
@@ -95,45 +114,37 @@ curl -N -X POST http://127.0.0.1:8080/v1/chat/completions \
     "model": "gpt-4o-mini",
     "stream": true,
     "messages": [
-      {"role": "user", "content": "Generate a short plan without secrets"}
+      {"role": "user", "content": "Generate a short plan"}
     ]
   }'
 ```
 
-2. Подтвердить:
-- stream приходит в OpenAI-style SSE формате (`data: ...` + `[DONE]`);
-- при включенном output sanitization чувствительные фрагменты не попадают в
-  stream chunks;
-- `X-Request-Id` возвращается в headers.
+Validate:
+
+- Stream uses OpenAI-style SSE framing (`data: ...` and terminal `data: [DONE]`).
+- `Content-Type: text/event-stream` is returned.
+- With `output_sanitization=true`, sensitive output fragments are sanitized.
 
 ## Upstream Error Verification
 
-1. Временно сделать provider недоступным (например, неверный host или key).
-2. Повторить запрос и убедиться:
-- возвращается `502` или `503`;
-- тело ошибки содержит только metadata-only поля;
-- нет raw payload или upstream body dump.
+Temporarily point provider to an unavailable host and repeat the request.
 
-## Audit and Logging Safety Verification
+Validate:
 
-1. Выполнить минимум три сценария: allow, block, upstream error.
-2. Проверить structured logs:
-- присутствуют `request_id`, `provider_id`, `model`, `final_action`, `duration_ms`;
-- отсутствуют raw prompt/messages/model outputs.
-3. Проверить, что audit summary содержит только counts/actions/routing metadata.
+- HTTP `503` for unavailable upstream.
+- `error.code=upstream_unavailable` and `provider_id` are present.
+- Error response contains metadata-only fields.
 
-## Performance Verification (Baseline)
+## Automated Verification
 
-1. Выполнить non-stream baseline прогоны (warm-up + 3 измеряемых серии).
-2. Зафиксировать p50/p95/p99 proxy overhead.
-3. Признать pass, если:
-- p95 <= 50 ms;
-- p99 <= 100 ms;
-- block path deterministic и не вызывает upstream.
+```bash
+cargo check --workspace
+cargo test --workspace
+```
 
 ## Expected Evidence
 
-- Contract test подтверждает OpenAI-compatible request/response shape.
-- Integration tests покрывают happy path, block path, stream path, output sanitization path, upstream error path.
-- Security checks подтверждают metadata-only logs/audit и invalid API key handling.
-- Performance checks подтверждают latency budget для LLM proxy path.
+- Contract tests validate OpenAI-compatible endpoint and metadata contract.
+- Integration tests validate happy path, block path, routing, stream, output sanitization, and upstream failure behavior.
+- Security tests validate auth rejection and metadata-only response safety.
+- Performance tests validate non-stream LLM overhead budget (`p95 <= 50ms`, `p99 <= 100ms`).

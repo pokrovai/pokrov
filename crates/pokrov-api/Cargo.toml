@@ -9,6 +9,7 @@ http = { workspace = true }
 pokrov-config = { path = "../pokrov-config" }
 pokrov-core = { path = "../pokrov-core" }
 pokrov-metrics = { path = "../pokrov-metrics" }
+pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
