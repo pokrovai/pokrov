@@ -1,4 +1,12 @@
-use std::{error::Error, fmt, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    error::Error,
+    fmt,
+    future::IntoFuture,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use pokrov_api::app::{build_router, AppState};
 use pokrov_config::{error::ConfigError, loader::load_runtime_config, model::RuntimeConfig};
@@ -6,7 +14,11 @@ use pokrov_metrics::{
     hooks::{LifecycleEvent, RuntimeMetricsHooks},
     registry::RuntimeMetricsRegistry,
 };
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{oneshot, watch},
+    task::JoinHandle,
+};
 use tracing::{error, info};
 
 use crate::{
@@ -155,11 +167,14 @@ where
     log_lifecycle_event("runtime", "lifecycle_transition", None, "ready");
 
     let drain_timeout = Duration::from_millis(config.shutdown.drain_timeout_ms);
+    let grace_period = Duration::from_millis(config.shutdown.grace_period_ms);
+    let (shutdown_started_tx, mut shutdown_started_rx) = watch::channel(false);
     let graceful = {
         let lifecycle = lifecycle.clone();
         let metrics = metrics.clone();
         async move {
             shutdown_signal.await;
+            let _ = shutdown_started_tx.send(true);
             lifecycle.mark_draining().await;
             metrics.on_lifecycle_event(LifecycleEvent::Draining);
             log_lifecycle_event("runtime", "lifecycle_transition", None, "draining");
@@ -171,7 +186,39 @@ where
         }
     };
 
-    axum::serve(listener, app).with_graceful_shutdown(graceful).await.map_err(|error| {
+    let serve = axum::serve(listener, app).with_graceful_shutdown(graceful).into_future();
+    let mut serve = std::pin::pin!(serve);
+    tokio::select! {
+        result = &mut serve => map_serve_result(result),
+        changed = shutdown_started_rx.changed() => {
+            if changed.is_ok() && *shutdown_started_rx.borrow() {
+                match tokio::time::timeout(grace_period, &mut serve).await {
+                    Ok(result) => map_serve_result(result),
+                    Err(_) => {
+                        let timeout_error = std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            format!(
+                                "graceful shutdown exceeded grace_period_ms={}",
+                                config.shutdown.grace_period_ms
+                            ),
+                        );
+                        error!(
+                            action = "shutdown",
+                            grace_period_ms = config.shutdown.grace_period_ms,
+                            "runtime graceful shutdown exceeded configured grace period"
+                        );
+                        Err(BootstrapError::Serve(timeout_error))
+                    }
+                }
+            } else {
+                map_serve_result(serve.await)
+            }
+        }
+    }
+}
+
+fn map_serve_result(result: Result<(), std::io::Error>) -> Result<(), BootstrapError> {
+    result.map_err(|error| {
         error!(action = "shutdown", error = %error, "runtime serve failed");
         BootstrapError::Serve(error)
     })

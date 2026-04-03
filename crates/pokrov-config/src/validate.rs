@@ -41,6 +41,11 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
                 format!("security.api_keys[{idx}].profile"),
                 "must not be empty",
             ));
+        } else if !is_valid_profile_slug(&binding.profile) {
+            issues.push(ValidationIssue::new(
+                format!("security.api_keys[{idx}].profile"),
+                "must match slug pattern ^[a-z0-9][a-z0-9_-]*$",
+            ));
         }
 
         if !unique_bindings.insert((binding.key.clone(), binding.profile.clone())) {
@@ -56,6 +61,19 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
     } else {
         Err(ConfigError::Validation { path: path.to_path_buf(), issues })
     }
+}
+
+fn is_valid_profile_slug(profile: &str) -> bool {
+    let mut chars = profile.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        return false;
+    }
+
+    chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-')
 }
 
 #[cfg(test)]
@@ -122,5 +140,18 @@ mod tests {
         let error = validate_runtime_config(&config, Path::new("config.yaml"))
             .expect_err("config should fail validation");
         assert!(error.to_string().contains("duplicate binding"));
+    }
+
+    #[test]
+    fn rejects_non_slug_api_key_profile() {
+        let mut config = valid_config();
+        config.security.api_keys[0].profile = "Strict Profile".to_string();
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("config should fail validation");
+        assert!(
+            error
+                .to_string()
+                .contains("must match slug pattern ^[a-z0-9][a-z0-9_-]*$")
+        );
     }
 }

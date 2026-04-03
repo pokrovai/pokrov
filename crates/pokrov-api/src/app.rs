@@ -35,7 +35,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::handle_health))
         .route("/ready", get(ready::handle_ready))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), request_id_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), active_requests_middleware))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), request_id_middleware))
         .with_state(state)
 }
