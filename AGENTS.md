@@ -195,7 +195,7 @@ If you change a contract, you MUST update all dependents in the same patch AND d
 
 # Pokrov Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-03
+Auto-generated from all feature plans. Last updated: 2026-04-04
 
 ## Active Technologies
 - Rust stable 1.85+ + axum, tokio, serde, serde_yaml, tower, tower-http, tracing, tracing-subscriber, uuid (001-bootstrap-runtime)
@@ -205,6 +205,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-03
 - In-memory evaluation results + policy profiles from YAML config; metadata-only audit sink (logs/structured events) (002-sanitization-core)
 - Rust stable 1.85+ + axum, tokio, serde, serde_json, tower, tower-http, tracing, uuid, reqwest, bytes, futures-util (003-llm-proxy)
 - In-memory request context + provider routing/policy bindings from YAML config; metadata-only audit sink (structured logs/events) (003-llm-proxy)
+- Rust stable 1.85+ + axum, tokio, serde, serde_json, serde_yaml, tower, tracing, uuid, reqwest, thiserror (004-mcp-mediation)
+- In-memory request context + statically loaded MCP policy/config from YAML; metadata-only audit/log sink (004-mcp-mediation)
 
 ## Project Structure
 
@@ -230,9 +232,9 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 004-mcp-mediation: Added Rust stable 1.85+ + axum, tokio, serde, serde_json, serde_yaml, tower, tracing, uuid, reqwest, thiserror
 - 003-llm-proxy: Added Rust stable 1.85+ + axum, tokio, serde, serde_json, tower, tower-http, tracing, uuid, reqwest, bytes, futures-util
 - 002-sanitization-core: Added Rust stable 1.85+ + serde, serde_json, serde_yaml, regex, thiserror, axum, tokio, tracing
-- 005-hardening-release: Added Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_yaml, prometheus, uuid
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
