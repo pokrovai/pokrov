@@ -1,0 +1,259 @@
+openapi: 3.1.0
+info:
+  title: Pokrov LLM Proxy API
+  version: 0.1.0
+  description: >-
+    OpenAI-compatible chat completions proxy contract with input/output
+    sanitization, deterministic provider routing, streaming support, and
+    metadata-only audit/explain extensions.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/chat/completions:
+    post:
+      summary: OpenAI-compatible chat completion through Pokrov proxy
+      operationId: postChatCompletions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Completion response or SSE stream start
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: >-
+                  OpenAI-style SSE stream: data events with JSON payload and
+                  terminal `data: [DONE]` event.
+        '400':
+          description: Invalid request format
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Request blocked by policy before upstream call
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Model is not routed to any configured provider
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream request failed
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Upstream provider unavailable
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    ChatCompletionRequest:
+      type: object
+      additionalProperties: true
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          minLength: 1
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        stream:
+          type: boolean
+          default: false
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          properties:
+            profile:
+              type: string
+              enum:
+                - minimal
+                - strict
+                - custom
+
+    ChatMessage:
+      type: object
+      additionalProperties: true
+      required:
+        - role
+      properties:
+        role:
+          type: string
+          enum:
+            - system
+            - user
+            - assistant
+            - tool
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+                additionalProperties: true
+
+    ChatCompletionResponse:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - object
+        - created
+        - model
+        - choices
+        - request_id
+        - pokrov
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum:
+            - chat.completion
+        created:
+          type: integer
+          minimum: 0
+        model:
+          type: string
+        choices:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: true
+        request_id:
+          type: string
+        pokrov:
+          $ref: '#/components/schemas/PokrovMetadata'
+
+    PokrovMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - profile
+        - sanitized_input
+        - sanitized_output
+        - action
+        - rule_hits
+      properties:
+        profile:
+          type: string
+        sanitized_input:
+          type: boolean
+        sanitized_output:
+          type: boolean
+        action:
+          type: string
+          enum:
+            - allow
+            - mask
+            - replace
+            - redact
+            - block
+        rule_hits:
+          type: integer
+          minimum: 0
+        provider:
+          type: string
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - error
+      properties:
+        request_id:
+          type: string
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unauthorized
+                - policy_blocked
+                - model_not_routed
+                - upstream_error
+                - upstream_unavailable
+            message:
+              type: string
+              maxLength: 256
+        provider_id:
+          type: string
+
+x-safety-notes:
+  metadata_only_audit: true
+  forbidden_response_fields:
+    - raw_prompt
+    - raw_response
+    - raw_rule_hits
