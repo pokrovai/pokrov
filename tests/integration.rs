@@ -6,6 +6,8 @@ pub mod llm_proxy_test_support;
 mod request_id_logging_flow;
 #[path = "integration/llm_proxy_block_path.rs"]
 mod llm_proxy_block_path;
+#[path = "integration/llm_proxy_body_limit_path.rs"]
+mod llm_proxy_body_limit_path;
 #[path = "integration/llm_proxy_happy_path.rs"]
 mod llm_proxy_happy_path;
 #[path = "integration/llm_proxy_output_sanitization_path.rs"]

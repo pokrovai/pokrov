@@ -22,6 +22,7 @@ struct RouteRecord {
 #[derive(Debug, Clone)]
 pub struct ProviderRouteTable {
     default_profile_id: String,
+    stream_sanitization_max_buffer_bytes: usize,
     providers: BTreeMap<String, ProviderRecord>,
     routes: BTreeMap<String, RouteRecord>,
 }
@@ -36,6 +37,7 @@ impl ProviderRouteTable {
 
         Ok(Self {
             default_profile_id: config.defaults.profile_id.clone(),
+            stream_sanitization_max_buffer_bytes: config.defaults.stream_sanitization_max_buffer_bytes,
             providers,
             routes,
         })
@@ -70,6 +72,7 @@ impl ProviderRouteTable {
             timeout_ms: provider.timeout_ms,
             retry_budget: provider.retry_budget,
             output_sanitization: route.output_sanitization,
+            stream_sanitization_max_buffer_bytes: self.stream_sanitization_max_buffer_bytes,
         })
     }
 }
@@ -185,6 +188,7 @@ mod tests {
             defaults: LlmDefaultsConfig {
                 profile_id: "strict".to_string(),
                 output_sanitization: false,
+                stream_sanitization_max_buffer_bytes: 1024 * 1024,
             },
         }
     }
@@ -202,6 +206,7 @@ mod tests {
 
         assert_eq!(resolution.provider_id, "openai");
         assert!(resolution.output_sanitization);
+        assert_eq!(resolution.stream_sanitization_max_buffer_bytes, 1024 * 1024);
     }
 
     #[test]

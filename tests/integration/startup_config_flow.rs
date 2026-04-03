@@ -201,6 +201,109 @@ security:
     assert!(error.to_string().contains("failed to resolve"));
 }
 
+#[tokio::test]
+async fn runtime_with_unresolved_provider_key_starts_when_strict_resolution_disabled() {
+    let missing_provider_key_path = format!(
+        "/tmp/pokrov-missing-provider-key-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after unix epoch")
+            .as_nanos()
+    );
+    let config_path = write_temp_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+llm:
+  providers:
+    - id: openai
+      base_url: https://api.openai.com/v1
+      auth:
+        api_key: file:{missing_provider_key_path}
+      enabled: true
+  routes:
+    - model: gpt-4o-mini
+      provider_id: openai
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: false
+"#
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start when strict provider key resolution is disabled");
+    handle.shutdown().await.expect("shutdown should succeed");
+}
+
+#[tokio::test]
+async fn runtime_with_unresolved_provider_key_fails_when_strict_provider_resolution_enabled() {
+    let missing_provider_key_path = format!(
+        "/tmp/pokrov-missing-provider-key-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after unix epoch")
+            .as_nanos()
+    );
+    let config_path = write_temp_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 1000
+security:
+  fail_on_unresolved_provider_keys: true
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+llm:
+  providers:
+    - id: openai
+      base_url: https://api.openai.com/v1
+      auth:
+        api_key: file:{missing_provider_key_path}
+      enabled: true
+  routes:
+    - model: gpt-4o-mini
+      provider_id: openai
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: false
+"#
+    ));
+
+    let startup = tokio::time::timeout(
+        Duration::from_secs(2),
+        pokrov_runtime::bootstrap::run(pokrov_runtime::bootstrap::BootstrapArgs { config_path }),
+    )
+    .await
+    .expect("startup should resolve quickly");
+
+    let error =
+        startup.expect_err("runtime startup must fail when strict provider key resolution is enabled");
+    assert!(error
+        .to_string()
+        .contains("failed to resolve 1 llm provider key binding(s)"));
+}
+
 fn write_temp_config(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp config should be created");
     file.write_all(content.as_bytes()).expect("temp config should be written");

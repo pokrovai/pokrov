@@ -2,10 +2,28 @@ use std::time::Duration;
 
 use reqwest::StatusCode;
 
-use super::llm_proxy_test_support::{write_key_file, write_runtime_config};
+use super::llm_proxy_test_support::{
+    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+};
 
 #[tokio::test]
-async fn llm_proxy_returns_structured_error_when_upstream_is_unavailable() {
+async fn llm_proxy_rejects_chat_completion_payloads_exceeding_body_limit() {
+    let provider = start_mock_provider(MockProviderMode::Json {
+        status: 200,
+        body: serde_json::json!({
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }]
+        }),
+    })
+    .await;
+
     let runtime_key_path = write_key_file("llm-test-key");
     let provider_key_path = write_key_file("provider-test-key");
     let config_path = write_runtime_config(&format!(
@@ -37,7 +55,7 @@ sanitization:
     strict:
       mode_default: enforce
       categories:
-        secrets: block
+        secrets: redact
         pii: redact
         corporate_markers: mask
       mask_visible_suffix: 4
@@ -51,11 +69,9 @@ sanitization:
 llm:
   providers:
     - id: openai
-      base_url: http://127.0.0.1:1/v1
+      base_url: {provider_base}
       auth:
         api_key: file:{provider_key}
-      timeout_ms: 100
-      retry_budget: 0
       enabled: true
   routes:
     - model: gpt-4o-mini
@@ -68,6 +84,7 @@ llm:
 "#,
         runtime_key = runtime_key_path.display(),
         provider_key = provider_key_path.display(),
+        provider_base = provider.base_url,
     ));
 
     let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
@@ -78,23 +95,22 @@ llm:
         .build()
         .expect("client should build");
 
+    let oversized_text = "x".repeat(4 * 1024 * 1024 + 1024);
     let response = client
         .post(format!("{}/v1/chat/completions", handle.base_url()))
         .header("authorization", "Bearer llm-test-key")
         .json(&serde_json::json!({
             "model": "gpt-4o-mini",
             "stream": false,
-            "messages": [{"role": "user", "content": "hello"}]
+            "messages": [{"role": "user", "content": oversized_text}]
         }))
         .send()
         .await
         .expect("request should complete");
 
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let body: serde_json::Value = response.json().await.expect("json body expected");
-    assert_eq!(body["error"]["code"], "upstream_unavailable");
-    assert_eq!(body["error"]["message"], "upstream provider is unavailable");
-    assert!(body.get("provider_id").is_none());
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(provider.request_count(), 0);
 
     handle.shutdown().await.expect("shutdown should succeed");
+    provider.shutdown().await;
 }

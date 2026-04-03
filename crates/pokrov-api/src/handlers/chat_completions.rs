@@ -18,7 +18,7 @@ pub async fn handle_chat_completions(
 ) -> Result<Response, ApiError> {
     let payload = body
         .map(|Json(body)| body)
-        .map_err(|_rejection| ApiError::invalid_request(request_id.clone(), "invalid request body"))?;
+        .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
 
     let token = parse_bearer_token(&headers)
         .ok_or_else(|| ApiError::unauthorized(request_id.clone(), "missing bearer authorization"))?;
@@ -83,4 +83,13 @@ fn parse_bearer_token(headers: &HeaderMap) -> Option<&str> {
         .strip_prefix("Bearer ")
         .map(str::trim)
         .filter(|token| !token.is_empty())
+}
+
+fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {
+    match rejection {
+        JsonRejection::BytesRejection(_) => {
+            ApiError::payload_too_large(request_id, "request body exceeds configured size limit")
+        }
+        _ => ApiError::invalid_request(request_id, "invalid request body"),
+    }
 }

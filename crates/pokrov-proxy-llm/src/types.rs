@@ -49,6 +49,7 @@ pub struct RouteResolution {
     pub timeout_ms: u64,
     pub retry_budget: u8,
     pub output_sanitization: bool,
+    pub stream_sanitization_max_buffer_bytes: usize,
 }
 
 #[derive(Debug, Clone)]
