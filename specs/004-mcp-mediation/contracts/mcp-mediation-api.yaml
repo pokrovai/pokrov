@@ -63,7 +63,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/McpErrorResponse'
         '422':
-          description: Tool arguments violate schema/policy constraints or unsupported pilot variant requested
+          description: Tool arguments violate schema/policy constraints or unsupported pilot variant requested; partial argument matches still return a single deny outcome without upstream retry (client retry is external responsibility)
           headers:
             X-Request-Id:
               schema:

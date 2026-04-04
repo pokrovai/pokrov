@@ -70,6 +70,8 @@
 - **FR-008**: Система MUST поддерживать pilot-ready subset MCP interactions, достаточный для целевых сценариев v1.
 - **FR-009**: Система MUST формировать metadata-only audit event для каждого MCP flow.
 - **FR-010**: Система MUST объяснять block outcome через безопасный summary без раскрытия чувствительных значений аргументов или outputs.
+- **FR-011**: Pilot-ready subset для v1 ограничен HTTP JSON mediation endpoint с синхронным tool invocation; stateful session transports, bi-directional streaming и long-lived MCP channels являются out-of-scope.
+- **FR-012**: Если часть аргументов проходит схему, но итоговое policy решение = deny/block, система MUST возвращать единый block outcome без upstream retry; стратегия автоматического retry на клиенте не навязывается и документируется как external responsibility.
 
 ### Ключевые сущности *(добавляйте, если фича работает с данными)*
 
@@ -119,3 +121,4 @@
 - v1 ограничивается одним практическим mediation surface, а не полной реализацией всех MCP transport patterns.
 - Approved server and tool policies задаются статически через конфиг v1.
 - Sanitization core и bootstrap runtime уже доступны к моменту реализации этой фичи.
+- Предполагается, что upstream MCP server публикует стабильные схемы аргументов для in-scope tools; при нарушении схемы применяется deterministic block/error contract без деградации metadata-only безопасности.

@@ -36,6 +36,13 @@ fn mcp_contract_exposes_blocked_validation_and_unsupported_variant_errors() {
     assert!(status_403.is_mapping(), "403 response must be declared");
     assert!(status_422.is_mapping(), "422 response must be declared");
     assert!(status_503.is_mapping(), "503 response must be declared");
+    let status_422_description = status_422["description"]
+        .as_str()
+        .expect("422 response description must be present");
+    assert!(
+        status_422_description.contains("without upstream retry"),
+        "422 contract must declare deterministic deny outcome without upstream retry"
+    );
 
     let error_codes = api["components"]["schemas"]["McpErrorResponse"]["properties"]["error"]
         ["properties"]["code"]["enum"]
