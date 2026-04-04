@@ -28,6 +28,8 @@ pub struct RuntimeConfig {
     pub mcp: Option<McpConfig>,
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
+    #[serde(default)]
+    pub response_envelope: ResponseEnvelopeConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -41,6 +43,8 @@ pub struct LlmConfig {
 pub struct LlmProviderConfig {
     pub id: String,
     pub base_url: String,
+    #[serde(default)]
+    pub upstream_path: Option<String>,
     pub auth: LlmProviderAuthConfig,
     #[serde(default = "default_llm_timeout_ms")]
     pub timeout_ms: u64,
@@ -176,6 +180,8 @@ pub struct LlmRouteConfig {
     pub model: String,
     pub provider_id: String,
     #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
     pub output_sanitization: Option<bool>,
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -187,6 +193,34 @@ pub struct LlmDefaultsConfig {
     pub output_sanitization: bool,
     #[serde(default = "default_stream_sanitization_max_buffer_bytes")]
     pub stream_sanitization_max_buffer_bytes: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ResponseEnvelopeConfig {
+    #[serde(default)]
+    pub pokrov_metadata: ResponseEnvelopeMetadataConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ResponseEnvelopeMetadataConfig {
+    #[serde(default)]
+    pub mode: ResponseMetadataMode,
+}
+
+impl Default for ResponseEnvelopeMetadataConfig {
+    fn default() -> Self {
+        Self {
+            mode: ResponseMetadataMode::Enabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ResponseMetadataMode {
+    #[default]
+    Enabled,
+    Suppressed,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

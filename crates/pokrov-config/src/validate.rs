@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::Path};
+use std::{collections::{HashMap, HashSet}, path::Path};
 
 use regex::Regex;
 
@@ -425,6 +425,7 @@ fn validate_llm(config: Option<&LlmConfig>, issues: &mut Vec<ValidationIssue>) {
     }
 
     let mut enabled_models = HashSet::new();
+    let mut normalized_lookup = HashMap::new();
     for (idx, route) in config.routes.iter().enumerate() {
         validate_llm_route(idx, route, &enabled_provider_ids, issues);
 
@@ -433,6 +434,37 @@ fn validate_llm(config: Option<&LlmConfig>, issues: &mut Vec<ValidationIssue>) {
                 format!("llm.routes[{idx}].model"),
                 "must map to at most one enabled route",
             ));
+        }
+
+        if !route.enabled {
+            continue;
+        }
+
+        let canonical_key = normalize_model_key(&route.model);
+        validate_unique_normalized_lookup_key(
+            &mut normalized_lookup,
+            canonical_key.clone(),
+            route.model.as_str(),
+            format!("llm.routes[{idx}].model"),
+            issues,
+        );
+
+        for (alias_idx, alias) in route.aliases.iter().enumerate() {
+            let alias_key = normalize_model_key(alias);
+            if alias_key == canonical_key {
+                issues.push(ValidationIssue::new(
+                    format!("llm.routes[{idx}].aliases[{alias_idx}]"),
+                    "must not duplicate route model after lower-case normalization",
+                ));
+                continue;
+            }
+            validate_unique_normalized_lookup_key(
+                &mut normalized_lookup,
+                alias_key,
+                alias.as_str(),
+                format!("llm.routes[{idx}].aliases[{alias_idx}]"),
+                issues,
+            );
         }
     }
 }
@@ -647,6 +679,15 @@ fn validate_llm_provider(idx: usize, provider: &LlmProviderConfig, issues: &mut 
         ));
     }
 
+    if let Some(upstream_path) = provider.upstream_path.as_ref() {
+        if !upstream_path.starts_with('/') {
+            issues.push(ValidationIssue::new(
+                format!("{provider_path}.upstream_path"),
+                "must start with '/'",
+            ));
+        }
+    }
+
     if SecretRef::parse(&provider.auth.api_key).is_none() {
         issues.push(ValidationIssue::new(
             format!("{provider_path}.auth.api_key"),
@@ -697,6 +738,30 @@ fn validate_llm_route(
             "must reference an existing enabled provider",
         ));
     }
+}
+
+fn validate_unique_normalized_lookup_key(
+    keys: &mut HashMap<String, String>,
+    normalized_key: String,
+    raw_value: &str,
+    path: String,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    if normalized_key.is_empty() {
+        issues.push(ValidationIssue::new(path, "must not be empty after normalization"));
+        return;
+    }
+
+    if let Some(existing) = keys.insert(normalized_key.clone(), raw_value.to_string()) {
+        issues.push(ValidationIssue::new(
+            path,
+            format!("alias_conflict_after_normalization: collides with '{existing}'"),
+        ));
+    }
+}
+
+fn normalize_model_key(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
 }
 
 fn is_valid_provider_base_url(value: &str) -> bool {

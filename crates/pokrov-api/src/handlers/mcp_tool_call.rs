@@ -7,7 +7,9 @@ use pokrov_proxy_mcp::types::{McpRequestMetadata, McpToolCallRequest, McpToolCal
 use pokrov_proxy_mcp::audit::{McpAuthStageAuditEvent, McpRateLimitAuditEvent};
 use serde::Deserialize;
 
-use super::request_context::{RequestContextHooks, resolve_request_context};
+use super::request_context::{
+    RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
+};
 use super::rate_limit::{estimate_json_token_units, evaluate_and_record_rate_limit};
 use crate::{
     app::{AppState, GatewayAuthContext},
@@ -40,6 +42,7 @@ pub async fn handle_mcp_tool_call(
         &gateway_auth,
         &request_id,
         "/v1/mcp/tool-call",
+        UpstreamCredentialRequirement::Required,
         &RequestContextHooks {
             on_auth_stage: on_auth_stage,
             emit_auth_stage: emit_auth_stage,

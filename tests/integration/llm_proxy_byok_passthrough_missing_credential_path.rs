@@ -85,6 +85,85 @@ llm:
 }
 
 #[tokio::test]
+async fn byok_passthrough_allows_models_catalog_without_provider_credential() {
+    let provider = start_mock_provider(MockProviderMode::Json {
+        status: 200,
+        body: serde_json::json!({"choices": [{"message": {"role": "assistant", "content": "ok"}}]}),
+    })
+    .await;
+
+    let gateway_key_path = write_key_file("gateway-byok-key");
+    let provider_key_path = write_key_file("provider-static-fallback");
+    let config_path = write_runtime_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 900
+security:
+  api_keys:
+    - key: file:{gateway_key}
+      profile: strict
+auth:
+  upstream_auth_mode: passthrough
+sanitization:
+  enabled: false
+llm:
+  providers:
+    - id: openai
+      base_url: {provider_base}
+      auth:
+        api_key: file:{provider_key}
+      enabled: true
+  routes:
+    - model: gpt-4o-mini
+      provider_id: openai
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: false
+"#,
+        gateway_key = gateway_key_path.display(),
+        provider_key = provider_key_path.display(),
+        provider_base = provider.base_url,
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .get(format!("{}/v1/models", handle.base_url()))
+        .header("x-pokrov-api-key", "gateway-byok-key")
+        .send()
+        .await
+        .expect("request should complete");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.expect("json body expected");
+    let ids = body["data"]
+        .as_array()
+        .expect("data should be array")
+        .iter()
+        .filter_map(|entry| entry["id"].as_str())
+        .collect::<Vec<_>>();
+    assert!(ids.contains(&"gpt-4o-mini"));
+    assert_eq!(provider.request_count(), 0);
+
+    handle.shutdown().await.expect("shutdown should succeed");
+    provider.shutdown().await;
+}
+
+#[tokio::test]
 async fn byok_passthrough_accepts_single_bearer_for_openai_compatible_chat_path() {
     let provider = start_mock_provider(MockProviderMode::Json {
         status: 200,

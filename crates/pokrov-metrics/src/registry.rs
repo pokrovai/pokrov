@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use pokrov_core::types::PolicyAction;
 use prometheus::{
-    Encoder, HistogramOpts, HistogramVec, IntCounterVec, Opts, Registry, TextEncoder,
+    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry, TextEncoder,
 };
 
 use crate::hooks::{LifecycleEvent, RuntimeMetricsHooks};
@@ -38,6 +38,9 @@ pub struct RuntimeMetricsRegistry {
     auth_decisions_total: IntCounterVec,
     upstream_errors_total: IntCounterVec,
     request_duration_seconds: HistogramVec,
+    model_resolution_total: IntCounter,
+    model_resolution_failed_total: IntCounter,
+    models_catalog_requests_total: IntCounter,
     force_render_failure: AtomicBool,
 }
 
@@ -72,6 +75,18 @@ impl RuntimeMetricsRegistry {
             .buckets(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5]),
             &["route", "path_class", "decision"],
         )?;
+        let model_resolution_total = IntCounter::new(
+            "pokrov_model_resolution_total",
+            "Total successful model resolution attempts",
+        )?;
+        let model_resolution_failed_total = IntCounter::new(
+            "pokrov_model_resolution_failed_total",
+            "Total failed model resolution attempts",
+        )?;
+        let models_catalog_requests_total = IntCounter::new(
+            "pokrov_models_catalog_requests_total",
+            "Total requests to /v1/models catalog endpoint",
+        )?;
 
         prometheus_registry.register(Box::new(requests_total.clone()))?;
         prometheus_registry.register(Box::new(blocked_total.clone()))?;
@@ -79,6 +94,9 @@ impl RuntimeMetricsRegistry {
         prometheus_registry.register(Box::new(auth_decisions_total.clone()))?;
         prometheus_registry.register(Box::new(upstream_errors_total.clone()))?;
         prometheus_registry.register(Box::new(request_duration_seconds.clone()))?;
+        prometheus_registry.register(Box::new(model_resolution_total.clone()))?;
+        prometheus_registry.register(Box::new(model_resolution_failed_total.clone()))?;
+        prometheus_registry.register(Box::new(models_catalog_requests_total.clone()))?;
 
         requests_total.with_label_values(&["other", "runtime", "2xx", "allowed"]);
         blocked_total.with_label_values(&["other", "policy", "strict"]);
@@ -117,6 +135,9 @@ impl RuntimeMetricsRegistry {
             auth_decisions_total,
             upstream_errors_total,
             request_duration_seconds,
+            model_resolution_total,
+            model_resolution_failed_total,
+            models_catalog_requests_total,
             force_render_failure: AtomicBool::new(false),
         })
     }
@@ -256,6 +277,18 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
             .fetch_add(duration_ms, Ordering::Relaxed);
     }
 
+    fn on_model_resolution(&self) {
+        self.model_resolution_total.inc();
+    }
+
+    fn on_model_resolution_failed(&self) {
+        self.model_resolution_failed_total.inc();
+    }
+
+    fn on_models_catalog_request(&self) {
+        self.models_catalog_requests_total.inc();
+    }
+
     fn on_mcp_tool_call(&self) {
         self.mcp_tool_calls_total.fetch_add(1, Ordering::Relaxed);
     }
@@ -380,6 +413,7 @@ fn constrain_route(route: &str) -> &str {
         "/metrics" => "/metrics",
         "/v1/sanitize/evaluate" => "/v1/sanitize/evaluate",
         "/v1/chat/completions" => "/v1/chat/completions",
+        "/v1/models" => "/v1/models",
         "/v1/responses" => "/v1/responses",
         "/v1/mcp/tool-call" => "/v1/mcp/tool-call",
         "/v1/mcp/tools/{toolName}/invoke" => "/v1/mcp/tools/{toolName}/invoke",

@@ -405,6 +405,70 @@ llm:
         .contains("failed to resolve 1 llm provider key binding(s)"));
 }
 
+#[tokio::test]
+async fn runtime_rejects_alias_conflict_configuration_on_startup() {
+    let runtime_key_path = format!(
+        "/tmp/pokrov-runtime-key-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after unix epoch")
+            .as_nanos()
+    );
+    std::fs::write(&runtime_key_path, "llm-test-key").expect("runtime key file must be created");
+    let provider_key_path = format!(
+        "/tmp/pokrov-provider-key-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after unix epoch")
+            .as_nanos()
+    );
+    std::fs::write(&provider_key_path, "provider-key").expect("provider key file must be created");
+
+    let config_path = write_temp_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: file:{runtime_key_path}
+      profile: strict
+llm:
+  providers:
+    - id: openai
+      base_url: https://api.openai.com/v1
+      auth:
+        api_key: file:{provider_key_path}
+      enabled: true
+  routes:
+    - model: gpt-4o-mini
+      provider_id: openai
+      aliases: [team/default]
+      enabled: true
+    - model: gpt-4.1-mini
+      provider_id: openai
+      aliases: [TEAM/DEFAULT]
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: false
+"#
+    ));
+
+    let startup = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path).await;
+    let error = match startup {
+        Ok(_) => panic!("alias conflict configuration must fail startup"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("alias_conflict_after_normalization"));
+}
+
 fn write_temp_config(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp config should be created");
     file.write_all(content.as_bytes()).expect("temp config should be written");

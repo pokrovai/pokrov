@@ -37,6 +37,7 @@ Pokrov is a single control point for coding/AI agents to:
 - `GET /ready`
 - `GET /metrics`
 - `POST /v1/sanitize/evaluate`
+- `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - `POST /v1/mcp/tool-call`
@@ -90,6 +91,13 @@ curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
     "stream": false,
     "messages": [{"role": "user", "content": "hello"}]
   }' | jq
+```
+
+Model discovery check:
+
+```bash
+curl -sS http://127.0.0.1:8080/v1/models \
+  -H "Authorization: Bearer $POKROV_API_KEY" | jq
 ```
 
 BYOK passthrough check:
@@ -208,6 +216,14 @@ auth:
   - For OpenAI-compatible LLM endpoints (`/v1/chat/completions`, `/v1/responses`),
     single-bearer mode is supported: one `Authorization: Bearer ...` can be used
     for both gateway auth and upstream passthrough credential.
+
+### Routing UX Notes
+
+- `llm.providers[].upstream_path` lets you override the provider upstream endpoint path.
+- `llm.routes[].aliases` lets you expose additional model ids that map to the same canonical route.
+- `response_envelope.pokrov_metadata.mode` supports:
+  - `enabled` (default): include `pokrov` metadata in successful LLM responses
+  - `suppressed`: omit `pokrov` metadata for strict-client compatibility
 
 ### OpenCode Setup with Pokrov (Split Auth)
 

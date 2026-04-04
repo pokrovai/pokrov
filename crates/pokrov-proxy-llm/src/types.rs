@@ -62,6 +62,9 @@ pub struct ContentBlock {
 pub struct RouteResolution {
     pub provider_id: String,
     pub base_url: String,
+    pub effective_upstream_path: String,
+    pub canonical_model: String,
+    pub resolved_via_alias: bool,
     pub api_key: String,
     pub timeout_ms: u64,
     pub retry_budget: u8,

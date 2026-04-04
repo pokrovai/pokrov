@@ -416,6 +416,7 @@ fn normalize_route(path: &str) -> &'static str {
         "/metrics" => "/metrics",
         "/v1/sanitize/evaluate" => "/v1/sanitize/evaluate",
         "/v1/chat/completions" => "/v1/chat/completions",
+        "/v1/models" => "/v1/models",
         "/v1/responses" => "/v1/responses",
         "/v1/mcp/tool-call" => "/v1/mcp/tool-call",
         _ => "other",
@@ -426,7 +427,7 @@ fn classify_path(path: &str) -> &'static str {
     match path {
         "/health" | "/ready" | "/metrics" => "runtime",
         "/v1/sanitize/evaluate" => "sanitization",
-        "/v1/chat/completions" | "/v1/responses" => "llm",
+        "/v1/chat/completions" | "/v1/models" | "/v1/responses" => "llm",
         _ if path.starts_with("/v1/mcp") => "mcp",
         _ => "runtime",
     }
