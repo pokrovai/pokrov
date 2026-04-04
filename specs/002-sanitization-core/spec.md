@@ -70,6 +70,7 @@
 - **FR-008**: Система MUST предоставлять dry-run режим, который вычисляет решение без фактического proxy execution.
 - **FR-009**: Система MUST возвращать explain summary с категориями, числом срабатываний и итоговым action.
 - **FR-010**: Система MUST формировать metadata-only audit event без raw payload и без сырых fragments detections.
+- **FR-011**: При неоднозначных или конфликтующих частичных трансформациях система MUST возвращать детерминированный итоговый action и детерминированный sanitized result; частичный non-deterministic passthrough запрещен.
 
 ### Ключевые сущности *(добавляйте, если фича работает с данными)*
 
@@ -119,3 +120,4 @@
 - Evaluate flow является первым публичным потребителем sanitization core до подключения LLM и MCP путей.
 - На этапе v1 используются regex/custom-rule подходы без heavy ML NER.
 - Output sanitization как отдельная capability описывается на уровне policy, но полностью используется следующими proxy-фичами.
+- Входные payload для acceptance включают UTF-8 текст и JSON-строки на EN/RU; смешанные языковые payload считаются in-scope для базовых detector категорий.
