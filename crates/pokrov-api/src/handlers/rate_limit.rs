@@ -119,4 +119,11 @@ mod tests {
             assert_eq!(estimate_json_token_units(&sample), expected);
         }
     }
+
+    #[test]
+    fn estimate_json_token_units_has_deterministic_minimum_fallback() {
+        assert_eq!(estimate_json_token_units(&json!(null)), 1);
+        assert_eq!(estimate_json_token_units(&json!({})), 1);
+        assert_eq!(estimate_json_token_units(&json!({"k":"v"})), 2);
+    }
 }

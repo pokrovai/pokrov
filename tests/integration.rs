@@ -22,12 +22,16 @@ mod llm_proxy_routing_path;
 mod llm_proxy_stream_output_sanitization_path;
 #[path = "integration/llm_proxy_streaming_path.rs"]
 mod llm_proxy_streaming_path;
+#[path = "integration/llm_proxy_route_and_stream_contract_path.rs"]
+mod llm_proxy_route_and_stream_contract_path;
 #[path = "integration/llm_proxy_upstream_error_path.rs"]
 mod llm_proxy_upstream_error_path;
 #[path = "integration/mcp_allowed_tool_path.rs"]
 mod mcp_allowed_tool_path;
 #[path = "integration/mcp_argument_validation_path.rs"]
 mod mcp_argument_validation_path;
+#[path = "integration/mcp_validation_recovery_path.rs"]
+mod mcp_validation_recovery_path;
 #[path = "integration/mcp_blocked_tool_path.rs"]
 mod mcp_blocked_tool_path;
 #[path = "integration/mcp_output_sanitization_path.rs"]
@@ -46,6 +50,8 @@ mod sanitization_evaluate_flow;
 mod sanitization_transform_flow;
 #[path = "integration/startup_config_flow.rs"]
 mod startup_config_flow;
+#[path = "integration/bootstrap_acceptance_contract.rs"]
+mod bootstrap_acceptance_contract;
 #[path = "integration/rate_limit_request_budget_path.rs"]
 mod rate_limit_request_budget_path;
 #[path = "integration/rate_limit_token_budget_path.rs"]
@@ -54,7 +60,13 @@ mod rate_limit_token_budget_path;
 mod blocked_metrics_profile_label_path;
 #[path = "integration/hardening_metrics_flow.rs"]
 mod hardening_metrics_flow;
+#[path = "integration/hardening_metrics_degradation_path.rs"]
+mod hardening_metrics_degradation_path;
+#[path = "integration/hardening_dry_run_observability_path.rs"]
+mod hardening_dry_run_observability_path;
 #[path = "integration/hardening_degraded_shutdown_flow.rs"]
 mod hardening_degraded_shutdown_flow;
 #[path = "integration/hardening_end_to_end_release_flow.rs"]
 mod hardening_end_to_end_release_flow;
+#[path = "integration/hardening_release_evidence_fail_path.rs"]
+mod hardening_release_evidence_fail_path;

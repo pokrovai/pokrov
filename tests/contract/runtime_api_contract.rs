@@ -62,3 +62,23 @@ fn hardening_runtime_contract_includes_metrics_endpoint() {
 
     assert!(api["paths"]["/metrics"]["get"].is_mapping());
 }
+
+#[test]
+fn hardening_runtime_contract_declares_degraded_ready_state() {
+    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should parse");
+
+    let ready_503 = &api["paths"]["/ready"]["get"]["responses"]["503"];
+    assert!(ready_503.is_mapping(), "hardening /ready must declare 503");
+
+    let statuses = api["components"]["schemas"]["ReadyResponse"]["properties"]["status"]["enum"]
+        .as_sequence()
+        .expect("ReadyResponse.status enum should be defined")
+        .iter()
+        .filter_map(serde_yaml::Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(
+        statuses.contains(&"degraded"),
+        "ReadyResponse.status must declare degraded state"
+    );
+}

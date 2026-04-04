@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use pokrov_core::types::PolicyAction;
 use prometheus::{
@@ -37,6 +37,7 @@ pub struct RuntimeMetricsRegistry {
     rate_limit_events_total: IntCounterVec,
     upstream_errors_total: IntCounterVec,
     request_duration_seconds: HistogramVec,
+    force_render_failure: AtomicBool,
 }
 
 impl RuntimeMetricsRegistry {
@@ -108,10 +109,14 @@ impl RuntimeMetricsRegistry {
             rate_limit_events_total,
             upstream_errors_total,
             request_duration_seconds,
+            force_render_failure: AtomicBool::new(false),
         })
     }
 
     pub fn render_prometheus(&self) -> Result<String, String> {
+        if self.force_render_failure.load(Ordering::Relaxed) {
+            return Err("forced metrics rendering failure".to_string());
+        }
         let mut buffer = Vec::new();
         let metric_families = self.prometheus_registry.gather();
         let encoder = TextEncoder::new();
@@ -148,6 +153,10 @@ impl RuntimeMetricsRegistry {
                 .mcp_tool_call_duration_ms_total
                 .load(Ordering::Relaxed),
         }
+    }
+
+    pub fn set_force_render_failure(&self, forced: bool) {
+        self.force_render_failure.store(forced, Ordering::Relaxed);
     }
 }
 
@@ -452,5 +461,15 @@ mod tests {
         assert!(rendered.contains("decision=\"errored\""));
         assert!(!rendered.contains("request_id="));
         assert!(!rendered.contains("prompt="));
+    }
+
+    #[test]
+    fn can_force_metrics_render_failure_for_degraded_readiness_checks() {
+        let registry = RuntimeMetricsRegistry::default();
+        registry.set_force_render_failure(true);
+        let error = registry
+            .render_prometheus()
+            .expect_err("forced flag should make rendering fail");
+        assert!(error.contains("forced metrics rendering failure"));
     }
 }

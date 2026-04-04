@@ -26,7 +26,7 @@ pub async fn handle_ready(
 
     let (status, runtime, code) = match runtime_state {
         RuntimeStateView::Ready if all_ready => ("ready", "ok", StatusCode::OK),
-        RuntimeStateView::Ready => ("starting", "pending", StatusCode::SERVICE_UNAVAILABLE),
+        RuntimeStateView::Ready => ("degraded", "ok", StatusCode::SERVICE_UNAVAILABLE),
         RuntimeStateView::Draining => ("draining", "draining", StatusCode::SERVICE_UNAVAILABLE),
         RuntimeStateView::Starting => ("starting", "pending", StatusCode::SERVICE_UNAVAILABLE),
         RuntimeStateView::Stopped => ("draining", "draining", StatusCode::SERVICE_UNAVAILABLE),
