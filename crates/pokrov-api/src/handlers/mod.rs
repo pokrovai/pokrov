@@ -4,6 +4,7 @@ pub mod health;
 pub mod mcp_tool_call;
 pub mod metrics;
 pub mod ready;
+mod rate_limit;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct HealthResponse {

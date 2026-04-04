@@ -1,13 +1,14 @@
 use axum::{
     extract::{Path, rejection::JsonRejection, Extension, State},
-    http::{header, HeaderMap},
+    http::HeaderMap,
     Json,
 };
 use pokrov_proxy_mcp::types::{McpRequestMetadata, McpToolCallRequest, McpToolCallResponse};
 use pokrov_proxy_mcp::audit::McpRateLimitAuditEvent;
 use serde::Deserialize;
 
-use crate::{app::AppState, error::ApiError};
+use super::rate_limit::{estimate_json_token_units, evaluate_and_record_rate_limit};
+use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
 
 #[derive(Debug, Deserialize)]
 struct McpToolInvokePathRequest {
@@ -43,11 +44,15 @@ pub async fn handle_mcp_tool_call(
         ))
     })?;
 
-    if let Some(limiter) = state.rate_limit.limiter.as_ref() {
-        let estimated_units = estimate_mcp_token_units(&body.arguments);
-        let decision = limiter
-            .evaluate(token, &api_key_profile, estimated_units)
-            .await;
+    if let Some(decision) = evaluate_and_record_rate_limit(
+        &state,
+        "/v1/mcp/tool-call",
+        token,
+        &api_key_profile,
+        estimate_json_token_units(&body.arguments),
+    )
+    .await
+    {
         if !matches!(decision.reason, crate::app::RateLimitReason::WithinBudget) {
             McpRateLimitAuditEvent {
                 request_id: request_id.clone(),
@@ -59,16 +64,6 @@ pub async fn handle_mcp_tool_call(
                 reset_at_unix_ms: decision.reset_at_unix_ms,
             }
             .emit();
-            state.metrics.on_rate_limit_event(
-                "/v1/mcp/tool-call",
-                match decision.reason {
-                    crate::app::RateLimitReason::RequestBudgetExhausted => "requests",
-                    crate::app::RateLimitReason::TokenBudgetExhausted => "token_units",
-                    crate::app::RateLimitReason::WithinBudget => "requests",
-                },
-                if decision.allowed { "dry_run" } else { "blocked" },
-                &api_key_profile,
-            );
         }
         if !decision.allowed {
             return Err(enforce_mcp_error_contract(ApiError::rate_limit_exceeded(
@@ -134,14 +129,6 @@ pub async fn handle_mcp_tool_call_with_tool_name(
     handle_mcp_tool_call(State(state), Extension(request_id), headers, Ok(Json(body))).await
 }
 
-fn parse_bearer_token(headers: &HeaderMap) -> Option<&str> {
-    let header = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    header
-        .strip_prefix("Bearer ")
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
-}
-
 fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {
     match rejection {
         JsonRejection::BytesRejection(_) => enforce_mcp_error_contract(ApiError::payload_too_large(
@@ -158,9 +145,4 @@ fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError 
 fn enforce_mcp_error_contract(mut error: ApiError) -> ApiError {
     error.allowed = Some(false);
     error
-}
-
-fn estimate_mcp_token_units(arguments: &serde_json::Value) -> u32 {
-    let bytes = serde_json::to_vec(arguments).map(|value| value.len()).unwrap_or(0);
-    ((bytes / 4) as u32).max(1)
 }

@@ -10,7 +10,8 @@ use pokrov_proxy_llm::audit::LLMRateLimitAuditEvent;
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
 
-use crate::{app::AppState, error::ApiError};
+use super::rate_limit::evaluate_and_record_rate_limit;
+use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
 
 pub async fn handle_chat_completions(
     State(state): State<AppState>,
@@ -29,11 +30,15 @@ pub async fn handle_chat_completions(
         ApiError::unauthorized(request_id.clone(), "invalid API key or profile binding")
     })?;
 
-    if let Some(limiter) = state.rate_limit.limiter.as_ref() {
-        let estimated_units = estimate_token_units(&payload);
-        let decision = limiter
-            .evaluate(token, &api_key_profile, estimated_units)
-            .await;
+    if let Some(decision) = evaluate_and_record_rate_limit(
+        &state,
+        "/v1/chat/completions",
+        token,
+        &api_key_profile,
+        estimate_token_units(&payload),
+    )
+    .await
+    {
         if !matches!(decision.reason, crate::app::RateLimitReason::WithinBudget) {
             LLMRateLimitAuditEvent {
                 request_id: request_id.clone(),
@@ -45,16 +50,6 @@ pub async fn handle_chat_completions(
                 reset_at_unix_ms: decision.reset_at_unix_ms,
             }
             .emit();
-            state.metrics.on_rate_limit_event(
-                "/v1/chat/completions",
-                match decision.reason {
-                    crate::app::RateLimitReason::RequestBudgetExhausted => "requests",
-                    crate::app::RateLimitReason::TokenBudgetExhausted => "token_units",
-                    crate::app::RateLimitReason::WithinBudget => "requests",
-                },
-                if decision.allowed { "dry_run" } else { "blocked" },
-                &api_key_profile,
-            );
         }
         if !decision.allowed {
             return Err(ApiError::rate_limit_exceeded(request_id, decision));
@@ -123,14 +118,6 @@ pub async fn handle_chat_completions(
             Ok(sse_response)
         }
     }
-}
-
-fn parse_bearer_token(headers: &HeaderMap) -> Option<&str> {
-    let header = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    header
-        .strip_prefix("Bearer ")
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
 }
 
 fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {
