@@ -6,6 +6,7 @@ pub enum LLMErrorCode {
     Unauthorized,
     PolicyBlocked,
     ModelNotRouted,
+    AliasConflict,
     UpstreamError,
     UpstreamUnavailable,
 }
@@ -17,6 +18,7 @@ impl LLMErrorCode {
             Self::Unauthorized => "unauthorized",
             Self::PolicyBlocked => "policy_blocked",
             Self::ModelNotRouted => "model_not_routed",
+            Self::AliasConflict => "alias_conflict",
             Self::UpstreamError => "upstream_error",
             Self::UpstreamUnavailable => "upstream_unavailable",
         }
@@ -33,6 +35,8 @@ pub enum LLMProxyError {
     PolicyBlocked { request_id: String, message: String },
     #[error("model is not routed: {model}")]
     ModelNotRouted { request_id: String, model: String },
+    #[error("alias conflict: {message}")]
+    AliasConflict { request_id: String, message: String },
     #[error("upstream request failed: {message}")]
     UpstreamError {
         request_id: String,
@@ -75,6 +79,13 @@ impl LLMProxyError {
         Self::ModelNotRouted {
             request_id: request_id.into(),
             model: model.into(),
+        }
+    }
+
+    pub fn alias_conflict(request_id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::AliasConflict {
+            request_id: request_id.into(),
+            message: message.into(),
         }
     }
 
@@ -138,6 +149,7 @@ impl LLMProxyError {
             Self::Unauthorized { .. } => StatusCode::UNAUTHORIZED,
             Self::PolicyBlocked { .. } => StatusCode::FORBIDDEN,
             Self::ModelNotRouted { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::AliasConflict { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::UpstreamError { .. } => StatusCode::BAD_GATEWAY,
             Self::UpstreamUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
         }
@@ -149,6 +161,7 @@ impl LLMProxyError {
             Self::Unauthorized { .. } => LLMErrorCode::Unauthorized,
             Self::PolicyBlocked { .. } => LLMErrorCode::PolicyBlocked,
             Self::ModelNotRouted { .. } => LLMErrorCode::ModelNotRouted,
+            Self::AliasConflict { .. } => LLMErrorCode::AliasConflict,
             Self::UpstreamError { .. } => LLMErrorCode::UpstreamError,
             Self::UpstreamUnavailable { .. } => LLMErrorCode::UpstreamUnavailable,
         }
@@ -160,6 +173,7 @@ impl LLMProxyError {
             | Self::Unauthorized { request_id, .. }
             | Self::PolicyBlocked { request_id, .. }
             | Self::ModelNotRouted { request_id, .. }
+            | Self::AliasConflict { request_id, .. }
             | Self::UpstreamError { request_id, .. }
             | Self::UpstreamUnavailable { request_id, .. } => request_id,
         }
@@ -190,7 +204,8 @@ impl LLMProxyError {
         match self {
             Self::InvalidRequest { message, .. }
             | Self::Unauthorized { message, .. }
-            | Self::PolicyBlocked { message, .. } => message.clone(),
+            | Self::PolicyBlocked { message, .. }
+            | Self::AliasConflict { message, .. } => message.clone(),
             Self::ModelNotRouted { .. } => "requested model is not routed to a configured provider".to_string(),
             Self::UpstreamError { .. } => "upstream request failed".to_string(),
             Self::UpstreamUnavailable { .. } => "upstream provider is unavailable".to_string(),

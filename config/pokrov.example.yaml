@@ -86,6 +86,7 @@ llm:
   providers:
     - id: openai
       base_url: https://api.openai.com/v1
+      upstream_path: /chat/completions
       auth:
         api_key: env:OPENAI_API_KEY
       timeout_ms: 30000
@@ -94,12 +95,19 @@ llm:
   routes:
     - model: gpt-4o-mini
       provider_id: openai
+      aliases:
+        - openai/gpt-4o-mini
+        - team-default-mini
       output_sanitization: true
       enabled: true
   defaults:
     profile_id: strict
     output_sanitization: true
     stream_sanitization_max_buffer_bytes: 1048576
+
+response_envelope:
+  pokrov_metadata:
+    mode: enabled
 
 mcp:
   defaults:

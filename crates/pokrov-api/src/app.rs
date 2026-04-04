@@ -10,6 +10,7 @@ use axum::{
     Router,
 };
 use pokrov_config::{
+    model::ResponseMetadataMode,
     rate_limit::RateLimitEnforcementMode, GatewayAuthMode, IdentitySource, UpstreamAuthMode,
 };
 use pokrov_core::SanitizationEngine;
@@ -19,7 +20,7 @@ use pokrov_proxy_llm::handler::LLMProxyHandler;
 use pokrov_proxy_mcp::handler::McpProxyHandler;
 
 use crate::{
-    handlers::{chat_completions, evaluate, health, mcp_tool_call, metrics, ready, responses},
+    handlers::{chat_completions, evaluate, health, mcp_tool_call, metrics, models, ready, responses},
     middleware::{
         active_requests_middleware, rate_limit::RateLimiter, request_id_middleware,
     },
@@ -161,6 +162,7 @@ impl Default for RateLimitState {
 pub struct LlmProxyState {
     pub enabled: bool,
     pub handler: Option<Arc<LLMProxyHandler>>,
+    pub response_metadata_mode: ResponseMetadataMode,
 }
 
 impl Default for LlmProxyState {
@@ -168,6 +170,7 @@ impl Default for LlmProxyState {
         Self {
             enabled: false,
             handler: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 }
@@ -306,6 +309,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/metrics", get(metrics::handle_metrics))
         .route("/v1/sanitize/evaluate", post(evaluate::handle_evaluate))
         .route("/v1/chat/completions", post(chat_completions::handle_chat_completions))
+        .route("/v1/models", get(models::handle_models))
         .route("/v1/responses", post(responses::handle_responses))
         .route("/v1/mcp/tool-call", post(mcp_tool_call::handle_mcp_tool_call))
         .route(

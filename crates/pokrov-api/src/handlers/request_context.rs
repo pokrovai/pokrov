@@ -24,6 +24,11 @@ pub(super) struct RequestContextHooks {
     pub(super) map_error: fn(ApiError) -> ApiError,
 }
 
+pub(super) enum UpstreamCredentialRequirement {
+    Required,
+    Optional,
+}
+
 /// Resolves gateway auth, identity profile, rate-limit profile, and upstream credential in one place.
 pub(super) fn resolve_request_context(
     state: &AppState,
@@ -31,6 +36,7 @@ pub(super) fn resolve_request_context(
     gateway_auth: &GatewayAuthContext,
     request_id: &str,
     endpoint: &'static str,
+    upstream_credential_requirement: UpstreamCredentialRequirement,
     hooks: &RequestContextHooks,
 ) -> Result<ResolvedRequestContext, ApiError> {
     let mode_label = match state.auth.upstream_auth_mode {
@@ -85,6 +91,20 @@ pub(super) fn resolve_request_context(
     let upstream_credential = match state.auth.upstream_auth_mode {
         pokrov_config::UpstreamAuthMode::Static => None,
         pokrov_config::UpstreamAuthMode::Passthrough => {
+            // Local-only endpoints (for example, model catalog discovery) must not require provider credentials.
+            if matches!(
+                upstream_credential_requirement,
+                UpstreamCredentialRequirement::Optional
+            ) {
+                return Ok(ResolvedRequestContext {
+                    mode_label,
+                    rate_limit_key: client_identity.to_string(),
+                    profile_id,
+                    rate_limit_profile,
+                    upstream_credential: None,
+                });
+            }
+
             let missing_upstream = || {
                 (hooks.on_auth_stage)(state, mode_label, "upstream_credentials", "fail");
                 (hooks.emit_auth_stage)(

@@ -373,6 +373,7 @@ where
         llm: LlmProxyState {
             enabled: llm_enabled,
             handler: llm_handler.map(Arc::new),
+            response_metadata_mode: config.response_envelope.pokrov_metadata.mode,
         },
         mcp: McpProxyState {
             enabled: mcp_enabled,
@@ -768,7 +769,11 @@ fn build_llm_handler(
     let routes = ProviderRouteTable::from_config(llm_config, &resolved_provider_keys)
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
-    let handler = LLMProxyHandler::new(evaluator, metrics, routes)
+    let metadata_mode = config
+        .response_envelope
+        .pokrov_metadata
+        .mode;
+    let handler = LLMProxyHandler::new(evaluator, metrics, routes, metadata_mode)
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
     Ok(Some(handler))

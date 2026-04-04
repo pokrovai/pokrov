@@ -103,6 +103,7 @@
             llm: None,
             mcp: None,
             rate_limit: crate::rate_limit::RateLimitConfig::default(),
+            response_envelope: crate::model::ResponseEnvelopeConfig::default(),
         }
     }
 
@@ -111,6 +112,7 @@
             providers: vec![LlmProviderConfig {
                 id: "openai".to_string(),
                 base_url: "https://api.openai.com/v1".to_string(),
+                upstream_path: Some("/chat/completions".to_string()),
                 auth: LlmProviderAuthConfig {
                     api_key: "env:OPENAI_API_KEY".to_string(),
                 },
@@ -121,6 +123,7 @@
             routes: vec![LlmRouteConfig {
                 model: "gpt-4o-mini".to_string(),
                 provider_id: "openai".to_string(),
+                aliases: vec!["openai/gpt-4o-mini".to_string()],
                 output_sanitization: Some(true),
                 enabled: true,
             }],
@@ -243,6 +246,7 @@
         llm.routes.push(LlmRouteConfig {
             model: "gpt-4o-mini".to_string(),
             provider_id: "openai".to_string(),
+            aliases: Vec::new(),
             output_sanitization: Some(false),
             enabled: true,
         });
@@ -399,4 +403,36 @@
             .expect_err("internal mTLS mode must require TLS server settings");
         assert!(error.to_string().contains("server.tls.enabled"));
         assert!(error.to_string().contains("server.tls.require_client_cert"));
+    }
+
+    #[test]
+    fn rejects_invalid_llm_provider_upstream_path() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.providers[0].upstream_path = Some("chat/completions".to_string());
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("provider upstream_path without leading slash must fail validation");
+        assert!(error.to_string().contains("llm.providers[0].upstream_path"));
+    }
+
+    #[test]
+    fn rejects_alias_conflict_after_normalization() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.routes.push(LlmRouteConfig {
+            model: "gpt-4.1-mini".to_string(),
+            provider_id: "openai".to_string(),
+            aliases: vec!["OPENAI/GPT-4O-MINI".to_string()],
+            output_sanitization: Some(false),
+            enabled: true,
+        });
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("alias collision with canonical model must fail validation");
+        assert!(error
+            .to_string()
+            .contains("alias_conflict_after_normalization"));
     }

@@ -10,7 +10,9 @@ use pokrov_proxy_llm::audit::{LLMAuthStageAuditEvent, LLMRateLimitAuditEvent};
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
 
-use super::request_context::{RequestContextHooks, resolve_request_context};
+use super::request_context::{
+    RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
+};
 use super::rate_limit::evaluate_and_record_rate_limit;
 use crate::{
     app::{AppState, GatewayAuthContext},
@@ -25,9 +27,12 @@ pub async fn handle_chat_completions(
     headers: HeaderMap,
     body: Result<Json<Value>, JsonRejection>,
 ) -> Result<Response, ApiError> {
+    let metadata_mode = state.llm.response_metadata_mode;
     let payload = body
         .map(|Json(body)| body)
-        .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
+        .map_err(|rejection| {
+            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+        })?;
 
     let context = resolve_request_context(
         &state,
@@ -35,12 +40,14 @@ pub async fn handle_chat_completions(
         &gateway_auth,
         &request_id,
         "/v1/chat/completions",
+        UpstreamCredentialRequirement::Required,
         &RequestContextHooks {
             on_auth_stage: on_auth_stage,
             emit_auth_stage: emit_auth_stage,
             map_error: map_error,
         },
-    )?;
+    )
+    .map_err(|error| error.with_response_metadata_mode(metadata_mode))?;
 
     if let Some(decision) = evaluate_and_record_rate_limit(
         &state,
@@ -64,12 +71,16 @@ pub async fn handle_chat_completions(
             .emit();
         }
         if !decision.allowed {
-            return Err(ApiError::rate_limit_exceeded(request_id, decision));
+            return Err(
+                ApiError::rate_limit_exceeded(request_id, decision)
+                    .with_response_metadata_mode(metadata_mode),
+            );
         }
     }
 
     let handler = state.llm.handler.clone().ok_or_else(|| {
-        ApiError::invalid_request(request_id.clone(), "llm proxy is not configured")
+        ApiError::runtime_not_ready(request_id.clone(), "llm proxy is not ready")
+            .with_response_metadata_mode(metadata_mode)
     })?;
 
     let response = handler
@@ -94,7 +105,7 @@ pub async fn handle_chat_completions(
                     error_class,
                 );
             }
-            ApiError::from_llm_proxy(error)
+            ApiError::from_llm_proxy(error).with_response_metadata_mode(metadata_mode)
         })?;
 
     match response.body {

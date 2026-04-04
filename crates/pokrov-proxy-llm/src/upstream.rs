@@ -6,7 +6,7 @@ use tokio::time::sleep;
 
 use crate::{
     errors::LLMProxyError,
-    types::{CHAT_COMPLETIONS_UPSTREAM_PATH, RouteResolution, UpstreamJsonResponse, UpstreamStreamResponse},
+    types::{RouteResolution, UpstreamJsonResponse, UpstreamStreamResponse},
 };
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl UpstreamClient {
         payload: &Value,
         upstream_credential: Option<&str>,
     ) -> Result<UpstreamJsonResponse, LLMProxyError> {
-        let endpoint = build_endpoint(&route.base_url);
+        let endpoint = build_endpoint(&route.base_url, &route.effective_upstream_path);
         let bearer = upstream_credential.unwrap_or(&route.api_key);
 
         for attempt in 0..=route.retry_budget {
@@ -110,7 +110,7 @@ impl UpstreamClient {
         payload: &Value,
         upstream_credential: Option<&str>,
     ) -> Result<UpstreamStreamResponse, LLMProxyError> {
-        let endpoint = build_endpoint(&route.base_url);
+        let endpoint = build_endpoint(&route.base_url, &route.effective_upstream_path);
         let bearer = upstream_credential.unwrap_or(&route.api_key);
 
         for attempt in 0..=route.retry_budget {
@@ -169,8 +169,8 @@ impl UpstreamClient {
     }
 }
 
-fn build_endpoint(base_url: &str) -> String {
-    format!("{}{}", base_url.trim_end_matches('/'), CHAT_COMPLETIONS_UPSTREAM_PATH)
+fn build_endpoint(base_url: &str, upstream_path: &str) -> String {
+    format!("{}{}", base_url.trim_end_matches('/'), upstream_path)
 }
 
 fn should_retry_status(status: reqwest::StatusCode) -> bool {

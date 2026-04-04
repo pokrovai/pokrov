@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use pokrov_config::UpstreamAuthMode;
+use pokrov_config::{model::ResponseMetadataMode, UpstreamAuthMode};
 use pokrov_core::{
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
@@ -30,6 +30,7 @@ pub struct LLMProxyHandler {
     metrics: SharedRuntimeMetricsHooks,
     routes: Arc<ProviderRouteTable>,
     upstream: UpstreamClient,
+    response_metadata_mode: ResponseMetadataMode,
 }
 
 impl LLMProxyHandler {
@@ -37,12 +38,14 @@ impl LLMProxyHandler {
         evaluator: Option<Arc<SanitizationEngine>>,
         metrics: SharedRuntimeMetricsHooks,
         routes: ProviderRouteTable,
+        response_metadata_mode: ResponseMetadataMode,
     ) -> Result<Self, LLMProxyError> {
         Ok(Self {
             evaluator,
             metrics,
             routes: Arc::new(routes),
             upstream: UpstreamClient::new()?,
+            response_metadata_mode,
         })
     }
 
@@ -52,6 +55,10 @@ impl LLMProxyHandler {
 
     pub fn default_profile_id(&self) -> &str {
         self.routes.default_profile_id()
+    }
+
+    pub fn model_catalog(&self) -> &[crate::routing::ModelCatalogEntry] {
+        self.routes.model_catalog()
     }
 
     pub async fn handle_chat_completion(
@@ -152,7 +159,40 @@ impl LLMProxyHandler {
             }
         }
 
-        let route = self.routes.resolve(&request_id, &envelope.model)?;
+        let normalized_model_key = normalize_model_key(&envelope.model);
+        let route = match self.routes.resolve(&request_id, &envelope.model) {
+            Ok(route) => {
+                self.metrics.on_model_resolution();
+                route
+            }
+            Err(error) => {
+                self.metrics.on_model_resolution_failed();
+                tracing::info!(
+                    component = "llm_proxy",
+                    action = "model_resolution",
+                    request_id = %request_id,
+                    route = %endpoint,
+                    input_model_key = %envelope.model,
+                    normalized_model_key = %normalized_model_key,
+                    resolution_status = %error.code().as_str(),
+                );
+                return Err(error);
+            }
+        };
+        tracing::info!(
+            component = "llm_proxy",
+            action = "model_resolution",
+            request_id = %request_id,
+            route = %endpoint,
+            input_model_key = %envelope.model,
+            normalized_model_key = %normalized_model_key,
+            canonical_model = %route.canonical_model,
+            resolved_model = %route.canonical_model,
+            provider_id = %route.provider_id,
+            resolved_via_alias = route.resolved_via_alias,
+            resolution_status = "resolved",
+        );
+        override_payload_model(&mut sanitized_payload, &route.canonical_model);
         let selected_credential = select_upstream_credential(auth_mode, &route, upstream_credential)
             .ok_or_else(|| {
                 LLMProxyError::invalid_request(
@@ -313,17 +353,19 @@ impl LLMProxyHandler {
             }
         }
 
-        attach_pokrov_metadata(
-            &request_id,
-            &profile_id,
-            &route.provider_id,
-            final_action,
-            total_hits,
-            sanitized_input,
-            sanitized_output,
-            estimated_token_units,
-            &mut body,
-        )?;
+        if self.response_metadata_mode == ResponseMetadataMode::Enabled {
+            attach_pokrov_metadata(
+                &request_id,
+                &profile_id,
+                &route.provider_id,
+                final_action,
+                total_hits,
+                sanitized_input,
+                sanitized_output,
+                estimated_token_units,
+                &mut body,
+            )?;
+        }
 
         self.emit_terminal_event(TerminalEvent {
             request_id: &request_id,
@@ -409,4 +451,18 @@ impl LLMProxyHandler {
         }
         self.metrics.on_llm_request_duration_ms(event.duration_ms);
     }
+}
+
+fn override_payload_model(payload: &mut Value, canonical_model: &str) {
+    let Some(object) = payload.as_object_mut() else {
+        return;
+    };
+    object.insert(
+        "model".to_string(),
+        Value::String(canonical_model.to_string()),
+    );
+}
+
+fn normalize_model_key(model: &str) -> String {
+    model.trim().to_ascii_lowercase()
 }

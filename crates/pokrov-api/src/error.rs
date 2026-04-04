@@ -3,6 +3,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use pokrov_config::model::ResponseMetadataMode;
 use pokrov_proxy_llm::errors::LLMProxyError;
 use pokrov_proxy_mcp::errors::McpProxyError;
 use tracing::warn;
@@ -23,6 +24,7 @@ pub struct ApiError {
     pub allowed: Option<bool>,
     pub details: Option<serde_json::Value>,
     pub rate_limit: Option<RateLimitDecision>,
+    pub response_metadata_mode: ResponseMetadataMode,
 }
 
 impl ApiError {
@@ -35,6 +37,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -50,6 +53,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -62,6 +66,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -74,6 +79,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -86,6 +92,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -98,6 +105,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -110,6 +118,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -122,6 +131,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -134,6 +144,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -146,6 +157,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -158,6 +170,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -170,6 +183,20 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: Some(decision),
+            response_metadata_mode: ResponseMetadataMode::Enabled,
+        }
+    }
+
+    pub fn runtime_not_ready(request_id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "runtime_not_ready",
+            message: message.into(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -194,6 +221,7 @@ impl ApiError {
             allowed: None,
             details: None,
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 
@@ -229,7 +257,13 @@ impl ApiError {
                 .details()
                 .and_then(|details| serde_json::to_value(details).ok()),
             rate_limit: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
+    }
+
+    pub fn with_response_metadata_mode(mut self, mode: ResponseMetadataMode) -> Self {
+        self.response_metadata_mode = mode;
+        self
     }
 }
 
@@ -262,6 +296,15 @@ impl IntoResponse for ApiError {
         }
 
         payload.insert("error".to_string(), serde_json::Value::Object(error));
+
+        if self.response_metadata_mode == ResponseMetadataMode::Enabled {
+            payload.insert(
+                "pokrov".to_string(),
+                serde_json::json!({
+                    "error_code": self.code,
+                }),
+            );
+        }
 
         if let Some(rate_limit) = self.rate_limit {
             payload.insert(

@@ -3,6 +3,7 @@ pub mod evaluate;
 pub mod health;
 pub mod mcp_tool_call;
 pub mod metrics;
+pub mod models;
 pub mod ready;
 mod request_context;
 pub mod responses;

@@ -15,6 +15,11 @@ fn byok_contract_path() -> PathBuf {
         .join("specs/006-byok-passthrough-auth/contracts/byok-auth-api.yaml")
 }
 
+fn proxy_ux_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/008-proxy-ux-solution/contracts/proxy-ux-api.yaml")
+}
+
 #[test]
 fn llm_contract_defines_chat_completions_and_non_stream_success_shape() {
     let raw = std::fs::read_to_string(contract_path()).expect("contract file should exist");
@@ -78,5 +83,33 @@ fn byok_contract_declares_gateway_and_upstream_auth_errors_for_chat_path() {
     assert_eq!(
         responses["422"]["content"]["application/json"]["schema"]["$ref"].as_str(),
         Some("#/components/schemas/UpstreamCredentialError")
+    );
+}
+
+#[test]
+fn proxy_ux_contract_declares_models_discovery_endpoint() {
+    let raw = std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
+
+    let operation = &api["paths"]["/v1/models"]["get"];
+    assert!(operation.is_mapping(), "/v1/models endpoint must exist");
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["object"]["const"]
+            .as_str(),
+        Some("list")
+    );
+}
+
+#[test]
+fn proxy_ux_contract_declares_metadata_mode_behavior_for_success_responses() {
+    let raw = std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
+
+    let description = api["components"]["schemas"]["ChatSuccessResponse"]["properties"]["pokrov"]["description"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        description.contains("Present when response metadata mode is enabled"),
+        "contract must document metadata mode toggle for success payloads"
     );
 }

@@ -5,11 +5,14 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use pokrov_config::model::ResponseMetadataMode;
 use pokrov_proxy_llm::audit::{LLMAuthStageAuditEvent, LLMRateLimitAuditEvent};
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
 
-use super::request_context::{RequestContextHooks, resolve_request_context};
+use super::request_context::{
+    RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
+};
 use super::rate_limit::evaluate_and_record_rate_limit;
 use crate::{
     app::{AppState, GatewayAuthContext},
@@ -24,9 +27,12 @@ pub async fn handle_responses(
     headers: HeaderMap,
     body: Result<Json<Value>, JsonRejection>,
 ) -> Result<Response, ApiError> {
+    let metadata_mode = state.llm.response_metadata_mode;
     let payload = body
         .map(|Json(body)| body)
-        .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
+        .map_err(|rejection| {
+            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+        })?;
     let is_stream_request = payload.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
     let context = resolve_request_context(
@@ -35,12 +41,14 @@ pub async fn handle_responses(
         &gateway_auth,
         &request_id,
         "/v1/responses",
+        UpstreamCredentialRequirement::Required,
         &RequestContextHooks {
             on_auth_stage: on_auth_stage,
             emit_auth_stage: emit_auth_stage,
             map_error: map_error,
         },
-    )?;
+    )
+    .map_err(|error| error.with_response_metadata_mode(metadata_mode))?;
 
     let estimated_units = estimate_responses_token_units(&payload);
     if let Some(decision) = evaluate_and_record_rate_limit(
@@ -65,12 +73,16 @@ pub async fn handle_responses(
             .emit();
         }
         if !decision.allowed {
-            return Err(ApiError::rate_limit_exceeded(request_id, decision));
+            return Err(
+                ApiError::rate_limit_exceeded(request_id, decision)
+                    .with_response_metadata_mode(metadata_mode),
+            );
         }
     }
 
     let handler = state.llm.handler.clone().ok_or_else(|| {
-        ApiError::invalid_request(request_id.clone(), "llm proxy is not configured")
+        ApiError::runtime_not_ready(request_id.clone(), "llm proxy is not ready")
+            .with_response_metadata_mode(metadata_mode)
     })?;
 
     let response = handler
@@ -96,13 +108,22 @@ pub async fn handle_responses(
             }
             if is_stream_request && error.code().as_str().starts_with("upstream_") {
                 ApiError::responses_stream_terminated(request_id.clone())
+                    .with_response_metadata_mode(metadata_mode)
             } else {
                 ApiError::from_llm_proxy_for_responses(error)
+                    .with_response_metadata_mode(metadata_mode)
             }
         })?;
 
     match response.body {
-        LLMProxyBody::Json(body) => Ok((response.status, Json(map_chat_to_responses_envelope(body))).into_response()),
+        LLMProxyBody::Json(body) => Ok((
+            response.status,
+            Json(map_chat_to_responses_envelope(
+                body,
+                state.llm.response_metadata_mode,
+            )),
+        )
+            .into_response()),
         LLMProxyBody::Sse(body) => {
             let mut sse_response = Response::new(Body::from(body));
             *sse_response.status_mut() = response.status;
@@ -167,9 +188,9 @@ fn map_error(error: ApiError) -> ApiError {
     error
 }
 
-fn map_chat_to_responses_envelope(body: Value) -> Value {
+fn map_chat_to_responses_envelope(body: Value, metadata_mode: ResponseMetadataMode) -> Value {
     let request_id = body.get("request_id").cloned().unwrap_or(Value::Null);
-    let pokrov = body.get("pokrov").cloned().unwrap_or(Value::Null);
+    let pokrov = body.get("pokrov").cloned();
     let model = body.get("model").cloned();
     let output = body
         .get("choices")
@@ -202,10 +223,14 @@ fn map_chat_to_responses_envelope(body: Value) -> Value {
     let mut envelope = serde_json::Map::from_iter([
         ("request_id".to_string(), request_id),
         ("output".to_string(), Value::Array(output)),
-        ("pokrov".to_string(), pokrov),
     ]);
     if let Some(model) = model {
         envelope.insert("model".to_string(), model);
+    }
+    if metadata_mode == ResponseMetadataMode::Enabled {
+        if let Some(pokrov) = pokrov {
+            envelope.insert("pokrov".to_string(), pokrov);
+        }
     }
     Value::Object(envelope)
 }
@@ -239,6 +264,8 @@ fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError 
 mod tests {
     use serde_json::json;
 
+    use pokrov_config::model::ResponseMetadataMode;
+
     use super::{estimate_responses_token_units, map_chat_to_responses_envelope};
 
     #[test]
@@ -250,11 +277,22 @@ mod tests {
             "pokrov":{"profile":"strict","action":"allow","sanitized_input":false,"sanitized_output":false,"rule_hits":0}
         });
 
-        let responses = map_chat_to_responses_envelope(chat);
+        let responses = map_chat_to_responses_envelope(chat, ResponseMetadataMode::Enabled);
         assert_eq!(responses["request_id"], "req-1");
         assert_eq!(responses["output"][0]["type"], "message");
         assert_eq!(responses["output"][0]["content"][0]["text"], "ok");
         assert_eq!(responses["pokrov"]["profile"], "strict");
+    }
+
+    #[test]
+    fn omits_proxy_metadata_in_suppressed_mode() {
+        let chat = json!({
+            "request_id":"req-1",
+            "choices":[{"message":{"role":"assistant","content":"ok"}}],
+            "pokrov":{"profile":"strict"}
+        });
+        let responses = map_chat_to_responses_envelope(chat, ResponseMetadataMode::Suppressed);
+        assert!(responses.get("pokrov").is_none());
     }
 
     #[test]

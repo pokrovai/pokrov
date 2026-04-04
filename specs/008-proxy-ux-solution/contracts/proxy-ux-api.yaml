@@ -1,0 +1,237 @@
+openapi: 3.1.0
+info:
+  title: Pokrov Proxy UX P0-P2 API Contract
+  version: 0.2.0
+  description: >-
+    API contract for routing UX roadmap P0+P1+P2:
+    model discovery, alias/wildcard resolution, fallback behavior,
+    provider transforms, and responses passthrough compatibility.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/models:
+    get:
+      summary: List routable models for auto-discovery
+      operationId: listRoutableModels
+      responses:
+        '200':
+          description: Active catalog entries (canonical/alias/wildcard-derived)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [object, data]
+                properties:
+                  object:
+                    type: string
+                    const: list
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelCatalogEntry'
+        '503':
+          description: Runtime not ready due to routing graph/config validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/chat/completions:
+    post:
+      summary: Unified chat completion endpoint with exact/alias/wildcard/fallback routing
+      operationId: postChatCompletionsUnified
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              required: [model, messages]
+              properties:
+                model:
+                  type: string
+                  minLength: 1
+                messages:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    additionalProperties: true
+      responses:
+        '200':
+          description: Successful completion response in client contract.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSuccessResponse'
+        '422':
+          description: Unknown model or unsupported mapped feature.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded for identity/profile/provider/model budget.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Fallback chain exhausted after retriable upstream failures.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Runtime not ready or upstream unavailable without eligible fallback.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/responses:
+    post:
+      summary: Responses endpoint with native passthrough mode
+      operationId: postResponsesPassthrough
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Successful responses payload in client-compatible shape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsesSuccessResponse'
+        '400':
+          description: Invalid request subset for selected provider transform profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unsupported responses feature or model routing failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Provider/model scoped budget exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Runtime not ready or provider endpoint unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    ModelCatalogEntry:
+      type: object
+      additionalProperties: false
+      required: [id, object, canonical_model, provider_id, kind]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        object:
+          type: string
+          const: model
+        canonical_model:
+          type: string
+          minLength: 1
+        provider_id:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum: [canonical, alias, wildcard]
+
+    ChatSuccessResponse:
+      type: object
+      additionalProperties: true
+      required: [id, object, choices]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        pokrov:
+          $ref: '#/components/schemas/PokrovMetadata'
+          description: Present when response metadata mode is enabled.
+
+    ResponsesSuccessResponse:
+      type: object
+      additionalProperties: true
+      required: [request_id, output]
+      properties:
+        request_id:
+          type: string
+        output:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        pokrov:
+          $ref: '#/components/schemas/PokrovMetadata'
+          description: Present when response metadata mode is enabled.
+
+    PokrovMetadata:
+      type: object
+      additionalProperties: false
+      required: [profile, action, sanitized_input, sanitized_output, rule_hits]
+      properties:
+        profile:
+          type: string
+        action:
+          type: string
+          enum: [allow, mask, replace, redact, block]
+        sanitized_input:
+          type: boolean
+        sanitized_output:
+          type: boolean
+        rule_hits:
+          type: integer
+          minimum: 0
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, error]
+      properties:
+        request_id:
+          type: string
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unsupported_request_subset
+                - model_not_routed
+                - alias_conflict
+                - wildcard_conflict
+                - fallback_exhausted
+                - rate_limit_exceeded
+                - runtime_not_ready
+                - upstream_error
+            message:
+              type: string
