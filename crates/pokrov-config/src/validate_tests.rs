@@ -366,6 +366,31 @@
     }
 
     #[test]
+    fn rejects_passthrough_mode_without_required_mesh_identity_header() {
+        let mut config = valid_config();
+        config.auth.upstream_auth_mode = UpstreamAuthMode::Passthrough;
+        config.auth.gateway_auth_mode = crate::model::GatewayAuthMode::MeshMtls;
+        config.auth.mesh.require_header = false;
+        config.security.api_keys.clear();
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("passthrough mesh mTLS must require identity header");
+        assert!(error.to_string().contains("auth.mesh.require_header"));
+        assert!(error.to_string().contains("passthrough_requires_mesh_identity_header"));
+    }
+
+    #[test]
+    fn rejects_single_bearer_opt_in_outside_passthrough_mode() {
+        let mut config = valid_config();
+        config.auth.upstream_auth_mode = UpstreamAuthMode::Static;
+        config.auth.allow_single_bearer_passthrough = true;
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("single-bearer opt-in must not apply in static mode");
+        assert!(error.to_string().contains("auth.allow_single_bearer_passthrough"));
+    }
+
+    #[test]
     fn rejects_internal_mtls_mode_without_tls_requirements() {
         let mut config = valid_config();
         config.auth.gateway_auth_mode = crate::model::GatewayAuthMode::InternalMtls;

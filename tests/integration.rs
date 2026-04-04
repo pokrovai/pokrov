@@ -102,3 +102,5 @@ mod byok_identity_policy_binding_path;
 mod byok_end_to_end_flow;
 #[path = "integration/mesh_mtls_gateway_auth_path.rs"]
 mod mesh_mtls_gateway_auth_path;
+#[path = "integration/internal_mtls_gateway_auth_path.rs"]
+mod internal_mtls_gateway_auth_path;

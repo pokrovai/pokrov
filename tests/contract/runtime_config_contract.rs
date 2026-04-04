@@ -141,6 +141,10 @@ fn byok_runtime_config_contract_declares_dual_auth_modes() {
 
     assert!(modes.contains(&"static"));
     assert!(modes.contains(&"passthrough"));
+    assert_eq!(
+        contract["runtime"]["auth"]["allow_single_bearer_passthrough"]["default"].as_bool(),
+        Some(false)
+    );
 }
 
 #[test]

@@ -380,6 +380,7 @@ where
         },
         auth: AuthState {
             upstream_auth_mode: config.auth.upstream_auth_mode,
+            allow_single_bearer_passthrough: config.auth.allow_single_bearer_passthrough,
             gateway_auth_mode: config.auth.gateway_auth_mode,
             internal_mtls_identity_header: config.auth.internal_mtls.identity_header.clone(),
             internal_mtls_require_header: config.auth.internal_mtls.require_header,
@@ -600,7 +601,18 @@ async fn handle_tls_connection(
     identity_header_name: String,
 ) -> Result<(), std::io::Error> {
     let tls_stream = tls_acceptor.accept(socket).await.map_err(std::io::Error::other)?;
-    let verified_subject = extract_peer_subject(&tls_stream);
+    let verified_subject = match extract_peer_subject(&tls_stream) {
+        Ok(subject) => subject,
+        Err(error) => {
+            warn!(
+                action = "tls_peer_identity_parse_failed",
+                remote_addr = %remote_addr,
+                error = %error,
+                "failed to parse peer certificate subject"
+            );
+            None
+        }
+    };
     let io = TokioIo::new(tls_stream);
     let service = service_fn(move |mut request: Request<hyper::body::Incoming>| {
         let app = app.clone();
@@ -641,6 +653,8 @@ async fn handle_tls_connection(
 }
 
 fn build_tls_acceptor(config: &RuntimeConfig) -> Result<TlsAcceptor, BootstrapError> {
+    install_rustls_crypto_provider_once();
+
     let cert_path = config.server.tls.cert_file.as_deref().ok_or_else(|| {
         BootstrapError::Security("server.tls.cert_file must be configured when tls is enabled".to_string())
     })?;
@@ -673,6 +687,12 @@ fn build_tls_acceptor(config: &RuntimeConfig) -> Result<TlsAcceptor, BootstrapEr
     };
 
     Ok(TlsAcceptor::from(Arc::new(server_config)))
+}
+
+fn install_rustls_crypto_provider_once() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
 }
 
 fn load_cert_chain(path: &str) -> Result<Vec<CertificateDer<'static>>, BootstrapError> {
@@ -709,11 +729,19 @@ fn load_root_store(path: &str) -> Result<Arc<RootCertStore>, BootstrapError> {
     Ok(Arc::new(roots))
 }
 
-fn extract_peer_subject(stream: &TlsStream<TcpStream>) -> Option<String> {
+fn extract_peer_subject(stream: &TlsStream<TcpStream>) -> Result<Option<String>, String> {
     let (_, server_conn) = stream.get_ref();
-    let cert = server_conn.peer_certificates()?.first()?;
-    let (_, parsed) = parse_x509_certificate(cert.as_ref()).ok()?;
-    Some(parsed.subject().to_string())
+    let Some(cert) = server_conn.peer_certificates().and_then(|certs| certs.first()) else {
+        return Ok(None);
+    };
+
+    parse_peer_subject(cert.as_ref()).map(Some)
+}
+
+fn parse_peer_subject(certificate_der: &[u8]) -> Result<String, String> {
+    let (_, parsed) = parse_x509_certificate(certificate_der)
+        .map_err(|error| format!("invalid x509 certificate: {error}"))?;
+    Ok(parsed.subject().to_string())
 }
 
 fn is_llm_enabled(config: &RuntimeConfig) -> bool {
@@ -872,7 +900,7 @@ async fn wait_until_runtime_started(lifecycle: SharedRuntimeLifecycle) {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args;
+    use super::{parse_args, parse_peer_subject};
 
     #[test]
     fn parse_args_rejects_unknown_argument() {
@@ -884,5 +912,12 @@ mod tests {
 
         let error = parse_args(&args).expect_err("unknown argument must fail parsing");
         assert!(error.to_string().contains("unknown argument: --unknown"));
+    }
+
+    #[test]
+    fn parse_peer_subject_rejects_invalid_der() {
+        let error = parse_peer_subject(b"not-a-certificate")
+            .expect_err("invalid DER input must fail subject parsing");
+        assert!(error.contains("invalid x509 certificate"));
     }
 }

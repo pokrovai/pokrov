@@ -133,6 +133,38 @@ security:
 }
 
 #[tokio::test]
+async fn runtime_rejects_passthrough_mesh_mode_when_identity_header_is_optional() {
+    let config_path = write_temp_config(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 5000
+  grace_period_ms: 6000
+auth:
+  upstream_auth_mode: passthrough
+  gateway_auth_mode: mesh_mtls
+  mesh:
+    identity_header: x-forwarded-client-cert
+    require_header: false
+security:
+  api_keys: []
+"#,
+    );
+
+    let startup = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path).await;
+    let error = match startup {
+        Ok(_) => panic!("invalid mesh passthrough config must fail startup"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("passthrough_requires_mesh_identity_header"));
+}
+
+#[tokio::test]
 async fn runtime_with_disabled_sanitization_reports_ready() {
     let config_path = write_temp_config(
         r#"

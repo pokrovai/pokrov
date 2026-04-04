@@ -7,13 +7,10 @@ use pokrov_proxy_mcp::types::{McpRequestMetadata, McpToolCallRequest, McpToolCal
 use pokrov_proxy_mcp::audit::{McpAuthStageAuditEvent, McpRateLimitAuditEvent};
 use serde::Deserialize;
 
+use super::request_context::{RequestContextHooks, resolve_request_context};
 use super::rate_limit::{estimate_json_token_units, evaluate_and_record_rate_limit};
 use crate::{
-    app::{AppState, GatewayAuthContext, GatewayAuthMechanism},
-    auth::{
-        fingerprint_gateway_auth_subject, parse_bearer_token, parse_gateway_credential,
-        parse_identity_from_headers, resolve_identity_from_sources,
-    },
+    app::{AppState, GatewayAuthContext},
     error::ApiError,
 };
 
@@ -37,141 +34,24 @@ pub async fn handle_mcp_tool_call(
         .map(|Json(body)| body)
         .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
 
-    let mode_label = match state.auth.upstream_auth_mode {
-        pokrov_config::UpstreamAuthMode::Static => "static",
-        pokrov_config::UpstreamAuthMode::Passthrough => "passthrough",
-    };
-    if !gateway_auth.authenticated {
-        state
-            .metrics
-            .on_auth_decision(mode_label, "gateway_auth", "fail");
-        McpAuthStageAuditEvent {
-            request_id: request_id.clone(),
-            auth_mode: mode_label,
-            stage: "gateway_auth",
-            decision: "fail",
-        }
-        .emit();
-        return Err(enforce_mcp_error_contract(ApiError::gateway_unauthorized(
-            request_id.clone(),
-        )));
-    }
-    state
-        .metrics
-        .on_auth_decision(mode_label, "gateway_auth", "pass");
-    McpAuthStageAuditEvent {
-        request_id: request_id.clone(),
-        auth_mode: mode_label,
-        stage: "gateway_auth",
-        decision: "pass",
-    }
-    .emit();
-    let (header_identity, ingress_identity) = parse_identity_from_headers(&headers);
-    let gateway_auth_subject = gateway_auth.auth_subject.clone().unwrap_or_else(|| {
-        parse_gateway_credential(&headers)
-            .map(|credential| fingerprint_gateway_auth_subject(credential.token))
-            .unwrap_or_else(|| "gateway_authenticated".to_string())
-    });
-    let client_identity = resolve_identity_from_sources(
-        state.auth.identity_resolution_order.as_slice(),
-        header_identity,
-        ingress_identity,
-        Some(gateway_auth_subject.as_str()),
-    )
-    .unwrap_or(gateway_auth_subject.as_str());
-    let profile_id = state
-        .auth
-        .identity_profile_bindings
-        .get(client_identity)
-        .cloned()
-        .or_else(|| state.auth.fallback_policy_profile.clone())
-        .or_else(|| {
-            parse_gateway_credential(&headers)
-                .and_then(|gateway| state.sanitization.profile_for_token(gateway.token))
-        })
-        .unwrap_or_else(|| "strict".to_string());
-    let rate_limit_profile = state
-        .auth
-        .identity_rate_limit_bindings
-        .get(client_identity)
-        .cloned()
-        .or_else(|| {
-            parse_gateway_credential(&headers)
-                .and_then(|gateway| state.sanitization.profile_for_token(gateway.token))
-        })
-        .unwrap_or_else(|| profile_id.clone());
-
-    let upstream_credential = match state.auth.upstream_auth_mode {
-        pokrov_config::UpstreamAuthMode::Static => None,
-        pokrov_config::UpstreamAuthMode::Passthrough => {
-            let gateway_credential = parse_gateway_credential(&headers);
-            let gateway_mechanism =
-                gateway_credential.as_ref().map(|credential| credential.mechanism);
-            let credential = match gateway_mechanism {
-                Some(GatewayAuthMechanism::ApiKey) => parse_bearer_token(&headers)
-                    .ok_or_else(|| {
-                        state
-                            .metrics
-                            .on_auth_decision(mode_label, "upstream_credentials", "fail");
-                        McpAuthStageAuditEvent {
-                            request_id: request_id.clone(),
-                            auth_mode: mode_label,
-                            stage: "upstream_credentials",
-                            decision: "fail",
-                        }
-                        .emit();
-                        enforce_mcp_error_contract(ApiError::upstream_credential_missing(
-                            request_id.clone(),
-                        ))
-                    })?
-                    .to_string(),
-                Some(GatewayAuthMechanism::Bearer) => gateway_credential
-                    .map(|credential| credential.token.to_string())
-                    .ok_or_else(|| {
-                        enforce_mcp_error_contract(ApiError::upstream_credential_missing(
-                            request_id.clone(),
-                        ))
-                    })?,
-                Some(GatewayAuthMechanism::InternalMtls)
-                | Some(GatewayAuthMechanism::MeshMtls)
-                | None => parse_bearer_token(&headers)
-                    .ok_or_else(|| {
-                        state
-                            .metrics
-                            .on_auth_decision(mode_label, "upstream_credentials", "fail");
-                        McpAuthStageAuditEvent {
-                            request_id: request_id.clone(),
-                            auth_mode: mode_label,
-                            stage: "upstream_credentials",
-                            decision: "fail",
-                        }
-                        .emit();
-                        enforce_mcp_error_contract(ApiError::upstream_credential_missing(
-                            request_id.clone(),
-                        ))
-                    })?
-                    .to_string(),
-            };
-            state
-                .metrics
-                .on_auth_decision(mode_label, "upstream_credentials", "pass");
-            McpAuthStageAuditEvent {
-                request_id: request_id.clone(),
-                auth_mode: mode_label,
-                stage: "upstream_credentials",
-                decision: "pass",
-            }
-            .emit();
-            Some(credential)
-        }
-    };
-    let rate_limit_key = client_identity.to_string();
+    let context = resolve_request_context(
+        &state,
+        &headers,
+        &gateway_auth,
+        &request_id,
+        "/v1/mcp/tool-call",
+        &RequestContextHooks {
+            on_auth_stage: on_auth_stage,
+            emit_auth_stage: emit_auth_stage,
+            map_error: map_error,
+        },
+    )?;
 
     if let Some(decision) = evaluate_and_record_rate_limit(
         &state,
         "/v1/mcp/tool-call",
-        &rate_limit_key,
-        &rate_limit_profile,
+        &context.rate_limit_key,
+        &context.rate_limit_profile,
         estimate_json_token_units(&body.arguments),
     )
     .await
@@ -179,7 +59,7 @@ pub async fn handle_mcp_tool_call(
         if !matches!(decision.reason, crate::app::RateLimitReason::WithinBudget) {
             McpRateLimitAuditEvent {
                 request_id: request_id.clone(),
-                profile_id: profile_id.clone(),
+                profile_id: context.profile_id.clone(),
                 decision: if decision.allowed { "dry_run" } else { "blocked" }.to_string(),
                 retry_after_ms: decision.retry_after_ms,
                 limit: decision.limit,
@@ -207,9 +87,9 @@ pub async fn handle_mcp_tool_call(
         .handle_tool_call(
             request_id.clone(),
             body,
-            &profile_id,
-            mode_label,
-            upstream_credential.as_deref(),
+            &context.profile_id,
+            context.mode_label,
+            context.upstream_credential.as_deref(),
         )
         .await
         .map_err(|error| {
@@ -228,6 +108,30 @@ pub async fn handle_mcp_tool_call(
         })?;
 
     Ok(Json(response))
+}
+
+fn on_auth_stage(state: &AppState, mode: &'static str, stage: &'static str, decision: &'static str) {
+    state.metrics.on_auth_decision(mode, stage, decision);
+}
+
+fn emit_auth_stage(
+    request_id: &str,
+    _endpoint: &'static str,
+    mode: &'static str,
+    stage: &'static str,
+    decision: &'static str,
+) {
+    McpAuthStageAuditEvent {
+        request_id: request_id.to_string(),
+        auth_mode: mode,
+        stage,
+        decision,
+    }
+    .emit();
+}
+
+fn map_error(error: ApiError) -> ApiError {
+    enforce_mcp_error_contract(error)
 }
 
 /// Handles path-based MCP invocations where `tool_name` is provided by the route segment.

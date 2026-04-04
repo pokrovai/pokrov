@@ -247,6 +247,7 @@ pub struct UpstreamCredentialSource {
 #[derive(Clone)]
 pub struct AuthState {
     pub upstream_auth_mode: UpstreamAuthMode,
+    pub allow_single_bearer_passthrough: bool,
     pub gateway_auth_mode: GatewayAuthMode,
     pub internal_mtls_identity_header: String,
     pub internal_mtls_require_header: bool,
@@ -265,6 +266,7 @@ impl Default for AuthState {
     fn default() -> Self {
         Self {
             upstream_auth_mode: UpstreamAuthMode::Static,
+            allow_single_bearer_passthrough: false,
             gateway_auth_mode: GatewayAuthMode::ApiKey,
             internal_mtls_identity_header: "x-pokrov-client-cert-subject".to_string(),
             internal_mtls_require_header: true,

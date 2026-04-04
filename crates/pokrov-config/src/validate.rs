@@ -62,6 +62,28 @@ fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) 
             "passthrough_requires_api_key_gateway_auth: security.api_keys must define at least one gateway credential",
         ));
     }
+    if matches!(
+        config.auth.upstream_auth_mode,
+        crate::model::UpstreamAuthMode::Passthrough
+    ) && matches!(config.auth.gateway_auth_mode, GatewayAuthMode::MeshMtls)
+        && !config.auth.mesh.require_header
+    {
+        issues.push(ValidationIssue::new(
+            "auth.mesh.require_header",
+            "passthrough_requires_mesh_identity_header: auth.mesh.require_header must be true when auth.upstream_auth_mode=passthrough",
+        ));
+    }
+    if config.auth.allow_single_bearer_passthrough
+        && !matches!(
+            config.auth.upstream_auth_mode,
+            crate::model::UpstreamAuthMode::Passthrough
+        )
+    {
+        issues.push(ValidationIssue::new(
+            "auth.allow_single_bearer_passthrough",
+            "must be false when auth.upstream_auth_mode is not passthrough",
+        ));
+    }
 
     if config.identity.resolution_order.is_empty() {
         issues.push(ValidationIssue::new(

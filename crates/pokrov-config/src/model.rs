@@ -113,6 +113,8 @@ pub struct AuthConfig {
     #[serde(default)]
     pub upstream_auth_mode: UpstreamAuthMode,
     #[serde(default)]
+    pub allow_single_bearer_passthrough: bool,
+    #[serde(default)]
     pub gateway_auth_mode: GatewayAuthMode,
     #[serde(default)]
     pub internal_mtls: InternalMtlsAuthConfig,
@@ -124,6 +126,7 @@ impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             upstream_auth_mode: UpstreamAuthMode::Static,
+            allow_single_bearer_passthrough: false,
             gateway_auth_mode: GatewayAuthMode::ApiKey,
             internal_mtls: InternalMtlsAuthConfig::default(),
             mesh: MeshAuthConfig::default(),

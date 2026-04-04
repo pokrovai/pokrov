@@ -48,6 +48,7 @@ pokrov-proxy-llm = { path = "crates/pokrov-proxy-llm" }
 pokrov-proxy-mcp = { path = "crates/pokrov-proxy-mcp" }
 pokrov-runtime = { path = "crates/pokrov-runtime" }
 reqwest = { workspace = true }
+rcgen = "0.13.2"
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tempfile = "3.14.0"
