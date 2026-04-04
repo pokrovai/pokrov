@@ -219,18 +219,11 @@ fn resolve_gateway_auth_context(
         pokrov_config::GatewayAuthMode::MeshMtls => {
             let raw = parse_header_token_by_name(headers, &state.auth.mesh_identity_header);
             let subject = raw.and_then(parse_spiffe_identity_from_mesh_header);
-            let trust_domain_ok = subject.is_some_and(|identity| {
-                state
-                    .auth
-                    .mesh_required_spiffe_trust_domain
-                    .as_ref()
-                    .is_none_or(|trust_domain| {
-                        let required_prefix = format!("spiffe://{}/", trust_domain.trim());
-                        identity.starts_with(&required_prefix)
-                    })
-            });
             if let Some(identity) = subject {
-                if trust_domain_ok {
+                if validate_mesh_spiffe_identity(
+                    identity,
+                    state.auth.mesh_required_spiffe_trust_domain.as_deref(),
+                ) {
                     GatewayAuthContext {
                         authenticated: true,
                         auth_subject: Some(identity.to_string()),
@@ -246,6 +239,17 @@ fn resolve_gateway_auth_context(
                     }
                 }
             } else if !state.auth.mesh_require_header {
+                if matches!(
+                    state.auth.upstream_auth_mode,
+                    pokrov_config::UpstreamAuthMode::Passthrough
+                ) {
+                    return GatewayAuthContext {
+                        authenticated: false,
+                        auth_subject: None,
+                        auth_mechanism: Some(crate::app::GatewayAuthMechanism::MeshMtls),
+                        failure_reason: Some("missing_gateway_auth"),
+                    };
+                }
                 GatewayAuthContext {
                     authenticated: true,
                     auth_subject: Some("mesh_mtls_authenticated".to_string()),
@@ -262,6 +266,30 @@ fn resolve_gateway_auth_context(
             }
         }
     }
+}
+
+fn validate_mesh_spiffe_identity(identity: &str, required_trust_domain: Option<&str>) -> bool {
+    let Some(uri) = identity.strip_prefix("spiffe://") else {
+        return false;
+    };
+    let (trust_domain, path) = uri.split_once('/').unwrap_or((uri, ""));
+    if trust_domain.trim().is_empty() {
+        return false;
+    }
+    if let Some(required) = required_trust_domain {
+        if trust_domain != required.trim() {
+            return false;
+        }
+    }
+
+    // Reject path traversal segments in SPIFFE IDs before resolving mesh identity.
+    for segment in path.split('/') {
+        if segment == "." || segment == ".." {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn resolve_internal_mtls_auth_context(
@@ -296,7 +324,7 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue};
     use crate::app::VerifiedClientCertIdentity;
 
-    use super::resolve_internal_mtls_auth_context;
+    use super::{resolve_internal_mtls_auth_context, validate_mesh_spiffe_identity};
 
     #[test]
     fn internal_mtls_rejects_spoofed_header_without_verified_identity() {
@@ -327,6 +355,26 @@ mod tests {
         assert!(auth.authenticated);
         assert_eq!(auth.auth_subject.as_deref(), Some("CN=runtime-verified"));
         assert_eq!(auth.failure_reason, None);
+    }
+
+    #[test]
+    fn mesh_spiffe_validation_requires_exact_trust_domain_boundary() {
+        assert!(validate_mesh_spiffe_identity(
+            "spiffe://cluster.local/ns/default/sa/app",
+            Some("cluster.local"),
+        ));
+        assert!(!validate_mesh_spiffe_identity(
+            "spiffe://cluster.local.evil/ns/default/sa/app",
+            Some("cluster.local"),
+        ));
+    }
+
+    #[test]
+    fn mesh_spiffe_validation_rejects_path_traversal_segments() {
+        assert!(!validate_mesh_spiffe_identity(
+            "spiffe://cluster.local/ns/default/../sa/app",
+            Some("cluster.local"),
+        ));
     }
 }
 

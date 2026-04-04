@@ -13,7 +13,7 @@ pokrov-core = { path = "../pokrov-core" }
 pokrov-metrics = { path = "../pokrov-metrics" }
 pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
 pokrov-proxy-mcp = { path = "../pokrov-proxy-mcp" }
-rustls = "0.23.31"
+rustls = { version = "0.23.31", features = ["ring"] }
 rustls-pemfile = "2.2.0"
 serde = { workspace = true }
 serde_json = { workspace = true }

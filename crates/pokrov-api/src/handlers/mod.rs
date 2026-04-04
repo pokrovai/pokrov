@@ -4,6 +4,7 @@ pub mod health;
 pub mod mcp_tool_call;
 pub mod metrics;
 pub mod ready;
+mod request_context;
 pub mod responses;
 mod rate_limit;
 
