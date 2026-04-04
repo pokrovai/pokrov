@@ -263,4 +263,88 @@ mod tests {
         assert_eq!(result.explain.profile_id, "strict");
         assert_eq!(result.audit.profile_id, "strict");
     }
+
+    #[test]
+    fn conflicting_partial_transforms_stay_deterministic_across_rule_order() {
+        fn engine_with_rules(custom_rules: Vec<CustomRule>) -> SanitizationEngine {
+            let profile = PolicyProfile {
+                profile_id: "strict".to_string(),
+                mode_default: EvaluationMode::Enforce,
+                category_actions: CategoryActions {
+                    secrets: PolicyAction::Allow,
+                    pii: PolicyAction::Allow,
+                    corporate_markers: PolicyAction::Allow,
+                    custom: PolicyAction::Allow,
+                },
+                mask_visible_suffix: 4,
+                custom_rules_enabled: true,
+                custom_rules,
+            };
+
+            SanitizationEngine::new(EvaluatorConfig {
+                default_profile: "strict".to_string(),
+                profiles: BTreeMap::from([("strict".to_string(), profile)]),
+            })
+            .expect("engine should build")
+        }
+
+        let broader_replace = CustomRule {
+            rule_id: "custom.alpha_broader".to_string(),
+            category: DetectionCategory::Custom,
+            pattern: "(?i)alpha\\s+secret".to_string(),
+            action: PolicyAction::Replace,
+            priority: 120,
+            replacement_template: Some("[CUSTOM_REPLACED]".to_string()),
+            enabled: true,
+        };
+        let inner_redact = CustomRule {
+            rule_id: "custom.alpha_inner".to_string(),
+            category: DetectionCategory::Custom,
+            pattern: "(?i)secret".to_string(),
+            action: PolicyAction::Redact,
+            priority: 80,
+            replacement_template: None,
+            enabled: true,
+        };
+
+        let engine_forward = engine_with_rules(vec![broader_replace.clone(), inner_redact.clone()]);
+        let engine_reversed = engine_with_rules(vec![inner_redact, broader_replace]);
+
+        let payload = json!({"message": "alpha secret token"});
+        let one = engine_forward
+            .evaluate(EvaluateRequest {
+                request_id: "r-forward".to_string(),
+                profile_id: "strict".to_string(),
+                mode: EvaluationMode::Enforce,
+                payload: payload.clone(),
+                path_class: PathClass::Direct,
+            })
+            .expect("forward evaluation should pass");
+        let two = engine_reversed
+            .evaluate(EvaluateRequest {
+                request_id: "r-reversed".to_string(),
+                profile_id: "strict".to_string(),
+                mode: EvaluationMode::Enforce,
+                payload,
+                path_class: PathClass::Direct,
+            })
+            .expect("reversed evaluation should pass");
+
+        assert_eq!(one.decision.final_action, PolicyAction::Redact);
+        assert_eq!(one.decision.final_action, two.decision.final_action);
+        assert_eq!(one.decision.deterministic_signature, two.decision.deterministic_signature);
+        assert_eq!(one.transform.sanitized_payload, two.transform.sanitized_payload);
+
+        let transformed_text = one
+            .transform
+            .sanitized_payload
+            .as_ref()
+            .and_then(|value| value.get("message"))
+            .and_then(|value| value.as_str())
+            .expect("sanitized message should exist");
+        assert!(
+            !transformed_text.contains("secret"),
+            "resolved winner span must not leave partial sensitive passthrough"
+        );
+    }
 }
