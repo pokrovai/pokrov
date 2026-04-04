@@ -16,6 +16,7 @@ Date: 2026-04-03
 ## LLM Proxy Feature Coverage
 
 - OpenAI-compatible route `POST /v1/chat/completions` is wired and validated.
+- Codex-compatible route `POST /v1/responses` is wired and validated with sync/stream scenarios.
 - Input sanitization-before-upstream and deterministic block short-circuit are covered.
 - Deterministic `model -> provider` route resolution is covered.
 - SSE stream framing and terminal `[DONE]` behavior are covered.

@@ -17,10 +17,10 @@
 
 **Purpose**: Подготовить каркас feature-документации, контрактных тестов и verification entrypoints для `responses` compatibility
 
-- [ ] T001 Обновить feature execution notes и acceptance checklist links в `specs/007-codex-agent-compat/plan.md` и `specs/007-codex-agent-compat/quickstart.md`
-- [ ] T002 [P] Добавить baseline route coverage заметки для `/v1/responses` в `docs/verification/003-llm-proxy.md`
-- [ ] T003 [P] Подключить новые test-модули для responses compatibility в `tests/contract.rs`, `tests/integration.rs`, `tests/security.rs`, `tests/performance.rs`
-- [ ] T004 [P] Обновить runtime usage guidance для Codex compatibility в `README.md`
+- [X] T001 Обновить feature execution notes и acceptance checklist links в `specs/007-codex-agent-compat/plan.md` и `specs/007-codex-agent-compat/quickstart.md`
+- [X] T002 [P] Добавить baseline route coverage заметки для `/v1/responses` в `docs/verification/003-llm-proxy.md`
+- [X] T003 [P] Подключить новые test-модули для responses compatibility в `tests/contract.rs`, `tests/integration.rs`, `tests/security.rs`, `tests/performance.rs`
+- [X] T004 [P] Обновить runtime usage guidance для Codex compatibility в `README.md`
 
 ---
 
@@ -30,15 +30,15 @@
 
 **CRITICAL**: Ни одна пользовательская история не должна стартовать до завершения этой фазы
 
-- [ ] T005 Добавить endpoint wiring `POST /v1/responses` в `crates/pokrov-api/src/app.rs`
-- [ ] T006 [P] Создать handler каркас для responses compatibility в `crates/pokrov-api/src/handlers/responses.rs` и экспорт в `crates/pokrov-api/src/handlers/mod.rs`
-- [ ] T007 [P] Добавить базовые типы request/response compatibility в `crates/pokrov-proxy-llm/src/types.rs`
-- [ ] T008 Реализовать deterministic mapping `responses -> chat/completions` в `crates/pokrov-proxy-llm/src/normalize.rs`
-- [ ] T009 [P] Добавить shared error mapping для `unsupported_request_subset`/`invalid_request` в `crates/pokrov-api/src/error.rs`
-- [ ] T010 [P] Расширить route/path normalization для `/v1/responses` в `crates/pokrov-api/src/middleware/mod.rs` и `crates/pokrov-metrics/src/registry.rs`
-- [ ] T011 [P] Добавить audit event schema для responses endpoint в `crates/pokrov-proxy-llm/src/audit.rs`
-- [ ] T012 [P] Добавить hooks для auth-stage и upstream metrics на `/v1/responses` в `crates/pokrov-metrics/src/hooks.rs` и `crates/pokrov-metrics/src/registry.rs`
-- [ ] T013 Обновить contract validation scaffolding для нового endpoint в `tests/contract/llm_proxy_api_contract.rs`
+- [X] T005 Добавить endpoint wiring `POST /v1/responses` в `crates/pokrov-api/src/app.rs`
+- [X] T006 [P] Создать handler каркас для responses compatibility в `crates/pokrov-api/src/handlers/responses.rs` и экспорт в `crates/pokrov-api/src/handlers/mod.rs`
+- [X] T007 [P] Добавить базовые типы request/response compatibility в `crates/pokrov-proxy-llm/src/types.rs`
+- [X] T008 Реализовать deterministic mapping `responses -> chat/completions` в `crates/pokrov-proxy-llm/src/normalize.rs`
+- [X] T009 [P] Добавить shared error mapping для `unsupported_request_subset`/`invalid_request` в `crates/pokrov-api/src/error.rs`
+- [X] T010 [P] Расширить route/path normalization для `/v1/responses` в `crates/pokrov-api/src/middleware/mod.rs` и `crates/pokrov-metrics/src/registry.rs`
+- [X] T011 [P] Добавить audit event schema для responses endpoint в `crates/pokrov-proxy-llm/src/audit.rs`
+- [X] T012 [P] Добавить hooks для auth-stage и upstream metrics на `/v1/responses` в `crates/pokrov-metrics/src/hooks.rs` и `crates/pokrov-metrics/src/registry.rs`
+- [X] T013 Обновить contract validation scaffolding для нового endpoint в `tests/contract/llm_proxy_api_contract.rs`
 
 **Checkpoint**: Foundation готова, пользовательские истории можно реализовывать независимо
 
@@ -52,20 +52,20 @@
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Добавить contract test для non-stream `POST /v1/responses` success/error envelopes в `tests/contract/responses_api_contract.rs`
-- [ ] T015 [P] [US1] Добавить integration test non-stream happy path для responses compatibility в `tests/integration/responses_compat_happy_path.rs`
-- [ ] T016 [P] [US1] Добавить integration test policy block short-circuit до upstream в `tests/integration/responses_policy_block_path.rs`
-- [ ] T017 [P] [US1] Добавить unit tests mapping `responses -> chat/completions` в `crates/pokrov-proxy-llm/src/normalize.rs`
-- [ ] T018 [P] [US1] Добавить security test metadata-only error payload на non-stream path в `tests/security/responses_metadata_leakage.rs`
+- [X] T014 [P] [US1] Добавить contract test для non-stream `POST /v1/responses` success/error envelopes в `tests/contract/responses_api_contract.rs`
+- [X] T015 [P] [US1] Добавить integration test non-stream happy path для responses compatibility в `tests/integration/responses_compat_happy_path.rs`
+- [X] T016 [P] [US1] Добавить integration test policy block short-circuit до upstream в `tests/integration/responses_policy_block_path.rs`
+- [X] T017 [P] [US1] Добавить unit tests mapping `responses -> chat/completions` в `crates/pokrov-proxy-llm/src/normalize.rs`
+- [X] T018 [P] [US1] Добавить security test metadata-only error payload на non-stream path в `tests/security/responses_metadata_leakage.rs`
 
 ### Implementation for User Story 1
 
-- [ ] T019 [P] [US1] Реализовать parsing/validation минимального non-stream subset в `crates/pokrov-api/src/handlers/responses.rs`
-- [ ] T020 [P] [US1] Реализовать non-stream conversion во внутренний chat flow в `crates/pokrov-proxy-llm/src/handler.rs` и `crates/pokrov-proxy-llm/src/types.rs`
-- [ ] T021 [US1] Подключить pre-upstream sanitization/policy evaluation для responses path в `crates/pokrov-proxy-llm/src/handler.rs`
-- [ ] T022 [US1] Реализовать JSON response envelope с `pokrov` metadata в `crates/pokrov-api/src/handlers/responses.rs`
-- [ ] T023 [US1] Добавить mapping upstream/provider errors в predictable responses errors в `crates/pokrov-api/src/error.rs` и `crates/pokrov-api/src/handlers/responses.rs`
-- [ ] T024 [US1] Добавить regression guard для неизменного `chat/completions` поведения в `tests/integration/llm_proxy_chat_completions_regression.rs`
+- [X] T019 [P] [US1] Реализовать parsing/validation минимального non-stream subset в `crates/pokrov-api/src/handlers/responses.rs`
+- [X] T020 [P] [US1] Реализовать non-stream conversion во внутренний chat flow в `crates/pokrov-proxy-llm/src/handler.rs` и `crates/pokrov-proxy-llm/src/types.rs`
+- [X] T021 [US1] Подключить pre-upstream sanitization/policy evaluation для responses path в `crates/pokrov-proxy-llm/src/handler.rs`
+- [X] T022 [US1] Реализовать JSON response envelope с `pokrov` metadata в `crates/pokrov-api/src/handlers/responses.rs`
+- [X] T023 [US1] Добавить mapping upstream/provider errors в predictable responses errors в `crates/pokrov-api/src/error.rs` и `crates/pokrov-api/src/handlers/responses.rs`
+- [X] T024 [US1] Добавить regression guard для неизменного `chat/completions` поведения в `tests/integration/llm_proxy_chat_completions_regression.rs`
 
 **Checkpoint**: История 1 полностью работоспособна и проверяема независимо
 
@@ -79,19 +79,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T025 [P] [US2] Добавить contract test stream mode для `/v1/responses` в `tests/contract/responses_api_contract.rs`
-- [ ] T026 [P] [US2] Добавить integration test stream happy path в `tests/integration/responses_stream_happy_path.rs`
-- [ ] T027 [P] [US2] Добавить integration test malformed upstream stream chunk handling в `tests/integration/responses_stream_malformed_chunk_path.rs`
-- [ ] T028 [P] [US2] Добавить security test stream output metadata-only safety в `tests/security/responses_stream_metadata_leakage.rs`
-- [ ] T029 [P] [US2] Добавить unit tests stream conversion/sanitization boundary в `crates/pokrov-proxy-llm/src/stream.rs`
+- [X] T025 [P] [US2] Добавить contract test stream mode для `/v1/responses` в `tests/contract/responses_api_contract.rs`
+- [X] T026 [P] [US2] Добавить integration test stream happy path в `tests/integration/responses_stream_happy_path.rs`
+- [X] T027 [P] [US2] Добавить integration test malformed upstream stream chunk handling в `tests/integration/responses_stream_malformed_chunk_path.rs`
+- [X] T028 [P] [US2] Добавить security test stream output metadata-only safety в `tests/security/responses_stream_metadata_leakage.rs`
+- [X] T029 [P] [US2] Добавить unit tests stream conversion/sanitization boundary в `crates/pokrov-proxy-llm/src/stream.rs`
 
 ### Implementation for User Story 2
 
-- [ ] T030 [P] [US2] Реализовать stream=true branch для `/v1/responses` handler в `crates/pokrov-api/src/handlers/responses.rs`
-- [ ] T031 [P] [US2] Реализовать conversion internal stream response -> responses-compatible SSE events в `crates/pokrov-proxy-llm/src/stream.rs`
-- [ ] T032 [US2] Добавить output sanitization orchestration для stream chunks на responses path в `crates/pokrov-proxy-llm/src/handler.rs`
-- [ ] T033 [US2] Добавить predictable stream error termination semantics в `crates/pokrov-api/src/handlers/responses.rs` и `crates/pokrov-api/src/error.rs`
-- [ ] T034 [US2] Добавить stream observability (route metrics, action/rule_hits summaries) в `crates/pokrov-metrics/src/registry.rs` и `crates/pokrov-proxy-llm/src/audit.rs`
+- [X] T030 [P] [US2] Реализовать stream=true branch для `/v1/responses` handler в `crates/pokrov-api/src/handlers/responses.rs`
+- [X] T031 [P] [US2] Реализовать conversion internal stream response -> responses-compatible SSE events в `crates/pokrov-proxy-llm/src/stream.rs`
+- [X] T032 [US2] Добавить output sanitization orchestration для stream chunks на responses path в `crates/pokrov-proxy-llm/src/handler.rs`
+- [X] T033 [US2] Добавить predictable stream error termination semantics в `crates/pokrov-api/src/handlers/responses.rs` и `crates/pokrov-api/src/error.rs`
+- [X] T034 [US2] Добавить stream observability (route metrics, action/rule_hits summaries) в `crates/pokrov-metrics/src/registry.rs` и `crates/pokrov-proxy-llm/src/audit.rs`
 
 **Checkpoint**: Истории 1 и 2 работают независимо и не регрессируют друг друга
 
@@ -105,19 +105,19 @@
 
 ### Tests for User Story 3
 
-- [ ] T035 [P] [US3] Добавить contract test auth-stage failures для `/v1/responses` в `tests/contract/responses_api_contract.rs`
-- [ ] T036 [P] [US3] Добавить integration test missing upstream credential passthrough block path в `tests/integration/responses_auth_missing_upstream_credential.rs`
-- [ ] T037 [P] [US3] Добавить integration test gateway auth failure precedence в `tests/integration/responses_gateway_auth_failure.rs`
-- [ ] T038 [P] [US3] Добавить security test no credential leakage in errors/logs/audit в `tests/security/responses_auth_metadata_leakage.rs`
-- [ ] T039 [P] [US3] Добавить performance test auth overhead budget на `/v1/responses` в `tests/performance/responses_proxy_overhead_budget.rs`
+- [X] T035 [P] [US3] Добавить contract test auth-stage failures для `/v1/responses` в `tests/contract/responses_api_contract.rs`
+- [X] T036 [P] [US3] Добавить integration test missing upstream credential passthrough block path в `tests/integration/responses_auth_missing_upstream_credential.rs`
+- [X] T037 [P] [US3] Добавить integration test gateway auth failure precedence в `tests/integration/responses_gateway_auth_failure.rs`
+- [X] T038 [P] [US3] Добавить security test no credential leakage in errors/logs/audit в `tests/security/responses_auth_metadata_leakage.rs`
+- [X] T039 [P] [US3] Добавить performance test auth overhead budget на `/v1/responses` в `tests/performance/responses_proxy_overhead_budget.rs`
 
 ### Implementation for User Story 3
 
-- [ ] T040 [P] [US3] Реализовать split-auth extraction и passthrough guard для responses handler в `crates/pokrov-api/src/handlers/responses.rs` и `crates/pokrov-api/src/auth.rs`
-- [ ] T041 [P] [US3] Интегрировать identity-bound profile/rate-limit resolution для `/v1/responses` в `crates/pokrov-api/src/handlers/responses.rs` и `crates/pokrov-api/src/handlers/rate_limit.rs`
-- [ ] T042 [US3] Добавить auth-stage audit events (`gateway_auth`, `upstream_credentials`) для responses path в `crates/pokrov-proxy-llm/src/audit.rs`
-- [ ] T043 [US3] Добавить auth decision metrics labels/outcomes для `/v1/responses` в `crates/pokrov-metrics/src/registry.rs` и `crates/pokrov-metrics/src/hooks.rs`
-- [ ] T044 [US3] Добавить structured error mappings (`gateway_unauthorized`, `upstream_credential_*`) для responses path в `crates/pokrov-api/src/error.rs`
+- [X] T040 [P] [US3] Реализовать split-auth extraction и passthrough guard для responses handler в `crates/pokrov-api/src/handlers/responses.rs` и `crates/pokrov-api/src/auth.rs`
+- [X] T041 [P] [US3] Интегрировать identity-bound profile/rate-limit resolution для `/v1/responses` в `crates/pokrov-api/src/handlers/responses.rs` и `crates/pokrov-api/src/handlers/rate_limit.rs`
+- [X] T042 [US3] Добавить auth-stage audit events (`gateway_auth`, `upstream_credentials`) для responses path в `crates/pokrov-proxy-llm/src/audit.rs`
+- [X] T043 [US3] Добавить auth decision metrics labels/outcomes для `/v1/responses` в `crates/pokrov-metrics/src/registry.rs` и `crates/pokrov-metrics/src/hooks.rs`
+- [X] T044 [US3] Добавить structured error mappings (`gateway_unauthorized`, `upstream_credential_*`) для responses path в `crates/pokrov-api/src/error.rs`
 
 **Checkpoint**: Все пользовательские истории функциональны независимо
 
@@ -127,11 +127,11 @@
 
 **Purpose**: Финальная синхронизация contracts/docs и обязательных verification gates
 
-- [ ] T045 [P] Синхронизировать реализацию с contracts в `specs/007-codex-agent-compat/contracts/codex-responses-api.yaml` и `specs/007-codex-agent-compat/contracts/codex-compat-config.yaml`
-- [ ] T046 [P] Обновить quickstart/runtime docs по итоговому behavior в `specs/007-codex-agent-compat/quickstart.md` и `README.md`
-- [ ] T047 Обновить verification evidence для responses compatibility в `docs/verification/003-llm-proxy.md`
-- [ ] T048 [P] Добавить финальные regression/security/perf assertions в `tests/integration/llm_proxy_chat_completions_regression.rs`, `tests/security/responses_metadata_leakage.rs`, `tests/performance/responses_proxy_overhead_budget.rs`
-- [ ] T049 Выполнить финальный verification matrix и зафиксировать статус в `specs/007-codex-agent-compat/checklists/requirements.md`
+- [X] T045 [P] Синхронизировать реализацию с contracts в `specs/007-codex-agent-compat/contracts/codex-responses-api.yaml` и `specs/007-codex-agent-compat/contracts/codex-compat-config.yaml`
+- [X] T046 [P] Обновить quickstart/runtime docs по итоговому behavior в `specs/007-codex-agent-compat/quickstart.md` и `README.md`
+- [X] T047 Обновить verification evidence для responses compatibility в `docs/verification/003-llm-proxy.md`
+- [X] T048 [P] Добавить финальные regression/security/perf assertions в `tests/integration/llm_proxy_chat_completions_regression.rs`, `tests/security/responses_metadata_leakage.rs`, `tests/performance/responses_proxy_overhead_budget.rs`
+- [X] T049 Выполнить финальный verification matrix и зафиксировать статус в `specs/007-codex-agent-compat/checklists/requirements.md`
 
 ---
 

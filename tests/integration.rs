@@ -34,6 +34,22 @@ mod llm_proxy_byok_passthrough_missing_credential_path;
 mod llm_proxy_gateway_auth_failure_path;
 #[path = "integration/llm_proxy_byok_invalid_provider_credential_path.rs"]
 mod llm_proxy_byok_invalid_provider_credential_path;
+#[path = "integration/llm_proxy_chat_completions_regression.rs"]
+mod llm_proxy_chat_completions_regression;
+#[path = "integration/responses_compat_happy_path.rs"]
+mod responses_compat_happy_path;
+#[path = "integration/responses_policy_block_path.rs"]
+mod responses_policy_block_path;
+#[path = "integration/responses_stream_happy_path.rs"]
+mod responses_stream_happy_path;
+#[path = "integration/responses_stream_malformed_chunk_path.rs"]
+mod responses_stream_malformed_chunk_path;
+#[path = "integration/responses_auth_missing_upstream_credential.rs"]
+mod responses_auth_missing_upstream_credential;
+#[path = "integration/responses_gateway_auth_failure.rs"]
+mod responses_gateway_auth_failure;
+#[path = "integration/responses_passthrough_single_bearer_path.rs"]
+mod responses_passthrough_single_bearer_path;
 #[path = "integration/mcp_allowed_tool_path.rs"]
 mod mcp_allowed_tool_path;
 #[path = "integration/mcp_argument_validation_path.rs"]
@@ -84,3 +100,5 @@ mod byok_identity_rate_limit_isolation_path;
 mod byok_identity_policy_binding_path;
 #[path = "integration/byok_end_to_end_flow.rs"]
 mod byok_end_to_end_flow;
+#[path = "integration/mesh_mtls_gateway_auth_path.rs"]
+mod mesh_mtls_gateway_auth_path;

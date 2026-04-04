@@ -144,9 +144,13 @@ Expected fields:
 
 ```bash
 cargo test --test contract -- llm_proxy_api_contract
+cargo test --test contract -- responses_api_contract
 cargo test --test integration -- llm
+cargo test --test integration -- responses
 cargo test --test security -- metadata
+cargo test --test security -- responses
 cargo test --test performance -- overhead
+cargo test --test performance -- responses
 ```
 
 ## Acceptance Evidence to Collect

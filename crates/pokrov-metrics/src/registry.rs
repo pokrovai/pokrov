@@ -328,6 +328,14 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
             .inc();
     }
 
+    fn on_responses_auth_stage(&self, auth_mode: &str, stage: &str, decision: &str) {
+        self.on_auth_decision(auth_mode, stage, decision);
+    }
+
+    fn on_responses_upstream_error(&self, provider: &str, error_class: &str) {
+        self.on_upstream_error("/v1/responses", provider, error_class);
+    }
+
     fn on_request_duration_seconds(&self, route: &str, path_class: &str, decision: &str, seconds: f64) {
         self.request_duration_seconds
             .with_label_values(&[
@@ -372,6 +380,7 @@ fn constrain_route(route: &str) -> &str {
         "/metrics" => "/metrics",
         "/v1/sanitize/evaluate" => "/v1/sanitize/evaluate",
         "/v1/chat/completions" => "/v1/chat/completions",
+        "/v1/responses" => "/v1/responses",
         "/v1/mcp/tool-call" => "/v1/mcp/tool-call",
         "/v1/mcp/tools/{toolName}/invoke" => "/v1/mcp/tools/{toolName}/invoke",
         _ => "other",

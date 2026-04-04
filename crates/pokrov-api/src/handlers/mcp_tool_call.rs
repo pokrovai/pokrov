@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use super::rate_limit::{estimate_json_token_units, evaluate_and_record_rate_limit};
 use crate::{
-    app::{AppState, GatewayAuthMechanism},
+    app::{AppState, GatewayAuthContext, GatewayAuthMechanism},
     auth::{
         fingerprint_gateway_auth_subject, parse_bearer_token, parse_gateway_credential,
         parse_identity_from_headers, resolve_identity_from_sources,
@@ -29,6 +29,7 @@ struct McpToolInvokePathRequest {
 pub async fn handle_mcp_tool_call(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
+    Extension(gateway_auth): Extension<GatewayAuthContext>,
     headers: HeaderMap,
     body: Result<Json<McpToolCallRequest>, JsonRejection>,
 ) -> Result<Json<McpToolCallResponse>, ApiError> {
@@ -40,7 +41,7 @@ pub async fn handle_mcp_tool_call(
         pokrov_config::UpstreamAuthMode::Static => "static",
         pokrov_config::UpstreamAuthMode::Passthrough => "passthrough",
     };
-    let gateway = parse_gateway_credential(&headers).ok_or_else(|| {
+    if !gateway_auth.authenticated {
         state
             .metrics
             .on_auth_decision(mode_label, "gateway_auth", "fail");
@@ -51,22 +52,10 @@ pub async fn handle_mcp_tool_call(
             decision: "fail",
         }
         .emit();
-        enforce_mcp_error_contract(ApiError::gateway_unauthorized(request_id.clone()))
-    })?;
-
-    let api_key_profile = state.sanitization.profile_for_token(gateway.token).ok_or_else(|| {
-        state
-            .metrics
-            .on_auth_decision(mode_label, "gateway_auth", "fail");
-        McpAuthStageAuditEvent {
-            request_id: request_id.clone(),
-            auth_mode: mode_label,
-            stage: "gateway_auth",
-            decision: "fail",
-        }
-        .emit();
-        enforce_mcp_error_contract(ApiError::gateway_unauthorized(request_id.clone()))
-    })?;
+        return Err(enforce_mcp_error_contract(ApiError::gateway_unauthorized(
+            request_id.clone(),
+        )));
+    }
     state
         .metrics
         .on_auth_decision(mode_label, "gateway_auth", "pass");
@@ -78,7 +67,11 @@ pub async fn handle_mcp_tool_call(
     }
     .emit();
     let (header_identity, ingress_identity) = parse_identity_from_headers(&headers);
-    let gateway_auth_subject = fingerprint_gateway_auth_subject(gateway.token);
+    let gateway_auth_subject = gateway_auth.auth_subject.clone().unwrap_or_else(|| {
+        parse_gateway_credential(&headers)
+            .map(|credential| fingerprint_gateway_auth_subject(credential.token))
+            .unwrap_or_else(|| "gateway_authenticated".to_string())
+    });
     let client_identity = resolve_identity_from_sources(
         state.auth.identity_resolution_order.as_slice(),
         header_identity,
@@ -92,47 +85,73 @@ pub async fn handle_mcp_tool_call(
         .get(client_identity)
         .cloned()
         .or_else(|| state.auth.fallback_policy_profile.clone())
-        .unwrap_or_else(|| api_key_profile.clone());
+        .or_else(|| {
+            parse_gateway_credential(&headers)
+                .and_then(|gateway| state.sanitization.profile_for_token(gateway.token))
+        })
+        .unwrap_or_else(|| "strict".to_string());
     let rate_limit_profile = state
         .auth
         .identity_rate_limit_bindings
         .get(client_identity)
         .cloned()
-        .unwrap_or_else(|| api_key_profile.clone());
+        .or_else(|| {
+            parse_gateway_credential(&headers)
+                .and_then(|gateway| state.sanitization.profile_for_token(gateway.token))
+        })
+        .unwrap_or_else(|| profile_id.clone());
 
     let upstream_credential = match state.auth.upstream_auth_mode {
         pokrov_config::UpstreamAuthMode::Static => None,
         pokrov_config::UpstreamAuthMode::Passthrough => {
-            if !matches!(gateway.mechanism, GatewayAuthMechanism::ApiKey) {
-                state
-                    .metrics
-                    .on_auth_decision(mode_label, "upstream_credentials", "fail");
-                McpAuthStageAuditEvent {
-                    request_id: request_id.clone(),
-                    auth_mode: mode_label,
-                    stage: "upstream_credentials",
-                    decision: "fail",
-                }
-                .emit();
-                return Err(enforce_mcp_error_contract(
-                    ApiError::passthrough_requires_api_key_gateway_auth(request_id),
-                ));
-            }
-            let credential = parse_bearer_token(&headers).ok_or_else(|| {
-                state
-                    .metrics
-                    .on_auth_decision(mode_label, "upstream_credentials", "fail");
-                McpAuthStageAuditEvent {
-                    request_id: request_id.clone(),
-                    auth_mode: mode_label,
-                    stage: "upstream_credentials",
-                    decision: "fail",
-                }
-                .emit();
-                enforce_mcp_error_contract(ApiError::upstream_credential_missing(
-                    request_id.clone(),
-                ))
-            })?;
+            let gateway_credential = parse_gateway_credential(&headers);
+            let gateway_mechanism =
+                gateway_credential.as_ref().map(|credential| credential.mechanism);
+            let credential = match gateway_mechanism {
+                Some(GatewayAuthMechanism::ApiKey) => parse_bearer_token(&headers)
+                    .ok_or_else(|| {
+                        state
+                            .metrics
+                            .on_auth_decision(mode_label, "upstream_credentials", "fail");
+                        McpAuthStageAuditEvent {
+                            request_id: request_id.clone(),
+                            auth_mode: mode_label,
+                            stage: "upstream_credentials",
+                            decision: "fail",
+                        }
+                        .emit();
+                        enforce_mcp_error_contract(ApiError::upstream_credential_missing(
+                            request_id.clone(),
+                        ))
+                    })?
+                    .to_string(),
+                Some(GatewayAuthMechanism::Bearer) => gateway_credential
+                    .map(|credential| credential.token.to_string())
+                    .ok_or_else(|| {
+                        enforce_mcp_error_contract(ApiError::upstream_credential_missing(
+                            request_id.clone(),
+                        ))
+                    })?,
+                Some(GatewayAuthMechanism::InternalMtls)
+                | Some(GatewayAuthMechanism::MeshMtls)
+                | None => parse_bearer_token(&headers)
+                    .ok_or_else(|| {
+                        state
+                            .metrics
+                            .on_auth_decision(mode_label, "upstream_credentials", "fail");
+                        McpAuthStageAuditEvent {
+                            request_id: request_id.clone(),
+                            auth_mode: mode_label,
+                            stage: "upstream_credentials",
+                            decision: "fail",
+                        }
+                        .emit();
+                        enforce_mcp_error_contract(ApiError::upstream_credential_missing(
+                            request_id.clone(),
+                        ))
+                    })?
+                    .to_string(),
+            };
             state
                 .metrics
                 .on_auth_decision(mode_label, "upstream_credentials", "pass");
@@ -143,7 +162,7 @@ pub async fn handle_mcp_tool_call(
                 decision: "pass",
             }
             .emit();
-            Some(credential.to_string())
+            Some(credential)
         }
     };
     let rate_limit_key = client_identity.to_string();
@@ -216,6 +235,7 @@ pub async fn handle_mcp_tool_call_with_tool_name(
     Path(tool_name): Path<String>,
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
+    Extension(gateway_auth): Extension<GatewayAuthContext>,
     headers: HeaderMap,
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<Json<McpToolCallResponse>, ApiError> {
@@ -237,7 +257,14 @@ pub async fn handle_mcp_tool_call_with_tool_name(
         metadata: path_body.metadata,
     };
 
-    handle_mcp_tool_call(State(state), Extension(request_id), headers, Ok(Json(body))).await
+    handle_mcp_tool_call(
+        State(state),
+        Extension(request_id),
+        Extension(gateway_auth),
+        headers,
+        Ok(Json(body)),
+    )
+    .await
 }
 
 fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {

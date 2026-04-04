@@ -41,6 +41,36 @@ pub fn normalize_request(request_id: &str, payload: Value) -> Result<LLMRequestE
     })
 }
 
+pub fn normalize_responses_payload(request_id: &str, payload: Value) -> Result<Value, LLMProxyError> {
+    let object = payload.as_object().ok_or_else(|| {
+        LLMProxyError::invalid_request(request_id, "request body must be a JSON object")
+    })?;
+
+    let model = object
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| LLMProxyError::invalid_request(request_id, "field 'model' must be a non-empty string"))?;
+    let stream = object.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let input = object.get("input").ok_or_else(|| {
+        LLMProxyError::invalid_request(request_id, "field 'input' is required")
+    })?;
+    let messages = normalize_responses_input(request_id, input)?;
+
+    let mut mapped = serde_json::Map::from_iter([
+        ("model".to_string(), Value::String(model.to_string())),
+        ("stream".to_string(), Value::Bool(stream)),
+        ("messages".to_string(), Value::Array(messages)),
+    ]);
+
+    if let Some(metadata) = object.get("metadata").and_then(Value::as_object) {
+        mapped.insert("metadata".to_string(), Value::Object(metadata.clone()));
+    }
+
+    Ok(Value::Object(mapped))
+}
+
 pub fn resolve_profile_id(
     profile_hint: Option<&str>,
     api_key_profile: &str,
@@ -80,6 +110,82 @@ fn normalize_messages(request_id: &str, value: &Value) -> Result<Vec<LLMMessage>
         .enumerate()
         .map(|(index, item)| normalize_message(request_id, index, item))
         .collect()
+}
+
+fn normalize_responses_input(request_id: &str, input: &Value) -> Result<Vec<Value>, LLMProxyError> {
+    match input {
+        Value::String(text) => Ok(vec![serde_json::json!({
+            "role": "user",
+            "content": text,
+        })]),
+        Value::Object(message) => normalize_responses_message_object(request_id, message).map(|item| vec![item]),
+        Value::Array(items) => {
+            if items.is_empty() {
+                return Err(LLMProxyError::invalid_request(
+                    request_id,
+                    "field 'input' must contain at least one item",
+                ));
+            }
+
+            items
+                .iter()
+                .enumerate()
+                .map(|(idx, item)| match item {
+                    Value::String(text) => Ok(serde_json::json!({
+                        "role": "user",
+                        "content": text,
+                    })),
+                    Value::Object(message) => normalize_responses_message_object(request_id, message),
+                    _ => Err(LLMProxyError::invalid_request(
+                        request_id,
+                        format!("input[{idx}] is not supported in minimal responses subset"),
+                    )),
+                })
+                .collect()
+        }
+        _ => Err(LLMProxyError::invalid_request(
+            request_id,
+            "field 'input' is not supported in minimal responses subset",
+        )),
+    }
+}
+
+fn normalize_responses_message_object(
+    request_id: &str,
+    message: &serde_json::Map<String, Value>,
+) -> Result<Value, LLMProxyError> {
+    let role = message
+        .get("role")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            LLMProxyError::invalid_request(
+                request_id,
+                "input message requires non-empty 'role'",
+            )
+        })?;
+    let content = message.get("content").ok_or_else(|| {
+        LLMProxyError::invalid_request(
+            request_id,
+            "input message requires 'content'",
+        )
+    })?;
+
+    match content {
+        Value::String(_) | Value::Array(_) => {}
+        _ => {
+            return Err(LLMProxyError::invalid_request(
+                request_id,
+                "input message 'content' must be a string or array",
+            ));
+        }
+    }
+
+    Ok(serde_json::json!({
+        "role": role,
+        "content": content,
+    }))
 }
 
 fn normalize_message(request_id: &str, index: usize, value: &Value) -> Result<LLMMessage, LLMProxyError> {
@@ -217,7 +323,9 @@ fn estimate_token_units_inner(payload: &Value) -> u32 {
 mod tests {
     use serde_json::json;
 
-    use super::{estimate_token_units, normalize_request, resolve_profile_id};
+    use super::{
+        estimate_token_units, normalize_request, normalize_responses_payload, resolve_profile_id,
+    };
 
     #[test]
     fn normalize_valid_request_and_resolve_profile_precedence() {
@@ -263,5 +371,34 @@ mod tests {
     fn estimate_token_units_has_deterministic_minimum_fallback() {
         assert_eq!(estimate_token_units(&json!(null)), 1);
         assert_eq!(estimate_token_units(&json!({"n": null, "flag": true, "arr": [0, false]})), 1);
+    }
+
+    #[test]
+    fn maps_minimal_responses_payload_to_chat_completions_shape() {
+        let payload = json!({
+            "model": "gpt-4o-mini",
+            "stream": false,
+            "input": "hello",
+            "metadata": {"profile":"strict"},
+        });
+
+        let mapped = normalize_responses_payload("req-1", payload).expect("payload should map");
+        assert_eq!(mapped["model"], "gpt-4o-mini");
+        assert_eq!(mapped["stream"], false);
+        assert_eq!(mapped["messages"][0]["role"], "user");
+        assert_eq!(mapped["messages"][0]["content"], "hello");
+        assert_eq!(mapped["metadata"]["profile"], "strict");
+    }
+
+    #[test]
+    fn rejects_unsupported_responses_input_item() {
+        let payload = json!({
+            "model": "gpt-4o-mini",
+            "input": [42],
+        });
+
+        let error = normalize_responses_payload("req-2", payload)
+            .expect_err("unsupported item must fail");
+        assert_eq!(error.code().as_str(), "invalid_request");
     }
 }

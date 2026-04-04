@@ -10,7 +10,7 @@ use axum::{
     Router,
 };
 use pokrov_config::{
-    rate_limit::RateLimitEnforcementMode, IdentitySource, UpstreamAuthMode,
+    rate_limit::RateLimitEnforcementMode, GatewayAuthMode, IdentitySource, UpstreamAuthMode,
 };
 use pokrov_core::SanitizationEngine;
 use pokrov_metrics::registry::RuntimeMetricsRegistry;
@@ -19,7 +19,7 @@ use pokrov_proxy_llm::handler::LLMProxyHandler;
 use pokrov_proxy_mcp::handler::McpProxyHandler;
 
 use crate::{
-    handlers::{chat_completions, evaluate, health, mcp_tool_call, metrics, ready},
+    handlers::{chat_completions, evaluate, health, mcp_tool_call, metrics, ready, responses},
     middleware::{
         active_requests_middleware, rate_limit::RateLimiter, request_id_middleware,
     },
@@ -209,6 +209,8 @@ pub struct ClientIdentity {
 pub enum GatewayAuthMechanism {
     ApiKey,
     Bearer,
+    InternalMtls,
+    MeshMtls,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -220,6 +222,11 @@ pub struct GatewayAuthContext {
     pub auth_mechanism: Option<GatewayAuthMechanism>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedClientCertIdentity {
+    pub subject: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -240,6 +247,12 @@ pub struct UpstreamCredentialSource {
 #[derive(Clone)]
 pub struct AuthState {
     pub upstream_auth_mode: UpstreamAuthMode,
+    pub gateway_auth_mode: GatewayAuthMode,
+    pub internal_mtls_identity_header: String,
+    pub internal_mtls_require_header: bool,
+    pub mesh_identity_header: String,
+    pub mesh_required_spiffe_trust_domain: Option<String>,
+    pub mesh_require_header: bool,
     pub identity_resolution_order: Arc<Vec<IdentitySource>>,
     pub identity_profile_bindings: Arc<BTreeMap<String, String>>,
     pub identity_rate_limit_bindings: Arc<BTreeMap<String, String>>,
@@ -252,6 +265,12 @@ impl Default for AuthState {
     fn default() -> Self {
         Self {
             upstream_auth_mode: UpstreamAuthMode::Static,
+            gateway_auth_mode: GatewayAuthMode::ApiKey,
+            internal_mtls_identity_header: "x-pokrov-client-cert-subject".to_string(),
+            internal_mtls_require_header: true,
+            mesh_identity_header: "x-forwarded-client-cert".to_string(),
+            mesh_required_spiffe_trust_domain: None,
+            mesh_require_header: true,
             identity_resolution_order: Arc::new(vec![
                 IdentitySource::GatewayAuthSubject,
                 IdentitySource::XPokrovClientId,
@@ -285,6 +304,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/metrics", get(metrics::handle_metrics))
         .route("/v1/sanitize/evaluate", post(evaluate::handle_evaluate))
         .route("/v1/chat/completions", post(chat_completions::handle_chat_completions))
+        .route("/v1/responses", post(responses::handle_responses))
         .route("/v1/mcp/tool-call", post(mcp_tool_call::handle_mcp_tool_call))
         .route(
             "/v1/mcp/tools/{tool_name}/invoke",

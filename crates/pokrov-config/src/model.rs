@@ -62,16 +62,71 @@ pub enum UpstreamAuthMode {
     Passthrough,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayAuthMode {
+    #[default]
+    ApiKey,
+    InternalMtls,
+    MeshMtls,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InternalMtlsAuthConfig {
+    #[serde(default = "default_internal_mtls_identity_header")]
+    pub identity_header: String,
+    #[serde(default = "default_true")]
+    pub require_header: bool,
+}
+
+impl Default for InternalMtlsAuthConfig {
+    fn default() -> Self {
+        Self {
+            identity_header: default_internal_mtls_identity_header(),
+            require_header: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MeshAuthConfig {
+    #[serde(default = "default_mesh_identity_header")]
+    pub identity_header: String,
+    #[serde(default)]
+    pub required_spiffe_trust_domain: Option<String>,
+    #[serde(default = "default_true")]
+    pub require_header: bool,
+}
+
+impl Default for MeshAuthConfig {
+    fn default() -> Self {
+        Self {
+            identity_header: default_mesh_identity_header(),
+            required_spiffe_trust_domain: None,
+            require_header: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AuthConfig {
     #[serde(default)]
     pub upstream_auth_mode: UpstreamAuthMode,
+    #[serde(default)]
+    pub gateway_auth_mode: GatewayAuthMode,
+    #[serde(default)]
+    pub internal_mtls: InternalMtlsAuthConfig,
+    #[serde(default)]
+    pub mesh: MeshAuthConfig,
 }
 
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             upstream_auth_mode: UpstreamAuthMode::Static,
+            gateway_auth_mode: GatewayAuthMode::ApiKey,
+            internal_mtls: InternalMtlsAuthConfig::default(),
+            mesh: MeshAuthConfig::default(),
         }
     }
 }
@@ -190,6 +245,34 @@ pub struct ToolArgumentConstraints {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    #[serde(default)]
+    pub tls: TlsServerConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TlsServerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub cert_file: Option<String>,
+    #[serde(default)]
+    pub key_file: Option<String>,
+    #[serde(default)]
+    pub client_ca_file: Option<String>,
+    #[serde(default)]
+    pub require_client_cert: bool,
+}
+
+impl Default for TlsServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            cert_file: None,
+            key_file: None,
+            client_ca_file: None,
+            require_client_cert: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -444,6 +527,14 @@ fn default_mcp_upstream_timeout_ms() -> u64 {
 
 fn default_rule_priority() -> u16 {
     100
+}
+
+fn default_internal_mtls_identity_header() -> String {
+    "x-pokrov-client-cert-subject".to_string()
+}
+
+fn default_mesh_identity_header() -> String {
+    "x-forwarded-client-cert".to_string()
 }
 
 fn default_minimal_profile() -> SanitizationProfile {

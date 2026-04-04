@@ -5,7 +5,6 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use pokrov_proxy_llm::normalize::estimate_token_units;
 use pokrov_proxy_llm::audit::{LLMAuthStageAuditEvent, LLMRateLimitAuditEvent};
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
@@ -20,8 +19,8 @@ use crate::{
     error::ApiError,
 };
 
-/// Handles OpenAI-compatible chat-completion requests through the policy and sanitization pipeline.
-pub async fn handle_chat_completions(
+/// Handles Codex-compatible responses requests via deterministic mapping to chat-completions flow.
+pub async fn handle_responses(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
     Extension(gateway_auth): Extension<GatewayAuthContext>,
@@ -31,6 +30,7 @@ pub async fn handle_chat_completions(
     let payload = body
         .map(|Json(body)| body)
         .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
+    let is_stream_request = payload.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
     let mode_label = match state.auth.upstream_auth_mode {
         pokrov_config::UpstreamAuthMode::Static => "static",
@@ -39,10 +39,10 @@ pub async fn handle_chat_completions(
     if !gateway_auth.authenticated {
         state
             .metrics
-            .on_auth_decision(mode_label, "gateway_auth", "fail");
+            .on_responses_auth_stage(mode_label, "gateway_auth", "fail");
         LLMAuthStageAuditEvent {
             request_id: request_id.clone(),
-            endpoint: "/v1/chat/completions",
+            endpoint: "/v1/responses",
             auth_mode: mode_label,
             stage: "gateway_auth",
             decision: "fail",
@@ -52,10 +52,10 @@ pub async fn handle_chat_completions(
     }
     state
         .metrics
-        .on_auth_decision(mode_label, "gateway_auth", "pass");
+        .on_responses_auth_stage(mode_label, "gateway_auth", "pass");
     LLMAuthStageAuditEvent {
         request_id: request_id.clone(),
-        endpoint: "/v1/chat/completions",
+        endpoint: "/v1/responses",
         auth_mode: mode_label,
         stage: "gateway_auth",
         decision: "pass",
@@ -108,10 +108,10 @@ pub async fn handle_chat_completions(
                     .ok_or_else(|| {
                         state
                             .metrics
-                            .on_auth_decision(mode_label, "upstream_credentials", "fail");
+                            .on_responses_auth_stage(mode_label, "upstream_credentials", "fail");
                         LLMAuthStageAuditEvent {
                             request_id: request_id.clone(),
-                            endpoint: "/v1/chat/completions",
+                            endpoint: "/v1/responses",
                             auth_mode: mode_label,
                             stage: "upstream_credentials",
                             decision: "fail",
@@ -119,8 +119,8 @@ pub async fn handle_chat_completions(
                         .emit();
                         ApiError::upstream_credential_missing(request_id.clone())
                     })?,
-                // OpenAI-compatible clients can forward a single bearer token for
-                // gateway auth and upstream passthrough on chat-completions.
+                // Codex compatibility path can forward a single bearer token for both
+                // gateway authorization and upstream passthrough on /v1/responses.
                 Some(GatewayAuthMechanism::Bearer) => gateway_credential
                     .map(|credential| credential.token.to_string())
                     .ok_or_else(|| ApiError::upstream_credential_missing(request_id.clone()))?,
@@ -132,10 +132,10 @@ pub async fn handle_chat_completions(
             };
             state
                 .metrics
-                .on_auth_decision(mode_label, "upstream_credentials", "pass");
+                .on_responses_auth_stage(mode_label, "upstream_credentials", "pass");
             LLMAuthStageAuditEvent {
                 request_id: request_id.clone(),
-                endpoint: "/v1/chat/completions",
+                endpoint: "/v1/responses",
                 auth_mode: mode_label,
                 stage: "upstream_credentials",
                 decision: "pass",
@@ -146,12 +146,13 @@ pub async fn handle_chat_completions(
     };
     let rate_limit_key = client_identity.to_string();
 
+    let estimated_units = estimate_responses_token_units(&payload);
     if let Some(decision) = evaluate_and_record_rate_limit(
         &state,
-        "/v1/chat/completions",
+        "/v1/responses",
         &rate_limit_key,
         &rate_limit_profile,
-        estimate_token_units(&payload),
+        estimated_units,
     )
     .await
     {
@@ -177,7 +178,7 @@ pub async fn handle_chat_completions(
     })?;
 
     let response = handler
-        .handle_chat_completion(
+        .handle_responses(
             request_id.clone(),
             payload,
             &profile_id,
@@ -192,17 +193,20 @@ pub async fn handle_chat_completions(
                     Some(status) if (500..600).contains(&status) => "upstream_5xx",
                     _ => "transport",
                 };
-                state.metrics.on_upstream_error(
-                    "/v1/chat/completions",
+                state.metrics.on_responses_upstream_error(
                     error.provider_id().unwrap_or("unknown"),
                     error_class,
                 );
             }
-            ApiError::from_llm_proxy(error)
+            if is_stream_request && error.code().as_str().starts_with("upstream_") {
+                ApiError::responses_stream_terminated(request_id.clone())
+            } else {
+                ApiError::from_llm_proxy_for_responses(error)
+            }
         })?;
 
     match response.body {
-        LLMProxyBody::Json(body) => Ok((response.status, Json(body)).into_response()),
+        LLMProxyBody::Json(body) => Ok((response.status, Json(map_chat_to_responses_envelope(body))).into_response()),
         LLMProxyBody::Sse(body) => {
             let mut sse_response = Response::new(Body::from(body));
             *sse_response.status_mut() = response.status;
@@ -242,11 +246,99 @@ pub async fn handle_chat_completions(
     }
 }
 
+fn map_chat_to_responses_envelope(body: Value) -> Value {
+    let request_id = body.get("request_id").cloned().unwrap_or(Value::Null);
+    let pokrov = body.get("pokrov").cloned().unwrap_or(Value::Null);
+    let model = body.get("model").cloned();
+    let output = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .map(|choices| {
+            choices
+                .iter()
+                .filter_map(|choice| choice.get("message"))
+                .map(|message| {
+                    let role = message
+                        .get("role")
+                        .and_then(Value::as_str)
+                        .unwrap_or("assistant")
+                        .to_string();
+                    let text = message
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    serde_json::json!({
+                        "type": "message",
+                        "role": role,
+                        "content": [{"type":"output_text","text":text}],
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let mut envelope = serde_json::Map::from_iter([
+        ("request_id".to_string(), request_id),
+        ("output".to_string(), Value::Array(output)),
+        ("pokrov".to_string(), pokrov),
+    ]);
+    if let Some(model) = model {
+        envelope.insert("model".to_string(), model);
+    }
+    Value::Object(envelope)
+}
+
+fn estimate_responses_token_units(payload: &Value) -> u32 {
+    match payload {
+        Value::Object(map) => map
+            .get("input")
+            .map(estimate_responses_token_units)
+            .unwrap_or(1),
+        Value::String(text) => ((text.chars().count() as u32) / 4).max(1),
+        Value::Array(items) => items
+            .iter()
+            .fold(0u32, |acc, item| acc.saturating_add(estimate_responses_token_units(item)))
+            .max(1),
+        Value::Number(_) => 1,
+        Value::Bool(_) | Value::Null => 1,
+    }
+}
+
 fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {
     match rejection {
         JsonRejection::BytesRejection(_) => {
             ApiError::payload_too_large(request_id, "request body exceeds configured size limit")
         }
         _ => ApiError::invalid_request(request_id, "invalid request body"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{estimate_responses_token_units, map_chat_to_responses_envelope};
+
+    #[test]
+    fn wraps_chat_response_into_responses_output_envelope() {
+        let chat = json!({
+            "request_id":"req-1",
+            "model":"gpt-4o-mini",
+            "choices":[{"message":{"role":"assistant","content":"ok"}}],
+            "pokrov":{"profile":"strict","action":"allow","sanitized_input":false,"sanitized_output":false,"rule_hits":0}
+        });
+
+        let responses = map_chat_to_responses_envelope(chat);
+        assert_eq!(responses["request_id"], "req-1");
+        assert_eq!(responses["output"][0]["type"], "message");
+        assert_eq!(responses["output"][0]["content"][0]["text"], "ok");
+        assert_eq!(responses["pokrov"]["profile"], "strict");
+    }
+
+    #[test]
+    fn estimates_tokens_from_input_field_only() {
+        let payload = json!({"input":["abcd","abcdefgh"]});
+        assert_eq!(estimate_responses_token_units(&payload), 3);
     }
 }

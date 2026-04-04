@@ -38,6 +38,21 @@ impl ApiError {
         }
     }
 
+    pub fn unsupported_request_subset(
+        request_id: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "unsupported_request_subset",
+            message: message.into(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: None,
+        }
+    }
+
     pub fn unauthorized(request_id: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
@@ -91,6 +106,18 @@ impl ApiError {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             code: "upstream_credential_invalid",
             message: "Upstream provider credential is invalid".to_string(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: None,
+        }
+    }
+
+    pub fn responses_stream_terminated(request_id: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            code: "upstream_error",
+            message: "responses stream terminated due to upstream stream error".to_string(),
             request_id: request_id.into(),
             allowed: None,
             details: None,
@@ -168,6 +195,16 @@ impl ApiError {
             details: None,
             rate_limit: None,
         }
+    }
+
+    pub fn from_llm_proxy_for_responses(error: LLMProxyError) -> Self {
+        let mut mapped = Self::from_llm_proxy(error);
+        if mapped.code == "invalid_request"
+            && mapped.message.contains("minimal responses subset")
+        {
+            mapped.code = "unsupported_request_subset";
+        }
+        mapped
     }
 
     pub fn from_mcp_proxy(error: McpProxyError) -> Self {
