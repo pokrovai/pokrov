@@ -1,18 +1,24 @@
 use std::{
+    convert::Infallible,
     error::Error,
     fmt,
     future::IntoFuture,
+    io::BufReader,
     net::SocketAddr,
     path::PathBuf,
     sync::Arc,
     time::Duration,
 };
 
+use axum::http::Request;
+use axum::response::Response;
 use pokrov_api::app::{
     build_router, AppState, AuthState, LlmProxyState, McpProxyState, RateLimitState, ResolvedApiKeyBinding,
-    SanitizationState,
+    SanitizationState, VerifiedClientCertIdentity,
 };
 use pokrov_api::middleware::rate_limit::RateLimiter;
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
 use pokrov_config::{
     error::ConfigError,
     loader::load_runtime_config,
@@ -25,13 +31,21 @@ use pokrov_metrics::{
 };
 use pokrov_proxy_llm::{handler::LLMProxyHandler, routing::ProviderRouteTable};
 use pokrov_proxy_mcp::handler::McpProxyHandler;
-use tokio::{
-    net::TcpListener,
-    sync::{oneshot, watch},
-    task::JoinHandle,
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer},
+    server::WebPkiClientVerifier,
+    RootCertStore, ServerConfig,
 };
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::{oneshot, watch},
+    task::{JoinHandle, JoinSet},
+};
+use tokio_rustls::{server::TlsStream, TlsAcceptor};
+use tower::ServiceExt;
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
+use x509_parser::prelude::parse_x509_certificate;
 
 use crate::{
     lifecycle::{RuntimeLifecycle, SharedRuntimeLifecycle},
@@ -366,6 +380,12 @@ where
         },
         auth: AuthState {
             upstream_auth_mode: config.auth.upstream_auth_mode,
+            gateway_auth_mode: config.auth.gateway_auth_mode,
+            internal_mtls_identity_header: config.auth.internal_mtls.identity_header.clone(),
+            internal_mtls_require_header: config.auth.internal_mtls.require_header,
+            mesh_identity_header: config.auth.mesh.identity_header.clone(),
+            mesh_required_spiffe_trust_domain: config.auth.mesh.required_spiffe_trust_domain.clone(),
+            mesh_require_header: config.auth.mesh.require_header,
             identity_resolution_order: Arc::new(config.identity.resolution_order.clone()),
             identity_profile_bindings: Arc::new(config.identity.profile_bindings.clone()),
             identity_rate_limit_bindings: Arc::new(config.identity.rate_limit_bindings.clone()),
@@ -395,34 +415,46 @@ where
         }
     };
 
-    let serve = axum::serve(listener, app).with_graceful_shutdown(graceful).into_future();
-    let mut serve = std::pin::pin!(serve);
-    let serve_result = tokio::select! {
-        result = &mut serve => map_serve_result(result),
-        changed = shutdown_started_rx.changed() => {
-            if changed.is_ok() && *shutdown_started_rx.borrow() {
-                match tokio::time::timeout(grace_period, &mut serve).await {
-                    Ok(result) => map_serve_result(result),
-                    Err(_) => {
-                        lifecycle.wait_for_drain(drain_timeout).await;
-                        mark_runtime_stopped(&lifecycle, &metrics).await;
-                        let timeout_error = std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            format!(
-                                "graceful shutdown exceeded grace_period_ms={}",
-                                config.shutdown.grace_period_ms
-                            ),
-                        );
-                        error!(
-                            action = "shutdown",
-                            grace_period_ms = config.shutdown.grace_period_ms,
-                            "runtime graceful shutdown exceeded configured grace period"
-                        );
-                        Err(BootstrapError::Serve(timeout_error))
+    let serve_result = if config.server.tls.enabled {
+        serve_tls_with_graceful_shutdown(
+            listener,
+            app,
+            &config,
+            &mut shutdown_started_rx,
+            graceful,
+            grace_period,
+        )
+        .await
+    } else {
+        let serve = axum::serve(listener, app).with_graceful_shutdown(graceful).into_future();
+        let mut serve = std::pin::pin!(serve);
+        tokio::select! {
+            result = &mut serve => map_serve_result(result),
+            changed = shutdown_started_rx.changed() => {
+                if changed.is_ok() && *shutdown_started_rx.borrow() {
+                    match tokio::time::timeout(grace_period, &mut serve).await {
+                        Ok(result) => map_serve_result(result),
+                        Err(_) => {
+                            lifecycle.wait_for_drain(drain_timeout).await;
+                            mark_runtime_stopped(&lifecycle, &metrics).await;
+                            let timeout_error = std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                format!(
+                                    "graceful shutdown exceeded grace_period_ms={}",
+                                    config.shutdown.grace_period_ms
+                                ),
+                            );
+                            error!(
+                                action = "shutdown",
+                                grace_period_ms = config.shutdown.grace_period_ms,
+                                "runtime graceful shutdown exceeded configured grace period"
+                            );
+                            Err(BootstrapError::Serve(timeout_error))
+                        }
                     }
+                } else {
+                    map_serve_result(serve.await)
                 }
-            } else {
-                map_serve_result(serve.await)
             }
         }
     };
@@ -475,6 +507,213 @@ fn resolve_api_key_bindings(config: &RuntimeConfig) -> Result<Vec<ResolvedApiKey
     }
 
     Ok(bindings)
+}
+
+async fn serve_tls_with_graceful_shutdown<S>(
+    listener: TcpListener,
+    app: axum::Router,
+    config: &RuntimeConfig,
+    shutdown_started_rx: &mut watch::Receiver<bool>,
+    shutdown_signal: S,
+    grace_period: Duration,
+) -> Result<(), BootstrapError>
+where
+    S: std::future::Future<Output = ()> + Send + 'static,
+{
+    let tls_acceptor = build_tls_acceptor(config)?;
+    let identity_header_name = config.auth.internal_mtls.identity_header.clone();
+    let mut shutdown_task = tokio::spawn(shutdown_signal);
+    let mut connection_tasks = JoinSet::new();
+
+    loop {
+        tokio::select! {
+            _ = &mut shutdown_task => {
+                break;
+            }
+            changed = shutdown_started_rx.changed() => {
+                if changed.is_ok() && *shutdown_started_rx.borrow() {
+                    break;
+                }
+            }
+            accepted = listener.accept() => {
+                let (socket, remote_addr) = accepted.map_err(BootstrapError::Serve)?;
+                let tls_acceptor = tls_acceptor.clone();
+                let app = app.clone();
+                let identity_header_name = identity_header_name.clone();
+                connection_tasks.spawn(async move {
+                    if let Err(error) = handle_tls_connection(
+                        socket,
+                        remote_addr,
+                        tls_acceptor,
+                        app,
+                        identity_header_name,
+                    ).await {
+                        error!(
+                            action = "tls_connection_failed",
+                            remote_addr = %remote_addr,
+                            error = %error,
+                            "failed to serve tls connection"
+                        );
+                    }
+                });
+            }
+        }
+    }
+
+    let wait_connections = async {
+        while let Some(join_result) = connection_tasks.join_next().await {
+            if let Err(join_error) = join_result {
+                error!(
+                    action = "tls_connection_join_failed",
+                    error = %join_error,
+                    "tls connection task failed"
+                );
+            }
+        }
+    };
+
+    match tokio::time::timeout(grace_period, wait_connections).await {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            let timeout_error = std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!(
+                    "graceful shutdown exceeded grace_period_ms={}",
+                    config.shutdown.grace_period_ms
+                ),
+            );
+            error!(
+                action = "shutdown",
+                grace_period_ms = config.shutdown.grace_period_ms,
+                "runtime graceful shutdown exceeded configured grace period"
+            );
+            Err(BootstrapError::Serve(timeout_error))
+        }
+    }
+}
+
+async fn handle_tls_connection(
+    socket: TcpStream,
+    remote_addr: SocketAddr,
+    tls_acceptor: TlsAcceptor,
+    app: axum::Router,
+    identity_header_name: String,
+) -> Result<(), std::io::Error> {
+    let tls_stream = tls_acceptor.accept(socket).await.map_err(std::io::Error::other)?;
+    let verified_subject = extract_peer_subject(&tls_stream);
+    let io = TokioIo::new(tls_stream);
+    let service = service_fn(move |mut request: Request<hyper::body::Incoming>| {
+        let app = app.clone();
+        let verified_subject = verified_subject.clone();
+        let identity_header_name = identity_header_name.clone();
+        async move {
+            if let Ok(header_name) =
+                axum::http::header::HeaderName::from_bytes(identity_header_name.as_bytes())
+            {
+                request.headers_mut().remove(&header_name);
+            }
+            if let Some(subject) = verified_subject.clone() {
+                request
+                    .extensions_mut()
+                    .insert(VerifiedClientCertIdentity { subject });
+            }
+
+            let request = request.map(axum::body::Body::new);
+            let response = app.oneshot(request).await;
+            let response: Response = match response {
+                Ok(response) => response,
+                Err(error) => match error {},
+            };
+            Ok::<Response, Infallible>(response)
+        }
+    });
+
+    hyper::server::conn::http1::Builder::new()
+        .serve_connection(io, service)
+        .await
+        .map_err(std::io::Error::other)?;
+    info!(
+        action = "tls_connection_closed",
+        remote_addr = %remote_addr,
+        "tls connection closed"
+    );
+    Ok(())
+}
+
+fn build_tls_acceptor(config: &RuntimeConfig) -> Result<TlsAcceptor, BootstrapError> {
+    let cert_path = config.server.tls.cert_file.as_deref().ok_or_else(|| {
+        BootstrapError::Security("server.tls.cert_file must be configured when tls is enabled".to_string())
+    })?;
+    let key_path = config.server.tls.key_file.as_deref().ok_or_else(|| {
+        BootstrapError::Security("server.tls.key_file must be configured when tls is enabled".to_string())
+    })?;
+    let cert_chain = load_cert_chain(cert_path)?;
+    let private_key = load_private_key(key_path)?;
+
+    let server_config = if config.server.tls.require_client_cert {
+        let client_ca_path = config.server.tls.client_ca_file.as_deref().ok_or_else(|| {
+            BootstrapError::Security(
+                "server.tls.client_ca_file must be configured when client cert is required"
+                    .to_string(),
+            )
+        })?;
+        let client_roots = load_root_store(client_ca_path)?;
+        let verifier = WebPkiClientVerifier::builder(client_roots)
+            .build()
+            .map_err(|error| BootstrapError::Security(format!("invalid mTLS verifier config: {error}")))?;
+        ServerConfig::builder()
+            .with_client_cert_verifier(verifier)
+            .with_single_cert(cert_chain, private_key)
+            .map_err(|error| BootstrapError::Security(format!("invalid tls cert/key pair: {error}")))?
+    } else {
+        ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(cert_chain, private_key)
+            .map_err(|error| BootstrapError::Security(format!("invalid tls cert/key pair: {error}")))?
+    };
+
+    Ok(TlsAcceptor::from(Arc::new(server_config)))
+}
+
+fn load_cert_chain(path: &str) -> Result<Vec<CertificateDer<'static>>, BootstrapError> {
+    let file = std::fs::File::open(path).map_err(BootstrapError::Bind)?;
+    let mut reader = BufReader::new(file);
+    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(BootstrapError::Bind)?;
+    if certs.is_empty() {
+        return Err(BootstrapError::Security(format!(
+            "tls certificate file contains no certificates: {path}"
+        )));
+    }
+    Ok(certs)
+}
+
+fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>, BootstrapError> {
+    let file = std::fs::File::open(path).map_err(BootstrapError::Bind)?;
+    let mut reader = BufReader::new(file);
+    rustls_pemfile::private_key(&mut reader)
+        .map_err(BootstrapError::Bind)?
+        .ok_or_else(|| BootstrapError::Security(format!("tls private key is missing in file: {path}")))
+}
+
+fn load_root_store(path: &str) -> Result<Arc<RootCertStore>, BootstrapError> {
+    let certs = load_cert_chain(path)?;
+    let mut roots = RootCertStore::empty();
+    let (_, rejected) = roots.add_parsable_certificates(certs);
+    if rejected > 0 {
+        return Err(BootstrapError::Security(format!(
+            "client ca file contains {rejected} unparsable certificate(s): {path}"
+        )));
+    }
+    Ok(Arc::new(roots))
+}
+
+fn extract_peer_subject(stream: &TlsStream<TcpStream>) -> Option<String> {
+    let (_, server_conn) = stream.get_ref();
+    let cert = server_conn.peer_certificates()?.first()?;
+    let (_, parsed) = parse_x509_certificate(cert.as_ref()).ok()?;
+    Some(parsed.subject().to_string())
 }
 
 fn is_llm_enabled(config: &RuntimeConfig) -> bool {

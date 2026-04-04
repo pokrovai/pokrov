@@ -12,12 +12,14 @@ use serde_json::Value;
 use crate::{
     audit::LLMAuditEvent,
     errors::LLMProxyError,
-    normalize::{estimate_token_units, normalize_request, resolve_profile_id},
+    normalize::{estimate_token_units, normalize_request, normalize_responses_payload, resolve_profile_id},
     routing::{select_upstream_credential, ProviderRouteTable},
-    stream::sanitize_sse_stream,
+    stream::{
+        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse, sanitize_sse_stream,
+    },
     types::{
         LLMProxyBody, LLMProxyResponse, LLMResponseMetadata, RouteResolution, UpstreamCredentialOrigin,
-        UpstreamJsonResponse, UpstreamStreamResponse,
+        UpstreamJsonResponse, UpstreamStreamResponse, RESPONSES_ENDPOINT,
     },
     upstream::UpstreamClient,
 };
@@ -54,6 +56,26 @@ impl LLMProxyHandler {
 
     pub async fn handle_chat_completion(
         &self,
+        request_id: String,
+        payload: Value,
+        api_key_profile: &str,
+        auth_mode: UpstreamAuthMode,
+        upstream_credential: Option<&str>,
+    ) -> Result<LLMProxyResponse, LLMProxyError> {
+        self.handle_chat_completion_for_endpoint(
+            "/v1/chat/completions",
+            request_id,
+            payload,
+            api_key_profile,
+            auth_mode,
+            upstream_credential,
+        )
+        .await
+    }
+
+    async fn handle_chat_completion_for_endpoint(
+        &self,
+        endpoint: &'static str,
         request_id: String,
         payload: Value,
         api_key_profile: &str,
@@ -108,6 +130,7 @@ impl LLMProxyHandler {
                 );
                 self.emit_terminal_event(TerminalEvent {
                     request_id: &request_id,
+                    endpoint,
                     profile_id: &profile_id,
                     provider_id: None,
                     model: &envelope.model,
@@ -142,6 +165,7 @@ impl LLMProxyHandler {
             return self
                 .handle_stream_response(
                     started,
+                    endpoint,
                     request_id,
                     profile_id,
                     envelope.model,
@@ -160,6 +184,7 @@ impl LLMProxyHandler {
 
         self.handle_json_response(
             started,
+            endpoint,
             request_id,
             profile_id,
             envelope.model,
@@ -176,10 +201,31 @@ impl LLMProxyHandler {
         .await
     }
 
+    pub async fn handle_responses(
+        &self,
+        request_id: String,
+        payload: Value,
+        api_key_profile: &str,
+        auth_mode: UpstreamAuthMode,
+        upstream_credential: Option<&str>,
+    ) -> Result<LLMProxyResponse, LLMProxyError> {
+        let normalized = normalize_responses_payload(&request_id, payload)?;
+        self.handle_chat_completion_for_endpoint(
+            RESPONSES_ENDPOINT,
+            request_id,
+            normalized,
+            api_key_profile,
+            auth_mode,
+            upstream_credential,
+        )
+        .await
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn handle_json_response(
         &self,
         started: Instant,
+        endpoint: &'static str,
         request_id: String,
         profile_id: String,
         model: String,
@@ -203,6 +249,7 @@ impl LLMProxyHandler {
             Err(error) => {
                 self.emit_error_event(
                     started,
+                    endpoint,
                     &request_id,
                     &profile_id,
                     Some(route.provider_id.clone()),
@@ -246,6 +293,7 @@ impl LLMProxyHandler {
                     );
                     self.emit_error_event(
                         started,
+                        endpoint,
                         &request_id,
                         &profile_id,
                         Some(route.provider_id.clone()),
@@ -279,6 +327,7 @@ impl LLMProxyHandler {
 
         self.emit_terminal_event(TerminalEvent {
             request_id: &request_id,
+            endpoint,
             profile_id: &profile_id,
             provider_id: Some(route.provider_id.clone()),
             model: &model,
@@ -304,6 +353,7 @@ impl LLMProxyHandler {
     async fn handle_stream_response(
         &self,
         started: Instant,
+        endpoint: &'static str,
         request_id: String,
         profile_id: String,
         model: String,
@@ -335,6 +385,7 @@ impl LLMProxyHandler {
             Err(error) => {
                 self.emit_error_event(
                     started,
+                    endpoint,
                     &request_id,
                     &profile_id,
                     Some(route.provider_id.clone()),
@@ -350,112 +401,170 @@ impl LLMProxyHandler {
         };
 
         if route.output_sanitization {
-            if let Some(evaluator) = self.evaluator.as_ref() {
-                let body = match read_stream_body_with_limit(
-                    &request_id,
-                    &route.provider_id,
-                    upstream_body,
-                    route.stream_sanitization_max_buffer_bytes,
-                )
-                .await
-                {
-                    Ok(body) => body,
-                    Err(cause) => {
-                        self.emit_error_event(
-                            started,
-                            &request_id,
-                            &profile_id,
-                            Some(route.provider_id.clone()),
-                            &model,
-                            true,
-                            final_action,
-                            total_hits,
-                            Some(status.as_u16()),
-                            &cause,
-                        );
-                        return Err(cause);
-                    }
-                };
+            let body = match read_stream_body_with_limit(
+                &request_id,
+                &route.provider_id,
+                upstream_body,
+                route.stream_sanitization_max_buffer_bytes,
+            )
+            .await
+            {
+                Ok(body) => body,
+                Err(cause) => {
+                    self.emit_error_event(
+                        started,
+                        endpoint,
+                        &request_id,
+                        &profile_id,
+                        Some(route.provider_id.clone()),
+                        &model,
+                        true,
+                        final_action,
+                        total_hits,
+                        Some(status.as_u16()),
+                        &cause,
+                    );
+                    return Err(cause);
+                }
+            };
 
-                let evaluator = Arc::clone(evaluator);
-                let request_id_for_task = request_id.clone();
-                let profile_id_for_task = profile_id.clone();
-                let sanitized = match tokio::task::spawn_blocking(move || {
-                    sanitize_sse_stream(
-                        &request_id_for_task,
-                        &profile_id_for_task,
-                        &body,
-                        evaluator.as_ref(),
-                    )
-                })
-                .await
-                {
-                    Ok(Ok(sanitized)) => sanitized,
-                    Ok(Err(error)) => {
-                        self.emit_error_event(
-                            started,
-                            &request_id,
-                            &profile_id,
-                            Some(route.provider_id.clone()),
-                            &model,
-                            true,
-                            final_action,
-                            total_hits,
-                            Some(status.as_u16()),
-                            &error,
-                        );
-                        return Err(error);
-                    }
-                    Err(join_error) => {
-                        let error = LLMProxyError::upstream_error(
-                            request_id.clone(),
-                            Some(route.provider_id.clone()),
-                            format!("failed to execute stream sanitization task: {join_error}"),
-                        );
-                        self.emit_error_event(
-                            started,
-                            &request_id,
-                            &profile_id,
-                            Some(route.provider_id.clone()),
-                            &model,
-                            true,
-                            final_action,
-                            total_hits,
-                            Some(status.as_u16()),
-                            &error,
-                        );
-                        return Err(error);
-                    }
-                };
-                total_hits = total_hits.saturating_add(sanitized.rule_hits_total);
-                final_action = max_action(final_action, sanitized.final_action);
-
-                self.emit_terminal_event(TerminalEvent {
-                    request_id: &request_id,
-                    profile_id: &profile_id,
-                    provider_id: Some(route.provider_id.clone()),
-                    model: &model,
-                    stream: true,
-                    final_action,
-                    rule_hits_total: total_hits,
-                    blocked: false,
-                    upstream_status: Some(status.as_u16()),
-                    duration_ms: started.elapsed().as_millis() as u64,
-                    estimated_token_units,
-                    auth_mode: mode_as_str(auth_mode),
-                    credential_origin,
-                });
-
-                return Ok(LLMProxyResponse {
-                    request_id,
-                    status,
-                    body: LLMProxyBody::Sse(sanitized.body),
-                });
+            let mut stream_body = body;
+            if route.output_sanitization {
+                if let Some(evaluator) = self.evaluator.as_ref() {
+                    let evaluator = Arc::clone(evaluator);
+                    let request_id_for_task = request_id.clone();
+                    let profile_id_for_task = profile_id.clone();
+                    let body_for_task = stream_body.clone();
+                    let sanitized = match tokio::task::spawn_blocking(move || {
+                        sanitize_sse_stream(
+                            &request_id_for_task,
+                            &profile_id_for_task,
+                            &body_for_task,
+                            evaluator.as_ref(),
+                        )
+                    })
+                    .await
+                    {
+                        Ok(Ok(sanitized)) => sanitized,
+                        Ok(Err(error)) => {
+                            self.emit_error_event(
+                                started,
+                                endpoint,
+                                &request_id,
+                                &profile_id,
+                                Some(route.provider_id.clone()),
+                                &model,
+                                true,
+                                final_action,
+                                total_hits,
+                                Some(status.as_u16()),
+                                &error,
+                            );
+                            return Err(error);
+                        }
+                        Err(join_error) => {
+                            let error = LLMProxyError::upstream_error(
+                                request_id.clone(),
+                                Some(route.provider_id.clone()),
+                                format!("failed to execute stream sanitization task: {join_error}"),
+                            );
+                            self.emit_error_event(
+                                started,
+                                endpoint,
+                                &request_id,
+                                &profile_id,
+                                Some(route.provider_id.clone()),
+                                &model,
+                                true,
+                                final_action,
+                                total_hits,
+                                Some(status.as_u16()),
+                                &error,
+                            );
+                            return Err(error);
+                        }
+                    };
+                    total_hits = total_hits.saturating_add(sanitized.rule_hits_total);
+                    final_action = max_action(final_action, sanitized.final_action);
+                    stream_body = sanitized.body;
+                }
             }
+
+            if endpoint == RESPONSES_ENDPOINT {
+                stream_body = convert_chat_sse_to_responses_sse(&request_id, &stream_body)?;
+            }
+
+            self.emit_terminal_event(TerminalEvent {
+                request_id: &request_id,
+                endpoint,
+                profile_id: &profile_id,
+                provider_id: Some(route.provider_id.clone()),
+                model: &model,
+                stream: true,
+                final_action,
+                rule_hits_total: total_hits,
+                blocked: false,
+                upstream_status: Some(status.as_u16()),
+                duration_ms: started.elapsed().as_millis() as u64,
+                estimated_token_units,
+                auth_mode: mode_as_str(auth_mode),
+                credential_origin,
+            });
+
+            return Ok(LLMProxyResponse {
+                request_id,
+                status,
+                body: LLMProxyBody::Sse(stream_body),
+            });
+        }
+
+        if endpoint == RESPONSES_ENDPOINT {
+            let mut pending_bytes = Vec::new();
+            let request_id_for_stream = request_id.clone();
+            let converted_stream = upstream_body
+                .bytes_stream()
+                .map(move |chunk_result| match chunk_result {
+                    Ok(chunk) => Ok(bytes::Bytes::from(convert_chat_sse_chunk_to_responses_chunk(
+                        request_id_for_stream.as_str(),
+                        &mut pending_bytes,
+                        chunk.as_ref(),
+                    ))),
+                    Err(error) => Err(error),
+                })
+                .filter_map(|item| async move {
+                    match item {
+                        Ok(chunk) if chunk.is_empty() => None,
+                        other => Some(other),
+                    }
+                });
+
+            self.emit_terminal_event(TerminalEvent {
+                request_id: &request_id,
+                endpoint,
+                profile_id: &profile_id,
+                provider_id: Some(route.provider_id.clone()),
+                model: &model,
+                stream: true,
+                final_action,
+                rule_hits_total: total_hits,
+                blocked: false,
+                upstream_status: Some(status.as_u16()),
+                duration_ms: started.elapsed().as_millis() as u64,
+                estimated_token_units,
+                auth_mode: mode_as_str(auth_mode),
+                credential_origin,
+            });
+
+            return Ok(LLMProxyResponse {
+                request_id,
+                status,
+                body: LLMProxyBody::SseStream(Box::pin(converted_stream)),
+            });
         }
 
         self.emit_terminal_event(TerminalEvent {
             request_id: &request_id,
+            endpoint,
             profile_id: &profile_id,
             provider_id: Some(route.provider_id.clone()),
             model: &model,
@@ -480,6 +589,7 @@ impl LLMProxyHandler {
     fn emit_error_event(
         &self,
         started: Instant,
+        endpoint: &'static str,
         request_id: &str,
         profile_id: &str,
         provider_id: Option<String>,
@@ -492,6 +602,7 @@ impl LLMProxyHandler {
     ) {
         self.emit_terminal_event(TerminalEvent {
             request_id,
+            endpoint,
             profile_id,
             provider_id,
             model,
@@ -510,6 +621,7 @@ impl LLMProxyHandler {
     fn emit_terminal_event(&self, event: TerminalEvent<'_>) {
         let audit = LLMAuditEvent {
             request_id: event.request_id.to_string(),
+            endpoint: event.endpoint.to_string(),
             profile_id: event.profile_id.to_string(),
             provider_id: event.provider_id,
             model: event.model.to_string(),
@@ -538,6 +650,7 @@ impl LLMProxyHandler {
 
 struct TerminalEvent<'a> {
     request_id: &'a str,
+    endpoint: &'a str,
     profile_id: &'a str,
     provider_id: Option<String>,
     model: &'a str,

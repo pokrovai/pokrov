@@ -12,6 +12,11 @@ sanitization-first до upstream, metadata-only аудит/логи, determinist
 behavior, split auth boundary в passthrough (`X-Pokrov-Api-Key` для gateway и
 `Authorization: Bearer` для upstream), и текущие наблюдаемость/latency budget.
 
+## Execution Notes
+
+- Verification evidence: `docs/verification/003-llm-proxy.md`
+- Acceptance checklist: `specs/007-codex-agent-compat/checklists/requirements.md`
+
 ## Технический контекст
 
 **Language/Version**: Rust stable 1.85+  

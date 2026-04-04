@@ -10,6 +10,7 @@ use serde_json::Value;
 
 pub const CHAT_COMPLETIONS_UPSTREAM_PATH: &str = "/chat/completions";
 pub const ALLOWED_ROLES: [&str; 4] = ["system", "user", "assistant", "tool"];
+pub const RESPONSES_ENDPOINT: &str = "/v1/responses";
 
 #[derive(Debug, Clone)]
 pub struct LLMRequestEnvelope {
@@ -20,6 +21,21 @@ pub struct LLMRequestEnvelope {
     pub profile_hint: Option<String>,
     pub metadata_tags: BTreeMap<String, String>,
     pub original_payload: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResponsesCompatibilityRequest {
+    pub model: String,
+    pub input: Value,
+    pub stream: bool,
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResponsesCompatibilityOutputItem {
+    pub output_type: &'static str,
+    pub role: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone)]

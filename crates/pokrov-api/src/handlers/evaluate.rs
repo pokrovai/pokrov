@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
+use crate::app::{GatewayAuthContext, GatewayAuthMechanism};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EvaluateHttpRequest {
@@ -36,6 +37,7 @@ pub struct EvaluateHttpResponse {
 pub async fn handle_evaluate(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
+    Extension(gateway_auth): Extension<GatewayAuthContext>,
     headers: HeaderMap,
     body: Result<Json<EvaluateHttpRequest>, JsonRejection>,
 ) -> Result<Json<EvaluateHttpResponse>, ApiError> {
@@ -43,14 +45,24 @@ pub async fn handle_evaluate(
         .map(|Json(body)| body)
         .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
 
-    let token = parse_bearer_token(&headers)
-        .ok_or_else(|| ApiError::unauthorized(request_id.clone(), "missing bearer authorization"))?;
+    if !gateway_auth.authenticated {
+        return Err(ApiError::gateway_unauthorized(request_id.clone()));
+    }
 
-    if !state.sanitization.is_authorized(token, &body.profile_id) {
-        return Err(ApiError::unauthorized(
-            request_id.clone(),
-            "invalid API key or profile binding",
-        ));
+    if matches!(state.auth.gateway_auth_mode, pokrov_config::GatewayAuthMode::ApiKey) {
+        let token = parse_bearer_token(&headers).ok_or_else(|| {
+            ApiError::unauthorized(request_id.clone(), "missing bearer authorization")
+        })?;
+
+        if !state.sanitization.is_authorized(token, &body.profile_id) {
+            return Err(ApiError::unauthorized(
+                request_id.clone(),
+                "invalid API key or profile binding",
+            ));
+        }
+    } else if matches!(gateway_auth.auth_mechanism, Some(GatewayAuthMechanism::Bearer)) {
+        // In mTLS gateway modes Authorization is upstream-only; bearer gateway auth must be disabled.
+        return Err(ApiError::gateway_unauthorized(request_id.clone()));
     }
 
     let evaluator = state

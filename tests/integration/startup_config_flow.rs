@@ -102,6 +102,37 @@ security:
 }
 
 #[tokio::test]
+async fn runtime_accepts_passthrough_mode_without_gateway_api_keys_in_mesh_mtls() {
+    let config_path = write_temp_config(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 5000
+  grace_period_ms: 6000
+auth:
+  upstream_auth_mode: passthrough
+  gateway_auth_mode: mesh_mtls
+  mesh:
+    identity_header: x-forwarded-client-cert
+    require_header: true
+security:
+  api_keys: []
+"#,
+    );
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("mesh mTLS passthrough should start without gateway api keys");
+
+    handle.shutdown().await.expect("shutdown should succeed");
+}
+
+#[tokio::test]
 async fn runtime_with_disabled_sanitization_reports_ready() {
     let config_path = write_temp_config(
         r#"

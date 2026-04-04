@@ -21,7 +21,8 @@ runtime:
       - X-Pokrov-Api-Key
       - Authorization
     passthrough_guard:
-      passthrough_requires_api_key_gateway_auth: true
+      passthrough_requires_api_key_gateway_auth: false
+      responses_single_bearer_supported: true
 
   compatibility:
     responses_endpoint:
@@ -51,6 +52,7 @@ observability:
 
 constraints:
   - Sanitization and policy evaluation MUST run before upstream call for `/v1/responses`.
+  - Stream responses on `/v1/responses` MUST be converted into responses-compatible SSE delta events.
   - Gateway auth and upstream credential validation MUST be independent in passthrough mode.
   - Raw sensitive payload and credentials MUST NOT appear in logs, metrics, audit, or error bodies.
   - Existing `/v1/chat/completions` behavior MUST remain backward-compatible.

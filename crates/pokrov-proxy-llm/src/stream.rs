@@ -99,6 +99,145 @@ pub fn sanitize_sse_stream(
     })
 }
 
+pub fn convert_chat_sse_to_responses_sse(
+    request_id: &str,
+    raw_body: &str,
+) -> Result<String, LLMProxyError> {
+    let mut events = Vec::new();
+
+    for event in raw_body.split("\n\n") {
+        if event.trim().is_empty() {
+            continue;
+        }
+
+        let mut lines = Vec::new();
+        for line in event.lines() {
+            if let Some(data) = line.strip_prefix("data:") {
+                let payload = data.trim();
+                if payload == "[DONE]" {
+                    lines.push("data: [DONE]".to_string());
+                    continue;
+                }
+
+                let Ok(event_json) = serde_json::from_str::<Value>(payload) else {
+                    lines.push(line.to_string());
+                    continue;
+                };
+
+                let delta = extract_text_delta(&event_json).unwrap_or_default();
+                let encoded = serde_json::to_string(&serde_json::json!({
+                    "type": "response.output_text.delta",
+                    "delta": delta,
+                    "request_id": request_id,
+                }))
+                .map_err(|error| {
+                    LLMProxyError::upstream_error(
+                        request_id,
+                        None,
+                        format!("failed to serialize responses stream event: {error}"),
+                    )
+                })?;
+                lines.push(format!("data: {encoded}"));
+                continue;
+            }
+
+            lines.push(line.to_string());
+        }
+
+        events.push(lines.join("\n"));
+    }
+
+    let mut body = events.join("\n\n");
+    if !body.is_empty() {
+        body.push_str("\n\n");
+    }
+
+    Ok(body)
+}
+
+pub fn convert_chat_sse_chunk_to_responses_chunk(
+    request_id: &str,
+    pending_bytes: &mut Vec<u8>,
+    incoming_chunk: &[u8],
+) -> Vec<u8> {
+    pending_bytes.extend_from_slice(incoming_chunk);
+    let mut converted = String::new();
+
+    while let Some(separator_index) = find_double_newline(pending_bytes.as_slice()) {
+        let event_bytes: Vec<u8> = pending_bytes.drain(..separator_index).collect();
+        pending_bytes.drain(..2);
+        let event = String::from_utf8_lossy(event_bytes.as_slice());
+        let converted_event = convert_single_chat_sse_event(request_id, &event);
+        if converted_event.is_empty() {
+            continue;
+        }
+        converted.push_str(&converted_event);
+        converted.push_str("\n\n");
+    }
+
+    converted.into_bytes()
+}
+
+fn find_double_newline(bytes: &[u8]) -> Option<usize> {
+    bytes.windows(2).position(|window| window == b"\n\n")
+}
+
+fn convert_single_chat_sse_event(request_id: &str, event: &str) -> String {
+    if event.trim().is_empty() {
+        return String::new();
+    }
+
+    let mut lines = Vec::new();
+    for line in event.lines() {
+        if let Some(data) = line.strip_prefix("data:") {
+            let payload = data.trim();
+            if payload == "[DONE]" {
+                lines.push("data: [DONE]".to_string());
+                continue;
+            }
+
+            let Ok(event_json) = serde_json::from_str::<Value>(payload) else {
+                lines.push(line.to_string());
+                continue;
+            };
+
+            let delta = extract_text_delta(&event_json).unwrap_or_default();
+            let encoded = serde_json::json!({
+                "type": "response.output_text.delta",
+                "delta": delta,
+                "request_id": request_id,
+            })
+            .to_string();
+            lines.push(format!("data: {encoded}"));
+            continue;
+        }
+
+        lines.push(line.to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn extract_text_delta(value: &Value) -> Option<String> {
+    let choices = value.get("choices")?.as_array()?;
+    let mut merged = String::new();
+    for choice in choices {
+        if let Some(text) = choice
+            .get("delta")
+            .and_then(|delta| delta.get("content"))
+            .and_then(Value::as_str)
+        {
+            merged.push_str(text);
+        }
+    }
+
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -111,7 +250,9 @@ mod tests {
         SanitizationEngine,
     };
 
-    use super::sanitize_sse_stream;
+    use super::{
+        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse, sanitize_sse_stream,
+    };
 
     fn engine() -> SanitizationEngine {
         let strict = PolicyProfile {
@@ -158,5 +299,51 @@ mod tests {
             .expect("evaluation should succeed");
 
         assert_eq!(eval.audit.path_class, PathClass::Llm);
+    }
+
+    #[test]
+    fn converts_chat_sse_events_into_responses_delta_events() {
+        let stream =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n";
+        let converted = convert_chat_sse_to_responses_sse("req-1", stream)
+            .expect("stream conversion should succeed");
+
+        assert!(converted.contains("\"type\":\"response.output_text.delta\""));
+        assert!(converted.contains("\"delta\":\"hello\""));
+        assert!(converted.contains("\"request_id\":\"req-1\""));
+        assert!(converted.contains("data: [DONE]"));
+    }
+
+    #[test]
+    fn preserves_non_json_sse_chunks_during_conversion() {
+        let stream = "data: {malformed-json}\n\ndata: [DONE]\n\n";
+        let converted = convert_chat_sse_to_responses_sse("req-2", stream)
+            .expect("stream conversion should preserve malformed chunks");
+        assert!(converted.contains("data: {malformed-json}"));
+        assert!(converted.contains("data: [DONE]"));
+    }
+
+    #[test]
+    fn converts_responses_stream_chunk_by_chunk_across_boundaries() {
+        let mut pending = Vec::new();
+        let first = convert_chat_sse_chunk_to_responses_chunk(
+            "req-3",
+            &mut pending,
+            br#"data: {"choices":[{"delta":{"content":"he"}}]"#,
+        );
+        assert!(first.is_empty());
+
+        let second = convert_chat_sse_chunk_to_responses_chunk(
+            "req-3",
+            &mut pending,
+            b"}\n\ndata: [DONE]\n\n",
+        );
+
+        let converted = String::from_utf8(second).expect("converted chunk should be utf-8");
+        assert!(converted.contains("\"type\":\"response.output_text.delta\""));
+        assert!(converted.contains("\"delta\":\"he\""));
+        assert!(converted.contains("\"request_id\":\"req-3\""));
+        assert!(converted.contains("data: [DONE]"));
+        assert!(pending.is_empty());
     }
 }

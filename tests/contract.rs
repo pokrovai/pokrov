@@ -16,3 +16,5 @@ mod sanitization_evaluate_contract;
 pub mod hardening_test_support;
 #[path = "contract/release_evidence_contract.rs"]
 mod release_evidence_contract;
+#[path = "contract/responses_api_contract.rs"]
+mod responses_api_contract;

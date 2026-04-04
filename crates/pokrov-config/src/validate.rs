@@ -5,9 +5,9 @@ use regex::Regex;
 use crate::{
     error::{ConfigError, ValidationIssue},
     model::{
-        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, LlmConfig, LlmProviderConfig,
-        LlmRouteConfig, McpConfig, McpServerDefinition, RuntimeConfig, SanitizationProfile,
-        SecretRef, ToolArgumentConstraints,
+        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, GatewayAuthMode, LlmConfig,
+        LlmProviderConfig, LlmRouteConfig, McpConfig, McpServerDefinition, RuntimeConfig,
+        SanitizationProfile, SecretRef, ToolArgumentConstraints,
     },
     rate_limit::RateLimitConfig,
 };
@@ -49,10 +49,13 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
 }
 
 fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) {
+    validate_gateway_mode(config, issues);
+
     if matches!(
         config.auth.upstream_auth_mode,
         crate::model::UpstreamAuthMode::Passthrough
-    ) && config.security.api_keys.is_empty()
+    ) && matches!(config.auth.gateway_auth_mode, GatewayAuthMode::ApiKey)
+        && config.security.api_keys.is_empty()
     {
         issues.push(ValidationIssue::new(
             "auth.upstream_auth_mode",
@@ -105,6 +108,74 @@ fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) 
                 format!("identity.rate_limit_bindings.{identity}"),
                 "must reference an existing rate-limit profile",
             ));
+        }
+    }
+}
+
+fn validate_gateway_mode(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) {
+    match config.auth.gateway_auth_mode {
+        GatewayAuthMode::ApiKey => {}
+        GatewayAuthMode::InternalMtls => {
+            if !config.server.tls.enabled {
+                issues.push(ValidationIssue::new(
+                    "server.tls.enabled",
+                    "must be true when auth.gateway_auth_mode=internal_mtls",
+                ));
+            }
+            if config.server.tls.cert_file.as_deref().unwrap_or("").trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    "server.tls.cert_file",
+                    "must be set when auth.gateway_auth_mode=internal_mtls",
+                ));
+            }
+            if config.server.tls.key_file.as_deref().unwrap_or("").trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    "server.tls.key_file",
+                    "must be set when auth.gateway_auth_mode=internal_mtls",
+                ));
+            }
+            if config
+                .server
+                .tls
+                .client_ca_file
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                issues.push(ValidationIssue::new(
+                    "server.tls.client_ca_file",
+                    "must be set when auth.gateway_auth_mode=internal_mtls",
+                ));
+            }
+            if !config.server.tls.require_client_cert {
+                issues.push(ValidationIssue::new(
+                    "server.tls.require_client_cert",
+                    "must be true when auth.gateway_auth_mode=internal_mtls",
+                ));
+            }
+            if config.auth.internal_mtls.identity_header.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    "auth.internal_mtls.identity_header",
+                    "must not be empty",
+                ));
+            }
+        }
+        GatewayAuthMode::MeshMtls => {
+            if config.auth.mesh.require_header && config.auth.mesh.identity_header.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    "auth.mesh.identity_header",
+                    "must not be empty when auth.mesh.require_header=true",
+                ));
+            }
+            if let Some(trust_domain) = config.auth.mesh.required_spiffe_trust_domain.as_ref() {
+                if trust_domain.trim().is_empty() {
+                    issues.push(ValidationIssue::new(
+                        "auth.mesh.required_spiffe_trust_domain",
+                        "must not be empty",
+                    ));
+                }
+            }
         }
     }
 }

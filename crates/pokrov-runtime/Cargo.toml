@@ -5,17 +5,24 @@ edition = "2021"
 
 [dependencies]
 axum = { workspace = true }
+hyper = "1.6.0"
+hyper-util = { version = "0.1.11", features = ["http1", "server", "tokio"] }
 pokrov-api = { path = "../pokrov-api" }
 pokrov-config = { path = "../pokrov-config" }
 pokrov-core = { path = "../pokrov-core" }
 pokrov-metrics = { path = "../pokrov-metrics" }
 pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
 pokrov-proxy-mcp = { path = "../pokrov-proxy-mcp" }
+rustls = "0.23.31"
+rustls-pemfile = "2.2.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = "0.26.2"
+tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+x509-parser = "0.16.0"

@@ -14,3 +14,5 @@ mod mcp_mediation_overhead_budget;
 mod sanitization_evaluate_latency;
 #[path = "performance/hardening_release_overhead_budget.rs"]
 mod hardening_release_overhead_budget;
+#[path = "performance/responses_proxy_overhead_budget.rs"]
+mod responses_proxy_overhead_budget;

@@ -24,3 +24,9 @@ mod sanitization_metadata_leakage;
 mod rate_limit_metadata_leakage;
 #[path = "security/hardening_release_security_checks.rs"]
 mod hardening_release_security_checks;
+#[path = "security/responses_auth_metadata_leakage.rs"]
+mod responses_auth_metadata_leakage;
+#[path = "security/responses_metadata_leakage.rs"]
+mod responses_metadata_leakage;
+#[path = "security/responses_stream_metadata_leakage.rs"]
+mod responses_stream_metadata_leakage;

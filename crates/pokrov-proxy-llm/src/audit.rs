@@ -6,6 +6,7 @@ use crate::types::UpstreamCredentialOrigin;
 #[derive(Debug, Clone, Serialize)]
 pub struct LLMAuditEvent {
     pub request_id: String,
+    pub endpoint: String,
     pub profile_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
@@ -28,6 +29,7 @@ impl LLMAuditEvent {
             component = "llm_proxy",
             action = "audit",
             request_id = %self.request_id,
+            endpoint = %self.endpoint,
             profile_id = %self.profile_id,
             provider_id = ?self.provider_id,
             model = %self.model,
@@ -47,6 +49,7 @@ impl LLMAuditEvent {
 #[derive(Debug, Clone, Serialize)]
 pub struct LLMAuthStageAuditEvent {
     pub request_id: String,
+    pub endpoint: &'static str,
     pub auth_mode: &'static str,
     pub stage: &'static str,
     pub decision: &'static str,
@@ -58,6 +61,7 @@ impl LLMAuthStageAuditEvent {
             component = "llm_proxy",
             action = "auth_stage",
             request_id = %self.request_id,
+            endpoint = self.endpoint,
             auth_mode = self.auth_mode,
             stage = self.stage,
             decision = self.decision

@@ -8,13 +8,17 @@
         IdentitySource, LlmConfig, LlmDefaultsConfig, LlmProviderAuthConfig, LlmProviderConfig,
         LlmRouteConfig, LogFormat, LogLevel, LoggingConfig, McpConfig, McpDefaultsConfig,
         McpServerDefinition, McpToolPolicy, RuntimeConfig, SanitizationConfig, SanitizationProfile,
-        SanitizationProfiles, SecurityConfig, ServerConfig, ShutdownConfig, ToolArgumentConstraints,
-        UpstreamAuthMode,
+        SanitizationProfiles, SecurityConfig, ServerConfig, ShutdownConfig, TlsServerConfig,
+        ToolArgumentConstraints, UpstreamAuthMode,
     };
 
     fn valid_config() -> RuntimeConfig {
         RuntimeConfig {
-            server: ServerConfig { host: "127.0.0.1".to_string(), port: 8080 },
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 8080,
+                tls: TlsServerConfig::default(),
+            },
             logging: LoggingConfig {
                 level: LogLevel::Info,
                 format: LogFormat::Json,
@@ -31,6 +35,7 @@
             },
             auth: AuthConfig {
                 upstream_auth_mode: UpstreamAuthMode::Static,
+                ..AuthConfig::default()
             },
             identity: IdentityConfig {
                 resolution_order: vec![
@@ -347,4 +352,26 @@
             .expect_err("passthrough mode without gateway api key bindings must fail");
         assert!(error.to_string().contains("auth.upstream_auth_mode"));
         assert!(error.to_string().contains("passthrough_requires_api_key_gateway_auth"));
+    }
+
+    #[test]
+    fn accepts_passthrough_without_gateway_api_keys_for_mesh_mtls_mode() {
+        let mut config = valid_config();
+        config.auth.upstream_auth_mode = UpstreamAuthMode::Passthrough;
+        config.auth.gateway_auth_mode = crate::model::GatewayAuthMode::MeshMtls;
+        config.security.api_keys.clear();
+
+        validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect("mesh mTLS passthrough should not require security.api_keys");
+    }
+
+    #[test]
+    fn rejects_internal_mtls_mode_without_tls_requirements() {
+        let mut config = valid_config();
+        config.auth.gateway_auth_mode = crate::model::GatewayAuthMode::InternalMtls;
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("internal mTLS mode must require TLS server settings");
+        assert!(error.to_string().contains("server.tls.enabled"));
+        assert!(error.to_string().contains("server.tls.require_client_cert"));
     }

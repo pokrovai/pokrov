@@ -8,10 +8,13 @@ use axum::{
 use std::time::Instant;
 use uuid::Uuid;
 
-use crate::app::{AppState, ClientIdentity, GatewayAuthContext, IdentityEvidence, RuntimeStateView};
+use crate::app::{
+    AppState, ClientIdentity, GatewayAuthContext, IdentityEvidence, RuntimeStateView,
+    VerifiedClientCertIdentity,
+};
 use crate::auth::{
-    fingerprint_gateway_auth_subject, parse_gateway_credential, parse_identity_from_headers,
-    resolve_identity_from_sources,
+    fingerprint_gateway_auth_subject, parse_gateway_credential, parse_header_token_by_name,
+    parse_identity_from_headers, parse_spiffe_identity_from_mesh_header, resolve_identity_from_sources,
 };
 use crate::middleware::request_id::normalize_or_generate_request_id;
 
@@ -52,7 +55,8 @@ pub async fn active_requests_middleware(
         pokrov_config::UpstreamAuthMode::Static => "static",
         pokrov_config::UpstreamAuthMode::Passthrough => "passthrough",
     };
-    let gateway_auth = resolve_gateway_auth_context(&state, request.headers());
+    let verified_client_cert = request.extensions().get::<VerifiedClientCertIdentity>();
+    let gateway_auth = resolve_gateway_auth_context(&state, request.headers(), verified_client_cert);
     let client_identity = resolve_client_identity(&state, request.headers(), &gateway_auth);
     let policy_profile = resolve_policy_profile(
         &state,
@@ -162,39 +166,167 @@ fn resolve_policy_profile(
         return state.auth.fallback_policy_profile.clone();
     }
 
-    if let Some(gateway) = parse_gateway_credential(headers) {
-        if let Some(profile) = state.sanitization.profile_for_token(gateway.token) {
-            return Some(profile);
+    if matches!(state.auth.gateway_auth_mode, pokrov_config::GatewayAuthMode::ApiKey) {
+        if let Some(gateway) = parse_gateway_credential(headers) {
+            if let Some(profile) = state.sanitization.profile_for_token(gateway.token) {
+                return Some(profile);
+            }
         }
     }
 
     state.auth.fallback_policy_profile.clone()
 }
 
-fn resolve_gateway_auth_context(state: &AppState, headers: &HeaderMap) -> GatewayAuthContext {
-    let Some(credential) = parse_gateway_credential(headers) else {
-        return GatewayAuthContext {
-            authenticated: false,
-            auth_subject: None,
-            auth_mechanism: None,
-            failure_reason: Some("missing_gateway_auth"),
-        };
-    };
+fn resolve_gateway_auth_context(
+    state: &AppState,
+    headers: &HeaderMap,
+    verified_client_cert: Option<&VerifiedClientCertIdentity>,
+) -> GatewayAuthContext {
+    match state.auth.gateway_auth_mode {
+        pokrov_config::GatewayAuthMode::ApiKey => {
+            let Some(credential) = parse_gateway_credential(headers) else {
+                return GatewayAuthContext {
+                    authenticated: false,
+                    auth_subject: None,
+                    auth_mechanism: None,
+                    failure_reason: Some("missing_gateway_auth"),
+                };
+            };
 
-    if state.sanitization.profile_for_token(credential.token).is_some() {
-        GatewayAuthContext {
+            if state.sanitization.profile_for_token(credential.token).is_some() {
+                GatewayAuthContext {
+                    authenticated: true,
+                    auth_subject: Some(fingerprint_gateway_auth_subject(credential.token)),
+                    auth_mechanism: Some(credential.mechanism),
+                    failure_reason: None,
+                }
+            } else {
+                GatewayAuthContext {
+                    authenticated: false,
+                    auth_subject: None,
+                    auth_mechanism: Some(credential.mechanism),
+                    failure_reason: Some("invalid_gateway_auth"),
+                }
+            }
+        }
+        pokrov_config::GatewayAuthMode::InternalMtls => {
+            resolve_internal_mtls_auth_context(
+                headers,
+                state.auth.internal_mtls_identity_header.as_str(),
+                verified_client_cert,
+            )
+        }
+        pokrov_config::GatewayAuthMode::MeshMtls => {
+            let raw = parse_header_token_by_name(headers, &state.auth.mesh_identity_header);
+            let subject = raw.and_then(parse_spiffe_identity_from_mesh_header);
+            let trust_domain_ok = subject.is_some_and(|identity| {
+                state
+                    .auth
+                    .mesh_required_spiffe_trust_domain
+                    .as_ref()
+                    .is_none_or(|trust_domain| {
+                        let required_prefix = format!("spiffe://{}/", trust_domain.trim());
+                        identity.starts_with(&required_prefix)
+                    })
+            });
+            if let Some(identity) = subject {
+                if trust_domain_ok {
+                    GatewayAuthContext {
+                        authenticated: true,
+                        auth_subject: Some(identity.to_string()),
+                        auth_mechanism: Some(crate::app::GatewayAuthMechanism::MeshMtls),
+                        failure_reason: None,
+                    }
+                } else {
+                    GatewayAuthContext {
+                        authenticated: false,
+                        auth_subject: None,
+                        auth_mechanism: Some(crate::app::GatewayAuthMechanism::MeshMtls),
+                        failure_reason: Some("invalid_gateway_auth"),
+                    }
+                }
+            } else if !state.auth.mesh_require_header {
+                GatewayAuthContext {
+                    authenticated: true,
+                    auth_subject: Some("mesh_mtls_authenticated".to_string()),
+                    auth_mechanism: Some(crate::app::GatewayAuthMechanism::MeshMtls),
+                    failure_reason: None,
+                }
+            } else {
+                GatewayAuthContext {
+                    authenticated: false,
+                    auth_subject: None,
+                    auth_mechanism: Some(crate::app::GatewayAuthMechanism::MeshMtls),
+                    failure_reason: Some("missing_gateway_auth"),
+                }
+            }
+        }
+    }
+}
+
+fn resolve_internal_mtls_auth_context(
+    headers: &HeaderMap,
+    identity_header_name: &str,
+    verified_client_cert: Option<&VerifiedClientCertIdentity>,
+) -> GatewayAuthContext {
+    if let Some(identity) = verified_client_cert {
+        return GatewayAuthContext {
             authenticated: true,
-            auth_subject: Some(fingerprint_gateway_auth_subject(credential.token)),
-            auth_mechanism: Some(credential.mechanism),
+            auth_subject: Some(identity.subject.clone()),
+            auth_mechanism: Some(crate::app::GatewayAuthMechanism::InternalMtls),
             failure_reason: None,
-        }
-    } else {
-        GatewayAuthContext {
-            authenticated: false,
-            auth_subject: None,
-            auth_mechanism: Some(credential.mechanism),
-            failure_reason: Some("invalid_gateway_auth"),
-        }
+        };
+    }
+
+    let header_present = parse_header_token_by_name(headers, identity_header_name).is_some();
+    GatewayAuthContext {
+        authenticated: false,
+        auth_subject: None,
+        auth_mechanism: Some(crate::app::GatewayAuthMechanism::InternalMtls),
+        failure_reason: Some(if header_present {
+            "invalid_gateway_auth"
+        } else {
+            "missing_gateway_auth"
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{HeaderMap, HeaderValue};
+    use crate::app::VerifiedClientCertIdentity;
+
+    use super::resolve_internal_mtls_auth_context;
+
+    #[test]
+    fn internal_mtls_rejects_spoofed_header_without_verified_identity() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-pokrov-client-cert-subject",
+            HeaderValue::from_static("CN=spoofed"),
+        );
+
+        let auth =
+            resolve_internal_mtls_auth_context(&headers, "x-pokrov-client-cert-subject", None);
+        assert!(!auth.authenticated);
+        assert_eq!(auth.failure_reason, Some("invalid_gateway_auth"));
+    }
+
+    #[test]
+    fn internal_mtls_accepts_verified_transport_identity() {
+        let headers = HeaderMap::new();
+        let verified = VerifiedClientCertIdentity {
+            subject: "CN=runtime-verified".to_string(),
+        };
+
+        let auth = resolve_internal_mtls_auth_context(
+            &headers,
+            "x-pokrov-client-cert-subject",
+            Some(&verified),
+        );
+        assert!(auth.authenticated);
+        assert_eq!(auth.auth_subject.as_deref(), Some("CN=runtime-verified"));
+        assert_eq!(auth.failure_reason, None);
     }
 }
 
@@ -236,6 +368,7 @@ fn normalize_route(path: &str) -> &'static str {
         "/metrics" => "/metrics",
         "/v1/sanitize/evaluate" => "/v1/sanitize/evaluate",
         "/v1/chat/completions" => "/v1/chat/completions",
+        "/v1/responses" => "/v1/responses",
         "/v1/mcp/tool-call" => "/v1/mcp/tool-call",
         _ => "other",
     }
@@ -245,7 +378,7 @@ fn classify_path(path: &str) -> &'static str {
     match path {
         "/health" | "/ready" | "/metrics" => "runtime",
         "/v1/sanitize/evaluate" => "sanitization",
-        "/v1/chat/completions" => "llm",
+        "/v1/chat/completions" | "/v1/responses" => "llm",
         _ if path.starts_with("/v1/mcp") => "mcp",
         _ => "runtime",
     }

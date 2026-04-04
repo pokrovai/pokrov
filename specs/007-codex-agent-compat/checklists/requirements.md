@@ -33,3 +33,10 @@
 
 - Validation result: PASS (iteration 1).
 - Scope is explicitly constrained to LLM compatibility for Codex via minimal `POST /v1/responses` subset and excludes broad parity/out-of-scope capabilities.
+- Final verification matrix (2026-04-04): PASS.
+- Evidence commands:
+  - `cargo test --test contract -- responses_api_contract`
+  - `cargo test --test integration -- responses`
+  - `cargo test --test security -- responses`
+  - `cargo test --test performance -- responses`
+  - `cargo test --workspace`

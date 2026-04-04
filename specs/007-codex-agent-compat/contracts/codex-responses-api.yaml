@@ -209,6 +209,7 @@ components:
                 - invalid_request
                 - unsupported_request_subset
                 - gateway_unauthorized
+                - passthrough_requires_api_key_gateway_auth
                 - upstream_credential_missing
                 - upstream_credential_invalid
                 - policy_blocked

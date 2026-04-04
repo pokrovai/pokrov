@@ -36,6 +36,34 @@ pub(crate) fn parse_bearer_token(headers: &HeaderMap) -> Option<&str> {
         .filter(|token| !token.is_empty())
 }
 
+pub(crate) fn parse_header_token_by_name<'a>(
+    headers: &'a HeaderMap,
+    header_name: &str,
+) -> Option<&'a str> {
+    let name = HeaderName::from_bytes(header_name.as_bytes()).ok()?;
+    parse_header_token(headers, &name)
+}
+
+pub(crate) fn parse_spiffe_identity_from_mesh_header(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("spiffe://") {
+        return Some(trimmed);
+    }
+
+    // Istio XFCC usually contains key-value pairs and may include URI=spiffe://...
+    for segment in trimmed.split(';') {
+        let part = segment.trim();
+        if let Some(value) = part.strip_prefix("URI=") {
+            let uri = value.trim().trim_matches('"');
+            if uri.starts_with("spiffe://") {
+                return Some(uri);
+            }
+        }
+    }
+
+    None
+}
+
 pub(crate) fn parse_identity_from_headers(headers: &HeaderMap) -> (Option<&str>, Option<&str>) {
     (
         parse_header_token(headers, &X_POKROV_CLIENT_ID),
@@ -102,7 +130,8 @@ mod tests {
     use pokrov_config::IdentitySource;
 
     use super::{
-        fingerprint_gateway_auth_subject, parse_bearer_token, parse_identity_from_headers,
+        fingerprint_gateway_auth_subject, parse_bearer_token, parse_header_token_by_name,
+        parse_identity_from_headers, parse_spiffe_identity_from_mesh_header,
         resolve_identity_from_sources,
     };
 
@@ -126,6 +155,31 @@ mod tests {
         let credential = parse_gateway_credential(&headers).expect("credential should resolve");
         assert_eq!(credential.token, "gw-key");
         assert_eq!(credential.mechanism, GatewayAuthMechanism::ApiKey);
+    }
+
+    #[test]
+    fn parse_header_token_by_name_reads_trimmed_value() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-custom-auth", HeaderValue::from_static(" mesh-subject "));
+
+        assert_eq!(
+            parse_header_token_by_name(&headers, "x-custom-auth"),
+            Some("mesh-subject")
+        );
+    }
+
+    #[test]
+    fn parse_spiffe_identity_from_mesh_header_supports_plain_and_xfcc_forms() {
+        assert_eq!(
+            parse_spiffe_identity_from_mesh_header("spiffe://cluster.local/ns/default/sa/agent"),
+            Some("spiffe://cluster.local/ns/default/sa/agent")
+        );
+        assert_eq!(
+            parse_spiffe_identity_from_mesh_header(
+                "By=spiffe://cluster.local/ns/istio-system/sa/ingress;URI=spiffe://cluster.local/ns/default/sa/app"
+            ),
+            Some("spiffe://cluster.local/ns/default/sa/app")
+        );
     }
 
     #[test]
