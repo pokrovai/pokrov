@@ -1,5 +1,6 @@
 use axum::http::{header, HeaderMap, HeaderName};
 use pokrov_config::IdentitySource;
+use sha2::{Digest, Sha256};
 
 use crate::app::GatewayAuthMechanism;
 
@@ -72,13 +73,15 @@ pub(crate) fn resolve_identity_from_sources<'a>(
 }
 
 pub(crate) fn fingerprint_gateway_auth_subject(token: &str) -> String {
-    let mut state: u64 = 0xcbf29ce484222325;
-    for byte in token.as_bytes() {
-        state ^= u64::from(*byte);
-        state = state.wrapping_mul(0x100000001b3);
+    let digest = Sha256::digest(token.as_bytes());
+    let truncated = &digest[..16];
+    let mut value = String::with_capacity(35);
+    value.push_str("gw_");
+    for byte in truncated {
+        use std::fmt::Write as _;
+        let _ = write!(&mut value, "{byte:02x}");
     }
-
-    format!("gw_{state:016x}")
+    value
 }
 
 fn parse_header_token<'a>(headers: &'a HeaderMap, name: &HeaderName) -> Option<&'a str> {
@@ -167,5 +170,7 @@ mod tests {
 
         assert_eq!(first, second);
         assert!(first.starts_with("gw_"));
+        assert_eq!(first.len(), 35);
+        assert_eq!(first, "gw_8cb1c6bc8952bb3def9c7ff05b13fafc");
     }
 }

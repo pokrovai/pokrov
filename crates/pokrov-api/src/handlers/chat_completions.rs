@@ -80,7 +80,7 @@ pub async fn handle_chat_completions(
         ingress_identity,
         Some(gateway_auth_subject.as_str()),
     )
-    .unwrap_or(gateway.token);
+    .unwrap_or(gateway_auth_subject.as_str());
     let profile_id = state
         .auth
         .identity_profile_bindings
@@ -109,7 +109,7 @@ pub async fn handle_chat_completions(
                     decision: "fail",
                 }
                 .emit();
-                return Err(ApiError::upstream_credential_missing(request_id));
+                return Err(ApiError::passthrough_requires_api_key_gateway_auth(request_id));
             }
 
             let credential = parse_bearer_token(&headers).ok_or_else(|| {

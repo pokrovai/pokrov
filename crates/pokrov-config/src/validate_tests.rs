@@ -336,3 +336,15 @@
             .expect_err("unknown identity profile must fail");
         assert!(error.to_string().contains("identity.profile_bindings.tenant-a"));
     }
+
+    #[test]
+    fn rejects_passthrough_mode_without_gateway_api_keys() {
+        let mut config = valid_config();
+        config.auth.upstream_auth_mode = UpstreamAuthMode::Passthrough;
+        config.security.api_keys.clear();
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("passthrough mode without gateway api key bindings must fail");
+        assert!(error.to_string().contains("auth.upstream_auth_mode"));
+        assert!(error.to_string().contains("passthrough_requires_api_key_gateway_auth"));
+    }

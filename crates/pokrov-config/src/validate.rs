@@ -49,6 +49,17 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
 }
 
 fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) {
+    if matches!(
+        config.auth.upstream_auth_mode,
+        crate::model::UpstreamAuthMode::Passthrough
+    ) && config.security.api_keys.is_empty()
+    {
+        issues.push(ValidationIssue::new(
+            "auth.upstream_auth_mode",
+            "passthrough_requires_api_key_gateway_auth: security.api_keys must define at least one gateway credential",
+        ));
+    }
+
     if config.identity.resolution_order.is_empty() {
         issues.push(ValidationIssue::new(
             "identity.resolution_order",

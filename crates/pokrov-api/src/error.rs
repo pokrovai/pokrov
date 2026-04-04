@@ -74,6 +74,18 @@ impl ApiError {
         }
     }
 
+    pub fn passthrough_requires_api_key_gateway_auth(request_id: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "passthrough_requires_api_key_gateway_auth",
+            message: "Passthrough mode requires gateway auth via X-Pokrov-Api-Key".to_string(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: None,
+        }
+    }
+
     pub fn upstream_credential_invalid(request_id: impl Into<String>) -> Self {
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,
