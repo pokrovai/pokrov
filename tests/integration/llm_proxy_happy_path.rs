@@ -213,6 +213,7 @@ response_envelope:
     assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert!(body.get("pokrov").is_none());
+    assert!(body["request_id"].is_string());
 
     handle.shutdown().await.expect("shutdown should succeed");
     provider.shutdown().await;

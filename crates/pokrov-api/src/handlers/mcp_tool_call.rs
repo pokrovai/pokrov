@@ -32,9 +32,12 @@ pub async fn handle_mcp_tool_call(
     headers: HeaderMap,
     body: Result<Json<McpToolCallRequest>, JsonRejection>,
 ) -> Result<Json<McpToolCallResponse>, ApiError> {
+    let metadata_mode = state.mcp.response_metadata_mode;
     let body = body
         .map(|Json(body)| body)
-        .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
+        .map_err(|rejection| {
+            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+        })?;
 
     let context = resolve_request_context(
         &state,
@@ -46,9 +49,10 @@ pub async fn handle_mcp_tool_call(
         &RequestContextHooks {
             on_auth_stage: on_auth_stage,
             emit_auth_stage: emit_auth_stage,
-            map_error: map_error,
+            map_error: Some(map_error),
         },
-    )?;
+    )
+    .map_err(|error| error.with_response_metadata_mode(metadata_mode))?;
 
     if let Some(decision) = evaluate_and_record_rate_limit(
         &state,
@@ -75,7 +79,8 @@ pub async fn handle_mcp_tool_call(
             return Err(enforce_mcp_error_contract(ApiError::rate_limit_exceeded(
                 request_id,
                 decision,
-            )));
+            ))
+            .with_response_metadata_mode(metadata_mode));
         }
     }
 
@@ -84,6 +89,7 @@ pub async fn handle_mcp_tool_call(
             request_id.clone(),
             "mcp proxy is not configured",
         ))
+        .with_response_metadata_mode(metadata_mode)
     })?;
 
     let response = handler
@@ -107,7 +113,7 @@ pub async fn handle_mcp_tool_call(
                     .metrics
                     .on_upstream_error("/v1/mcp/tool-call", "mcp", error_class);
             }
-            ApiError::from_mcp_proxy(error)
+            ApiError::from_mcp_proxy(error).with_response_metadata_mode(metadata_mode)
         })?;
 
     Ok(Json(response))
@@ -146,15 +152,19 @@ pub async fn handle_mcp_tool_call_with_tool_name(
     headers: HeaderMap,
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<Json<McpToolCallResponse>, ApiError> {
+    let metadata_mode = state.mcp.response_metadata_mode;
     let path_body = body
         .map(|Json(body)| body)
-        .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
+        .map_err(|rejection| {
+            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+        })?;
     let path_body: McpToolInvokePathRequest =
         serde_json::from_value(path_body).map_err(|_| {
             enforce_mcp_error_contract(ApiError::invalid_request(
                 request_id.clone(),
                 "invalid request body",
             ))
+            .with_response_metadata_mode(metadata_mode)
         })?;
     let body = McpToolCallRequest {
         server: path_body.server,

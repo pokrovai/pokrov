@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use pokrov_config::{model::ResponseMetadataMode, UpstreamAuthMode};
+use pokrov_config::{model::ResponseMetadataMode, normalize_model_key, UpstreamAuthMode};
 use pokrov_core::{
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
@@ -19,7 +19,7 @@ use crate::{
     },
     upstream::UpstreamClient,
 };
-use support::{attach_pokrov_metadata, max_action, mode_as_str, TerminalEvent};
+use support::{attach_pokrov_metadata, attach_request_id, max_action, mode_as_str, TerminalEvent};
 
 mod streaming;
 mod support;
@@ -353,6 +353,7 @@ impl LLMProxyHandler {
             }
         }
 
+        attach_request_id(&request_id, &route.provider_id, &mut body)?;
         if self.response_metadata_mode == ResponseMetadataMode::Enabled {
             attach_pokrov_metadata(
                 &request_id,
@@ -461,8 +462,4 @@ fn override_payload_model(payload: &mut Value, canonical_model: &str) {
         "model".to_string(),
         Value::String(canonical_model.to_string()),
     );
-}
-
-fn normalize_model_key(model: &str) -> String {
-    model.trim().to_ascii_lowercase()
 }

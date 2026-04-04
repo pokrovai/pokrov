@@ -1,11 +1,9 @@
 use axum::{
     extract::{Extension, State},
+    http::{header, HeaderValue},
     http::StatusCode,
-    response::IntoResponse,
-    Json,
+    response::{IntoResponse, Response},
 };
-use pokrov_proxy_llm::routing::ModelCatalogKind;
-use serde::Serialize;
 
 use super::request_context::{
     RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
@@ -15,13 +13,13 @@ use crate::{
     error::ApiError,
 };
 
-/// Returns routable model ids for auto-discovery, including canonical names and aliases.
+/// Returns routable model ids in an OpenAI-compatible catalog shape.
 pub async fn handle_models(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
     Extension(gateway_auth): Extension<GatewayAuthContext>,
     headers: axum::http::HeaderMap,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     let metadata_mode = state.llm.response_metadata_mode;
     let _context = resolve_request_context(
         &state,
@@ -33,43 +31,29 @@ pub async fn handle_models(
         &RequestContextHooks {
             on_auth_stage,
             emit_auth_stage,
-            map_error,
+            map_error: None,
         },
     )
     .map_err(|error| error.with_response_metadata_mode(metadata_mode))?;
 
-    let handler = state
-        .llm
-        .handler
-        .clone()
-        .ok_or_else(|| {
+    if state.llm.handler.is_none() {
+        return Err(
             ApiError::runtime_not_ready(request_id.clone(), "llm proxy is not ready")
-                .with_response_metadata_mode(metadata_mode)
-        })?;
+                .with_response_metadata_mode(metadata_mode),
+        );
+    }
     state.metrics.on_models_catalog_request();
+    let payload = state.llm.model_catalog_payload.clone().ok_or_else(|| {
+        ApiError::internal(request_id, "llm model catalog payload is not initialized")
+            .with_response_metadata_mode(metadata_mode)
+    })?;
 
-    let data = handler
-        .model_catalog()
-        .iter()
-        .map(|entry| ModelCatalogResponseEntry {
-            id: entry.id.clone(),
-            object: "model",
-            canonical_model: entry.canonical_model.clone(),
-            provider_id: entry.provider_id.clone(),
-            kind: match entry.kind {
-                ModelCatalogKind::Canonical => "canonical",
-                ModelCatalogKind::Alias => "alias",
-            },
-        })
-        .collect::<Vec<_>>();
-
-    Ok((
-        StatusCode::OK,
-        Json(ModelCatalogResponse {
-            object: "list",
-            data,
-        }),
-    ))
+    let mut response = (StatusCode::OK, payload.as_ref().clone()).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    Ok(response)
 }
 
 fn on_auth_stage(state: &AppState, mode: &'static str, stage: &'static str, decision: &'static str) {
@@ -91,23 +75,4 @@ fn emit_auth_stage(
         decision,
     }
     .emit();
-}
-
-fn map_error(error: ApiError) -> ApiError {
-    error
-}
-
-#[derive(Debug, Serialize)]
-pub struct ModelCatalogResponse {
-    pub object: &'static str,
-    pub data: Vec<ModelCatalogResponseEntry>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ModelCatalogResponseEntry {
-    pub id: String,
-    pub object: &'static str,
-    pub canonical_model: String,
-    pub provider_id: String,
-    pub kind: &'static str,
 }

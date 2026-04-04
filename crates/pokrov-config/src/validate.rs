@@ -4,6 +4,7 @@ use regex::Regex;
 
 use crate::{
     error::{ConfigError, ValidationIssue},
+    normalize_model_key,
     model::{
         ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, GatewayAuthMode, LlmConfig,
         LlmProviderConfig, LlmRouteConfig, McpConfig, McpServerDefinition, RuntimeConfig,
@@ -680,10 +681,10 @@ fn validate_llm_provider(idx: usize, provider: &LlmProviderConfig, issues: &mut 
     }
 
     if let Some(upstream_path) = provider.upstream_path.as_ref() {
-        if !upstream_path.starts_with('/') {
+        if !is_valid_upstream_path(upstream_path) {
             issues.push(ValidationIssue::new(
                 format!("{provider_path}.upstream_path"),
-                "must start with '/'",
+                "must be a normalized absolute path without traversal, query/fragment, repeated slashes, or trailing slash",
             ));
         }
     }
@@ -738,6 +739,15 @@ fn validate_llm_route(
             "must reference an existing enabled provider",
         ));
     }
+
+    for (alias_idx, alias) in route.aliases.iter().enumerate() {
+        if alias.trim().is_empty() || alias.len() > 128 {
+            issues.push(ValidationIssue::new(
+                format!("{route_path}.aliases[{alias_idx}]"),
+                "length must be in range 1..=128",
+            ));
+        }
+    }
 }
 
 fn validate_unique_normalized_lookup_key(
@@ -760,10 +770,6 @@ fn validate_unique_normalized_lookup_key(
     }
 }
 
-fn normalize_model_key(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
-}
-
 fn is_valid_provider_base_url(value: &str) -> bool {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -780,6 +786,23 @@ fn is_valid_provider_base_url(value: &str) -> bool {
     }
 
     false
+}
+
+fn is_valid_upstream_path(value: &str) -> bool {
+    if !value.starts_with('/') {
+        return false;
+    }
+    if value.len() > 1 && value.ends_with('/') {
+        return false;
+    }
+    if value.contains('?') || value.contains('#') || value.contains("//") {
+        return false;
+    }
+
+    !value
+        .split('/')
+        .skip(1)
+        .any(|segment| segment == "." || segment == "..")
 }
 
 

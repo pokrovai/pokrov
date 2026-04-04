@@ -250,6 +250,13 @@ llm:
     assert!(ids.contains(&"gpt-4o-mini"));
     assert!(ids.contains(&"openai/gpt-4o-mini"));
     assert!(!ids.contains(&"disabled/route"));
+    let first = &body["data"][0];
+    assert_eq!(first["object"], serde_json::json!("model"));
+    assert!(first["created"].is_number());
+    assert_eq!(first["owned_by"], serde_json::json!("pokrov"));
+    assert!(first.get("provider_id").is_none());
+    assert!(first.get("kind").is_none());
+    assert!(first.get("canonical_model").is_none());
 
     handle.shutdown().await.expect("shutdown should succeed");
     provider.shutdown().await;

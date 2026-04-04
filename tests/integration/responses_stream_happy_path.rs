@@ -76,6 +76,13 @@ llm:
         .expect("stream request should complete");
 
     assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .headers()
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .is_some()
+    );
     assert_eq!(
         response
             .headers()

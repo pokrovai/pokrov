@@ -28,10 +28,15 @@ pub struct ApiError {
 }
 
 impl ApiError {
-    pub fn invalid_request(request_id: impl Into<String>, message: impl Into<String>) -> Self {
+    fn new(
+        status: StatusCode,
+        code: &'static str,
+        request_id: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
-            status: StatusCode::BAD_REQUEST,
-            code: "invalid_request",
+            status,
+            code,
             message: message.into(),
             request_id: request_id.into(),
             allowed: None,
@@ -39,165 +44,118 @@ impl ApiError {
             rate_limit: None,
             response_metadata_mode: ResponseMetadataMode::Enabled,
         }
+    }
+
+    pub fn invalid_request(request_id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_request", request_id, message)
     }
 
     pub fn unsupported_request_subset(
         request_id: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            code: "unsupported_request_subset",
-            message: message.into(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "unsupported_request_subset",
+            request_id,
+            message,
+        )
     }
 
     pub fn unauthorized(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            code: "unauthorized",
-            message: message.into(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(StatusCode::UNAUTHORIZED, "unauthorized", request_id, message)
     }
 
     pub fn gateway_unauthorized(request_id: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            code: "gateway_unauthorized",
-            message: "Client is not authorized to use Pokrov gateway".to_string(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::UNAUTHORIZED,
+            "gateway_unauthorized",
+            request_id,
+            "Client is not authorized to use Pokrov gateway",
+        )
     }
 
     pub fn upstream_credential_missing(request_id: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            code: "upstream_credential_missing",
-            message: "Upstream provider credential is required for passthrough mode".to_string(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "upstream_credential_missing",
+            request_id,
+            "Upstream provider credential is required for passthrough mode",
+        )
     }
 
     pub fn passthrough_requires_api_key_gateway_auth(request_id: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            code: "passthrough_requires_api_key_gateway_auth",
-            message: "Passthrough mode requires gateway auth via X-Pokrov-Api-Key".to_string(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::UNAUTHORIZED,
+            "passthrough_requires_api_key_gateway_auth",
+            request_id,
+            "Passthrough mode requires gateway auth via X-Pokrov-Api-Key",
+        )
     }
 
     pub fn upstream_credential_invalid(request_id: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            code: "upstream_credential_invalid",
-            message: "Upstream provider credential is invalid".to_string(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "upstream_credential_invalid",
+            request_id,
+            "Upstream provider credential is invalid",
+        )
     }
 
     pub fn responses_stream_terminated(request_id: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::BAD_GATEWAY,
-            code: "upstream_error",
-            message: "responses stream terminated due to upstream stream error".to_string(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::BAD_GATEWAY,
+            "upstream_error",
+            request_id,
+            "responses stream terminated due to upstream stream error",
+        )
     }
 
     pub fn payload_too_large(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::PAYLOAD_TOO_LARGE,
-            code: "invalid_request",
-            message: message.into(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "invalid_request",
+            request_id,
+            message,
+        )
     }
 
     pub fn invalid_profile(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            code: "invalid_profile",
-            message: message.into(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_profile",
+            request_id,
+            message,
+        )
     }
 
     pub fn internal(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "internal_error",
-            message: message.into(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal_error",
+            request_id,
+            message,
+        )
     }
 
     pub fn rate_limit_exceeded(request_id: impl Into<String>, decision: RateLimitDecision) -> Self {
-        Self {
-            status: StatusCode::TOO_MANY_REQUESTS,
-            code: "rate_limit_exceeded",
-            message: "Request rejected by rate-limit policy".to_string(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: Some(decision),
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        let mut error = Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limit_exceeded",
+            request_id,
+            "Request rejected by rate-limit policy",
+        );
+        error.rate_limit = Some(decision);
+        error
     }
 
     pub fn runtime_not_ready(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            code: "runtime_not_ready",
-            message: message.into(),
-            request_id: request_id.into(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime_not_ready",
+            request_id,
+            message,
+        )
     }
 
     pub fn from_llm_proxy(error: LLMProxyError) -> Self {
@@ -213,16 +171,12 @@ impl ApiError {
             "llm proxy request failed"
         );
 
-        Self {
-            status: error.status_code(),
-            code: error.code().as_str(),
-            message: error.message(),
-            request_id: error.request_id().to_string(),
-            allowed: None,
-            details: None,
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        Self::new(
+            error.status_code(),
+            error.code().as_str(),
+            error.request_id().to_string(),
+            error.message(),
+        )
     }
 
     pub fn from_llm_proxy_for_responses(error: LLMProxyError) -> Self {
@@ -247,18 +201,17 @@ impl ApiError {
             "mcp proxy request failed"
         );
 
-        Self {
-            status: error.status_code(),
-            code: error.code().as_str(),
-            message: error.message(),
-            request_id: error.request_id().to_string(),
-            allowed: Some(false),
-            details: error
-                .details()
-                .and_then(|details| serde_json::to_value(details).ok()),
-            rate_limit: None,
-            response_metadata_mode: ResponseMetadataMode::Enabled,
-        }
+        let mut mapped = Self::new(
+            error.status_code(),
+            error.code().as_str(),
+            error.request_id().to_string(),
+            error.message(),
+        );
+        mapped.allowed = Some(false);
+        mapped.details = error
+            .details()
+            .and_then(|details| serde_json::to_value(details).ok());
+        mapped
     }
 
     pub fn with_response_metadata_mode(mut self, mode: ResponseMetadataMode) -> Self {

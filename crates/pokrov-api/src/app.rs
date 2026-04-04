@@ -162,6 +162,7 @@ impl Default for RateLimitState {
 pub struct LlmProxyState {
     pub enabled: bool,
     pub handler: Option<Arc<LLMProxyHandler>>,
+    pub model_catalog_payload: Option<Arc<Vec<u8>>>,
     pub response_metadata_mode: ResponseMetadataMode,
 }
 
@@ -170,6 +171,7 @@ impl Default for LlmProxyState {
         Self {
             enabled: false,
             handler: None,
+            model_catalog_payload: None,
             response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
@@ -179,6 +181,7 @@ impl Default for LlmProxyState {
 pub struct McpProxyState {
     pub enabled: bool,
     pub handler: Option<Arc<McpProxyHandler>>,
+    pub response_metadata_mode: ResponseMetadataMode,
 }
 
 impl Default for McpProxyState {
@@ -186,6 +189,7 @@ impl Default for McpProxyState {
         Self {
             enabled: false,
             handler: None,
+            response_metadata_mode: ResponseMetadataMode::Enabled,
         }
     }
 }
