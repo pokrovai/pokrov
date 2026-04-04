@@ -85,7 +85,7 @@ pub async fn handle_mcp_tool_call(
         ingress_identity,
         Some(gateway_auth_subject.as_str()),
     )
-    .unwrap_or(gateway.token);
+    .unwrap_or(gateway_auth_subject.as_str());
     let profile_id = state
         .auth
         .identity_profile_bindings
@@ -114,9 +114,9 @@ pub async fn handle_mcp_tool_call(
                     decision: "fail",
                 }
                 .emit();
-                return Err(enforce_mcp_error_contract(ApiError::upstream_credential_missing(
-                    request_id,
-                )));
+                return Err(enforce_mcp_error_contract(
+                    ApiError::passthrough_requires_api_key_gateway_auth(request_id),
+                ));
             }
             let credential = parse_bearer_token(&headers).ok_or_else(|| {
                 state

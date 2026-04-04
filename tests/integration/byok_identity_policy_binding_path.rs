@@ -178,7 +178,7 @@ async fn gateway_auth_subject_binding_controls_profile_selection() {
 
     let gateway_key_path = write_key_file("gateway-key");
     let provider_key_path = write_key_file("provider-static-key");
-    let gateway_subject = gateway_auth_subject("gateway-key");
+    let gateway_subject = "gw_8cb1c6bc8952bb3def9c7ff05b13fafc".to_string();
     let config_path = write_runtime_config(&format!(
         r#"
 server:
@@ -281,14 +281,4 @@ mcp:
     handle.shutdown().await.expect("shutdown should succeed");
     provider.shutdown().await;
     mcp_server.shutdown().await;
-}
-
-fn gateway_auth_subject(token: &str) -> String {
-    let mut state: u64 = 0xcbf29ce484222325;
-    for byte in token.as_bytes() {
-        state ^= u64::from(*byte);
-        state = state.wrapping_mul(0x100000001b3);
-    }
-
-    format!("gw_{state:016x}")
 }
