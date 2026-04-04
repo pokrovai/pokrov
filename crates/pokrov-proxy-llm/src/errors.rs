@@ -149,7 +149,7 @@ impl LLMProxyError {
             Self::Unauthorized { .. } => StatusCode::UNAUTHORIZED,
             Self::PolicyBlocked { .. } => StatusCode::FORBIDDEN,
             Self::ModelNotRouted { .. } => StatusCode::UNPROCESSABLE_ENTITY,
-            Self::AliasConflict { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::AliasConflict { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Self::UpstreamError { .. } => StatusCode::BAD_GATEWAY,
             Self::UpstreamUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
         }
@@ -210,5 +210,18 @@ impl LLMProxyError {
             Self::UpstreamError { .. } => "upstream request failed".to_string(),
             Self::UpstreamUnavailable { .. } => "upstream provider is unavailable".to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use http::StatusCode;
+
+    use super::LLMProxyError;
+
+    #[test]
+    fn alias_conflict_maps_to_internal_server_error() {
+        let error = LLMProxyError::alias_conflict("req-1", "duplicate alias");
+        assert_eq!(error.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

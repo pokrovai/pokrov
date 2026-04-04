@@ -51,10 +51,6 @@ pub(super) fn attach_pokrov_metadata(
     })?;
 
     object.insert(
-        "request_id".to_string(),
-        Value::String(request_id.to_string()),
-    );
-    object.insert(
         "pokrov".to_string(),
         serde_json::to_value(LLMResponseMetadata {
             profile: profile_id.to_string(),
@@ -73,6 +69,26 @@ pub(super) fn attach_pokrov_metadata(
                 format!("failed to serialize response metadata: {error}"),
             )
         })?,
+    );
+    Ok(())
+}
+
+pub(super) fn attach_request_id(
+    request_id: &str,
+    provider_id: &str,
+    payload: &mut Value,
+) -> Result<(), LLMProxyError> {
+    let object = payload.as_object_mut().ok_or_else(|| {
+        LLMProxyError::upstream_error(
+            request_id,
+            Some(provider_id.to_string()),
+            "upstream JSON response must be an object",
+        )
+    })?;
+
+    object.insert(
+        "request_id".to_string(),
+        Value::String(request_id.to_string()),
     );
     Ok(())
 }

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use pokrov_config::{
     model::{LlmConfig, LlmProviderConfig, LlmRouteConfig},
+    normalize_model_key,
     UpstreamAuthMode,
 };
 
@@ -230,10 +231,6 @@ fn insert_route_key(
 
     routes.insert(key.to_string(), record);
     Ok(())
-}
-
-fn normalize_model_key(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
 }
 
 pub fn resolve_provider_keys(config: &LlmConfig) -> BTreeMap<String, String> {

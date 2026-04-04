@@ -21,12 +21,16 @@ pub(super) struct ResolvedRequestContext {
 pub(super) struct RequestContextHooks {
     pub(super) on_auth_stage: fn(&AppState, &'static str, &'static str, &'static str),
     pub(super) emit_auth_stage: fn(&str, &'static str, &'static str, &'static str, &'static str),
-    pub(super) map_error: fn(ApiError) -> ApiError,
+    pub(super) map_error: Option<fn(ApiError) -> ApiError>,
 }
 
 pub(super) enum UpstreamCredentialRequirement {
     Required,
     Optional,
+}
+
+pub(super) fn passthrough_error(error: ApiError) -> ApiError {
+    error
 }
 
 /// Resolves gateway auth, identity profile, rate-limit profile, and upstream credential in one place.
@@ -43,11 +47,12 @@ pub(super) fn resolve_request_context(
         pokrov_config::UpstreamAuthMode::Static => "static",
         pokrov_config::UpstreamAuthMode::Passthrough => "passthrough",
     };
+    let map_error = hooks.map_error.unwrap_or(passthrough_error);
 
     if !gateway_auth.authenticated {
         (hooks.on_auth_stage)(state, mode_label, "gateway_auth", "fail");
         (hooks.emit_auth_stage)(request_id, endpoint, mode_label, "gateway_auth", "fail");
-        return Err((hooks.map_error)(ApiError::gateway_unauthorized(request_id.to_string())));
+        return Err(map_error(ApiError::gateway_unauthorized(request_id.to_string())));
     }
 
     (hooks.on_auth_stage)(state, mode_label, "gateway_auth", "pass");
@@ -114,7 +119,7 @@ pub(super) fn resolve_request_context(
                     "upstream_credentials",
                     "fail",
                 );
-                (hooks.map_error)(ApiError::upstream_credential_missing(request_id.to_string()))
+                map_error(ApiError::upstream_credential_missing(request_id.to_string()))
             };
 
             let effective_gateway_mechanism = gateway_auth
@@ -137,7 +142,7 @@ pub(super) fn resolve_request_context(
                             "upstream_credentials",
                             "fail",
                         );
-                        return Err((hooks.map_error)(
+                        return Err(map_error(
                             ApiError::passthrough_requires_api_key_gateway_auth(
                                 request_id.to_string(),
                             ),

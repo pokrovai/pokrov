@@ -44,7 +44,7 @@ pub async fn handle_chat_completions(
         &RequestContextHooks {
             on_auth_stage: on_auth_stage,
             emit_auth_stage: emit_auth_stage,
-            map_error: map_error,
+            map_error: None,
         },
     )
     .map_err(|error| error.with_response_metadata_mode(metadata_mode))?;
@@ -111,6 +111,7 @@ pub async fn handle_chat_completions(
     match response.body {
         LLMProxyBody::Json(body) => Ok((response.status, Json(body)).into_response()),
         LLMProxyBody::Sse(body) => {
+            // For SSE, request correlation is provided by the x-request-id response header.
             let mut sse_response = Response::new(Body::from(body));
             *sse_response.status_mut() = response.status;
             sse_response.headers_mut().insert(
@@ -129,6 +130,7 @@ pub async fn handle_chat_completions(
             Ok(sse_response)
         }
         LLMProxyBody::SseStream(stream) => {
+            // For SSE, request correlation is provided by the x-request-id response header.
             let mut sse_response = Response::new(Body::from_stream(stream));
             *sse_response.status_mut() = response.status;
             sse_response.headers_mut().insert(
@@ -168,10 +170,6 @@ fn emit_auth_stage(
         decision,
     }
     .emit();
-}
-
-fn map_error(error: ApiError) -> ApiError {
-    error
 }
 
 fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {

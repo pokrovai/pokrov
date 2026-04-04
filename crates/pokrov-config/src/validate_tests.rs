@@ -418,6 +418,32 @@
     }
 
     #[test]
+    fn rejects_non_normalized_llm_provider_upstream_path() {
+        for upstream_path in ["/chat/completions/", "/../../v1/chat/completions", "/chat//completions", "/chat/completions?x=1"] {
+            let mut config = valid_config();
+            let mut llm = valid_llm_config();
+            llm.providers[0].upstream_path = Some(upstream_path.to_string());
+            config.llm = Some(llm);
+
+            let error = validate_runtime_config(&config, Path::new("config.yaml"))
+                .expect_err("non-normalized provider upstream_path must fail validation");
+            assert!(error.to_string().contains("llm.providers[0].upstream_path"));
+        }
+    }
+
+    #[test]
+    fn rejects_route_alias_longer_than_model_limit() {
+        let mut config = valid_config();
+        let mut llm = valid_llm_config();
+        llm.routes[0].aliases = vec!["a".repeat(129)];
+        config.llm = Some(llm);
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("alias longer than 128 chars must fail validation");
+        assert!(error.to_string().contains("llm.routes[0].aliases[0]"));
+    }
+
+    #[test]
     fn rejects_alias_conflict_after_normalization() {
         let mut config = valid_config();
         let mut llm = valid_llm_config();

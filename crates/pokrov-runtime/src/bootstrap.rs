@@ -36,6 +36,7 @@ use rustls::{
     server::WebPkiClientVerifier,
     RootCertStore, ServerConfig,
 };
+use serde::Serialize;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{oneshot, watch},
@@ -349,6 +350,11 @@ where
     lifecycle
         .set_mcp_routes_loaded(!mcp_enabled || mcp_routes_loaded)
         .await;
+    let model_catalog_payload = llm_handler
+        .as_ref()
+        .map(build_model_catalog_payload)
+        .transpose()?
+        .map(Arc::new);
 
     let app_state = AppState {
         lifecycle: lifecycle.clone(),
@@ -373,11 +379,13 @@ where
         llm: LlmProxyState {
             enabled: llm_enabled,
             handler: llm_handler.map(Arc::new),
+            model_catalog_payload,
             response_metadata_mode: config.response_envelope.pokrov_metadata.mode,
         },
         mcp: McpProxyState {
             enabled: mcp_enabled,
             handler: mcp_handler.map(Arc::new),
+            response_metadata_mode: config.response_envelope.pokrov_metadata.mode,
         },
         auth: AuthState {
             upstream_auth_mode: config.auth.upstream_auth_mode,
@@ -777,6 +785,38 @@ fn build_llm_handler(
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
     Ok(Some(handler))
+}
+
+#[derive(Serialize)]
+struct PrebuiltModelsPayload<'a> {
+    object: &'static str,
+    data: Vec<PrebuiltModelsEntry<'a>>,
+}
+
+#[derive(Serialize)]
+struct PrebuiltModelsEntry<'a> {
+    id: &'a str,
+    object: &'static str,
+    created: u64,
+    owned_by: &'static str,
+}
+
+fn build_model_catalog_payload(handler: &LLMProxyHandler) -> Result<Vec<u8>, BootstrapError> {
+    let data = handler
+        .model_catalog()
+        .iter()
+        .map(|entry| PrebuiltModelsEntry {
+            id: entry.id.as_str(),
+            object: "model",
+            created: 0,
+            owned_by: "pokrov",
+        })
+        .collect::<Vec<_>>();
+    let payload = PrebuiltModelsPayload {
+        object: "list",
+        data,
+    };
+    serde_json::to_vec(&payload).map_err(|error| BootstrapError::LlmProxy(error.to_string()))
 }
 
 fn build_mcp_handler(
