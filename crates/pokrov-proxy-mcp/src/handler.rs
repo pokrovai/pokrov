@@ -54,12 +54,19 @@ impl McpProxyHandler {
         request_id: String,
         request: McpToolCallRequest,
         api_key_profile: &str,
+        auth_mode: &'static str,
+        upstream_credential: Option<&str>,
     ) -> Result<McpToolCallResponse, McpProxyError> {
         let started = Instant::now();
         self.metrics.on_mcp_tool_call();
 
         let result = self
-            .handle_tool_call_inner(request_id.clone(), request.clone(), api_key_profile)
+            .handle_tool_call_inner(
+                request_id.clone(),
+                request.clone(),
+                api_key_profile,
+                upstream_credential,
+            )
             .await;
 
         match &result {
@@ -74,6 +81,8 @@ impl McpProxyHandler {
                     false,
                     Some(200),
                     started.elapsed().as_millis() as u64,
+                    auth_mode,
+                    if upstream_credential.is_some() { "request" } else { "config" },
                 );
             }
             Err(error) => {
@@ -92,6 +101,8 @@ impl McpProxyHandler {
                     blocked,
                     error.upstream_status(),
                     started.elapsed().as_millis() as u64,
+                    auth_mode,
+                    if upstream_credential.is_some() { "request" } else { "config" },
                 );
             }
         }
@@ -104,6 +115,7 @@ impl McpProxyHandler {
         request_id: String,
         request: McpToolCallRequest,
         api_key_profile: &str,
+        upstream_credential: Option<&str>,
     ) -> Result<McpToolCallResponse, McpProxyError> {
         validate_request_shape(&request_id, &request)?;
         guard_pilot_subset(&request_id, &request)?;
@@ -128,9 +140,12 @@ impl McpProxyHandler {
             resolved.argument_policy.as_ref(),
         )?;
 
+        let mut upstream_context = resolved.upstream.clone();
+        upstream_context.upstream_bearer_token = upstream_credential.map(str::to_string);
+
         let mut result = self
             .upstream
-            .execute_tool_call(&resolved.upstream, &request.arguments)
+            .execute_tool_call(&upstream_context, &request.arguments)
             .await?;
 
         let sanitization = self.sanitize_output(
@@ -245,6 +260,8 @@ impl McpProxyHandler {
         blocked: bool,
         upstream_status: Option<u16>,
         duration_ms: u64,
+        auth_mode: &'static str,
+        credential_origin: &'static str,
     ) {
         McpAuditEvent {
             request_id: request_id.to_string(),
@@ -256,6 +273,8 @@ impl McpProxyHandler {
             blocked,
             upstream_status,
             duration_ms,
+            auth_mode,
+            credential_origin,
         }
         .emit();
 

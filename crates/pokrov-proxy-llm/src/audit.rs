@@ -1,6 +1,8 @@
 use pokrov_core::types::PolicyAction;
 use serde::Serialize;
 
+use crate::types::UpstreamCredentialOrigin;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LLMAuditEvent {
     pub request_id: String,
@@ -16,6 +18,8 @@ pub struct LLMAuditEvent {
     pub upstream_status: Option<u16>,
     pub duration_ms: u64,
     pub estimated_token_units: u32,
+    pub auth_mode: String,
+    pub credential_origin: UpstreamCredentialOrigin,
 }
 
 impl LLMAuditEvent {
@@ -33,7 +37,30 @@ impl LLMAuditEvent {
             blocked = self.blocked,
             upstream_status = ?self.upstream_status,
             duration_ms = self.duration_ms,
-            estimated_token_units = self.estimated_token_units
+            estimated_token_units = self.estimated_token_units,
+            auth_mode = %self.auth_mode,
+            credential_origin = ?self.credential_origin
+        );
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LLMAuthStageAuditEvent {
+    pub request_id: String,
+    pub auth_mode: &'static str,
+    pub stage: &'static str,
+    pub decision: &'static str,
+}
+
+impl LLMAuthStageAuditEvent {
+    pub fn emit(&self) {
+        tracing::info!(
+            component = "llm_proxy",
+            action = "auth_stage",
+            request_id = %self.request_id,
+            auth_mode = self.auth_mode,
+            stage = self.stage,
+            decision = self.decision
         );
     }
 }

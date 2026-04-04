@@ -137,6 +137,102 @@ llm:
     provider.shutdown().await;
 }
 
+#[tokio::test]
+async fn llm_proxy_byok_passthrough_overhead_stays_within_budget() {
+    let provider = start_mock_provider(MockProviderMode::Json {
+        status: 200,
+        body: serde_json::json!({
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-4o-mini",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }]
+        }),
+    })
+    .await;
+
+    let gateway_key_path = write_key_file("gateway-byok-key");
+    let provider_key_path = write_key_file("provider-static-key");
+    let config_path = write_runtime_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 900
+security:
+  api_keys:
+    - key: file:{gateway_key}
+      profile: strict
+auth:
+  upstream_auth_mode: passthrough
+sanitization:
+  enabled: false
+llm:
+  providers:
+    - id: openai
+      base_url: {provider_base}
+      auth:
+        api_key: file:{provider_key}
+      enabled: true
+  routes:
+    - model: gpt-4o-mini
+      provider_id: openai
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: false
+"#,
+        gateway_key = gateway_key_path.display(),
+        provider_key = provider_key_path.display(),
+        provider_base = provider.base_url,
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .expect("client should build");
+
+    let request = serde_json::json!({
+        "model": "gpt-4o-mini",
+        "stream": false,
+        "messages": [{"role": "user", "content": "hello"}]
+    });
+
+    let mut latencies = Vec::new();
+    for _ in 0..20 {
+        let started = Instant::now();
+        let response = client
+            .post(format!("{}/v1/chat/completions", handle.base_url()))
+            .header("x-pokrov-api-key", "gateway-byok-key")
+            .header("authorization", "Bearer provider-byok-key")
+            .json(&request)
+            .send()
+            .await
+            .expect("request should complete");
+        assert_eq!(response.status(), StatusCode::OK);
+        latencies.push(started.elapsed().as_millis() as u64);
+    }
+
+    latencies.sort_unstable();
+    let p95 = percentile(&latencies, 95);
+    assert!(p95 <= 50, "p95 latency must be <= 50ms, got {p95}ms");
+
+    handle.shutdown().await.expect("shutdown should succeed");
+    provider.shutdown().await;
+}
+
 fn percentile(samples: &[u64], p: usize) -> u64 {
     if samples.is_empty() {
         return 0;

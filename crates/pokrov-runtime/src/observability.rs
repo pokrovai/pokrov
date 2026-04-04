@@ -56,3 +56,19 @@ pub fn log_evaluate_event(
         rule_hits_total
     );
 }
+
+pub fn log_auth_stage_event(
+    request_id: &str,
+    auth_mode: &str,
+    stage: &str,
+    decision: &str,
+) {
+    tracing::info!(
+        component = "runtime",
+        action = "auth_stage",
+        request_id = request_id,
+        auth_mode = auth_mode,
+        stage = stage,
+        decision = decision
+    );
+}

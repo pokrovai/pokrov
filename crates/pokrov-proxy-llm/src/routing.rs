@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
 
-use pokrov_config::model::{LlmConfig, LlmProviderConfig, LlmRouteConfig};
+use pokrov_config::{model::{LlmConfig, LlmProviderConfig, LlmRouteConfig}, UpstreamAuthMode};
 
-use crate::{errors::LLMProxyError, types::RouteResolution};
+use crate::{
+    errors::LLMProxyError,
+    types::{RouteResolution, SelectedUpstreamCredential, UpstreamCredentialOrigin},
+};
 
 #[derive(Debug, Clone)]
 struct ProviderRecord {
@@ -159,12 +162,34 @@ pub fn route_provider_id(route: &LlmRouteConfig) -> &str {
     &route.provider_id
 }
 
+pub fn select_upstream_credential(
+    mode: UpstreamAuthMode,
+    route: &RouteResolution,
+    request_credential: Option<&str>,
+) -> Option<SelectedUpstreamCredential> {
+    match mode {
+        UpstreamAuthMode::Static => Some(SelectedUpstreamCredential {
+            token: route.api_key.clone(),
+            origin: UpstreamCredentialOrigin::Config,
+        }),
+        UpstreamAuthMode::Passthrough => request_credential
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(|token| SelectedUpstreamCredential {
+                token: token.to_string(),
+                origin: UpstreamCredentialOrigin::Request,
+            }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ProviderRouteTable;
+    use super::{select_upstream_credential, ProviderRouteTable};
+    use crate::types::{RouteResolution, UpstreamCredentialOrigin};
     use pokrov_config::model::{
         LlmConfig, LlmDefaultsConfig, LlmProviderAuthConfig, LlmProviderConfig, LlmRouteConfig,
     };
+    use pokrov_config::UpstreamAuthMode;
     use std::collections::BTreeMap;
 
     fn llm_config() -> LlmConfig {
@@ -221,5 +246,65 @@ mod tests {
             .expect_err("unknown model should fail");
 
         assert_eq!(error.code().as_str(), "model_not_routed");
+    }
+
+    #[test]
+    fn selects_static_credential_from_route() {
+        let route = RouteResolution {
+            provider_id: "openai".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: "static-key".to_string(),
+            timeout_ms: 30_000,
+            retry_budget: 1,
+            output_sanitization: true,
+            stream_sanitization_max_buffer_bytes: 1024,
+        };
+
+        let selected = select_upstream_credential(UpstreamAuthMode::Static, &route, None)
+            .expect("static mode should always resolve");
+        assert_eq!(selected.token, "static-key");
+        assert_eq!(selected.origin, UpstreamCredentialOrigin::Config);
+    }
+
+    #[test]
+    fn selects_passthrough_credential_from_request() {
+        let route = RouteResolution {
+            provider_id: "openai".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: "static-key".to_string(),
+            timeout_ms: 30_000,
+            retry_budget: 1,
+            output_sanitization: true,
+            stream_sanitization_max_buffer_bytes: 1024,
+        };
+
+        let selected = select_upstream_credential(
+            UpstreamAuthMode::Passthrough,
+            &route,
+            Some(" provider-key "),
+        )
+        .expect("passthrough mode should use request credential");
+        assert_eq!(selected.token, "provider-key");
+        assert_eq!(selected.origin, UpstreamCredentialOrigin::Request);
+    }
+
+    #[test]
+    fn passthrough_returns_none_when_request_credential_is_missing() {
+        let route = RouteResolution {
+            provider_id: "openai".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: "static-key".to_string(),
+            timeout_ms: 30_000,
+            retry_budget: 1,
+            output_sanitization: true,
+            stream_sanitization_max_buffer_bytes: 1024,
+        };
+
+        assert!(
+            select_upstream_credential(UpstreamAuthMode::Passthrough, &route, None).is_none()
+        );
+        assert!(
+            select_upstream_credential(UpstreamAuthMode::Passthrough, &route, Some("  ")).is_none()
+        );
     }
 }

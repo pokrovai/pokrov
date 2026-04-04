@@ -76,7 +76,7 @@ mcp:
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert_eq!(body["allowed"], serde_json::json!(false));
-    assert_eq!(body["error"]["code"], serde_json::json!("unauthorized"));
+    assert_eq!(body["error"]["code"], serde_json::json!("gateway_unauthorized"));
 
     assert_eq!(upstream.request_count(), 0);
 

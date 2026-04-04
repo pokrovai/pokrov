@@ -84,6 +84,7 @@ pub fn resolve_tool_call(
             tool_id: request.tool.clone(),
             endpoint: server.endpoint.clone(),
             timeout_ms: config.defaults.upstream_timeout_ms,
+            upstream_bearer_token: None,
         },
         argument_policy: tool_policy,
         output_sanitization,

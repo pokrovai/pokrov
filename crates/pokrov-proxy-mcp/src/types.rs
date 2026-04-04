@@ -89,6 +89,7 @@ pub struct McpUpstreamRequestContext {
     pub tool_id: String,
     pub endpoint: String,
     pub timeout_ms: u64,
+    pub upstream_bearer_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

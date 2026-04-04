@@ -9,6 +9,8 @@ pub struct McpAuditEvent {
     pub blocked: bool,
     pub upstream_status: Option<u16>,
     pub duration_ms: u64,
+    pub auth_mode: &'static str,
+    pub credential_origin: &'static str,
 }
 
 impl McpAuditEvent {
@@ -25,7 +27,30 @@ impl McpAuditEvent {
             blocked = self.blocked,
             upstream_status = ?self.upstream_status,
             duration_ms = self.duration_ms,
+            auth_mode = self.auth_mode,
+            credential_origin = self.credential_origin,
             "mcp tool call completed"
+        );
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct McpAuthStageAuditEvent {
+    pub request_id: String,
+    pub auth_mode: &'static str,
+    pub stage: &'static str,
+    pub decision: &'static str,
+}
+
+impl McpAuthStageAuditEvent {
+    pub fn emit(&self) {
+        tracing::info!(
+            component = "mcp_proxy",
+            action = "auth_stage",
+            request_id = %self.request_id,
+            auth_mode = self.auth_mode,
+            stage = self.stage,
+            decision = self.decision
         );
     }
 }

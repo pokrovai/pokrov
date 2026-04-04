@@ -10,6 +10,11 @@ fn hardening_contract_path() -> PathBuf {
         .join("specs/005-hardening-release/contracts/hardening-api.yaml")
 }
 
+fn byok_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/006-byok-passthrough-auth/contracts/byok-auth-api.yaml")
+}
+
 #[test]
 fn llm_contract_defines_chat_completions_and_non_stream_success_shape() {
     let raw = std::fs::read_to_string(contract_path()).expect("contract file should exist");
@@ -56,4 +61,22 @@ fn hardening_contract_declares_predictable_rate_limit_error_shape_for_chat_path(
     assert!(response["headers"]["X-RateLimit-Limit"].is_mapping());
     assert!(response["headers"]["X-RateLimit-Remaining"].is_mapping());
     assert!(response["headers"]["X-RateLimit-Reset"].is_mapping());
+}
+
+#[test]
+fn byok_contract_declares_gateway_and_upstream_auth_errors_for_chat_path() {
+    let raw = std::fs::read_to_string(byok_contract_path()).expect("byok contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("byok contract should parse");
+
+    let responses = &api["paths"]["/v1/chat/completions"]["post"]["responses"];
+    assert!(responses["401"].is_mapping());
+    assert!(responses["422"].is_mapping());
+    assert_eq!(
+        responses["401"]["content"]["application/json"]["schema"]["$ref"].as_str(),
+        Some("#/components/schemas/GatewayAuthError")
+    );
+    assert_eq!(
+        responses["422"]["content"]["application/json"]["schema"]["$ref"].as_str(),
+        Some("#/components/schemas/UpstreamCredentialError")
+    );
 }

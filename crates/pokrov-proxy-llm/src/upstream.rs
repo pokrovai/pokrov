@@ -35,14 +35,16 @@ impl UpstreamClient {
         request_id: &str,
         route: &RouteResolution,
         payload: &Value,
+        upstream_credential: Option<&str>,
     ) -> Result<UpstreamJsonResponse, LLMProxyError> {
         let endpoint = build_endpoint(&route.base_url);
+        let bearer = upstream_credential.unwrap_or(&route.api_key);
 
         for attempt in 0..=route.retry_budget {
             let response = self
                 .client
                 .post(&endpoint)
-                .bearer_auth(&route.api_key)
+                .bearer_auth(bearer)
                 .timeout(Duration::from_millis(route.timeout_ms))
                 .json(payload)
                 .send()
@@ -106,14 +108,16 @@ impl UpstreamClient {
         request_id: &str,
         route: &RouteResolution,
         payload: &Value,
+        upstream_credential: Option<&str>,
     ) -> Result<UpstreamStreamResponse, LLMProxyError> {
         let endpoint = build_endpoint(&route.base_url);
+        let bearer = upstream_credential.unwrap_or(&route.api_key);
 
         for attempt in 0..=route.retry_budget {
             let response = self
                 .client
                 .post(&endpoint)
-                .bearer_auth(&route.api_key)
+                .bearer_auth(bearer)
                 .timeout(Duration::from_millis(route.timeout_ms))
                 .json(payload)
                 .send()

@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Instant};
 
 use futures_util::StreamExt;
+use pokrov_config::UpstreamAuthMode;
 use pokrov_core::{
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
@@ -12,11 +13,11 @@ use crate::{
     audit::LLMAuditEvent,
     errors::LLMProxyError,
     normalize::{estimate_token_units, normalize_request, resolve_profile_id},
-    routing::ProviderRouteTable,
+    routing::{select_upstream_credential, ProviderRouteTable},
     stream::sanitize_sse_stream,
     types::{
-        LLMProxyBody, LLMProxyResponse, LLMResponseMetadata, RouteResolution, UpstreamJsonResponse,
-        UpstreamStreamResponse,
+        LLMProxyBody, LLMProxyResponse, LLMResponseMetadata, RouteResolution, UpstreamCredentialOrigin,
+        UpstreamJsonResponse, UpstreamStreamResponse,
     },
     upstream::UpstreamClient,
 };
@@ -56,6 +57,8 @@ impl LLMProxyHandler {
         request_id: String,
         payload: Value,
         api_key_profile: &str,
+        auth_mode: UpstreamAuthMode,
+        upstream_credential: Option<&str>,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let started = Instant::now();
         let envelope = normalize_request(&request_id, payload)?;
@@ -115,6 +118,8 @@ impl LLMProxyHandler {
                     upstream_status: None,
                     duration_ms: started.elapsed().as_millis() as u64,
                     estimated_token_units,
+                    auth_mode: mode_as_str(auth_mode),
+                    credential_origin: UpstreamCredentialOrigin::Config,
                 });
                 return Err(error);
             }
@@ -125,6 +130,13 @@ impl LLMProxyHandler {
         }
 
         let route = self.routes.resolve(&request_id, &envelope.model)?;
+        let selected_credential = select_upstream_credential(auth_mode, &route, upstream_credential)
+            .ok_or_else(|| {
+                LLMProxyError::invalid_request(
+                    request_id.clone(),
+                    "upstream credential is required in passthrough mode",
+                )
+            })?;
 
         if envelope.stream {
             return self
@@ -139,6 +151,9 @@ impl LLMProxyHandler {
                     total_hits,
                     sanitized_input,
                     estimated_token_units,
+                    auth_mode,
+                    selected_credential.origin,
+                    selected_credential.token,
                 )
                 .await;
         }
@@ -154,6 +169,9 @@ impl LLMProxyHandler {
             total_hits,
             sanitized_input,
             estimated_token_units,
+            auth_mode,
+            selected_credential.origin,
+            selected_credential.token,
         )
         .await
     }
@@ -171,10 +189,13 @@ impl LLMProxyHandler {
         mut total_hits: u32,
         sanitized_input: bool,
         estimated_token_units: u32,
+        auth_mode: UpstreamAuthMode,
+        credential_origin: UpstreamCredentialOrigin,
+        upstream_credential: String,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
-            .execute_json(&request_id, &route, &sanitized_payload)
+            .execute_json(&request_id, &route, &sanitized_payload, Some(upstream_credential.as_str()))
             .await;
 
         let UpstreamJsonResponse { status, mut body } = match upstream {
@@ -268,6 +289,8 @@ impl LLMProxyHandler {
             upstream_status: Some(status.as_u16()),
             duration_ms: started.elapsed().as_millis() as u64,
             estimated_token_units,
+            auth_mode: mode_as_str(auth_mode),
+            credential_origin,
         });
 
         Ok(LLMProxyResponse {
@@ -290,10 +313,18 @@ impl LLMProxyHandler {
         mut total_hits: u32,
         _sanitized_input: bool,
         estimated_token_units: u32,
+        auth_mode: UpstreamAuthMode,
+        credential_origin: UpstreamCredentialOrigin,
+        upstream_credential: String,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
-            .execute_stream(&request_id, &route, &sanitized_payload)
+            .execute_stream(
+                &request_id,
+                &route,
+                &sanitized_payload,
+                Some(upstream_credential.as_str()),
+            )
             .await;
 
         let UpstreamStreamResponse {
@@ -411,6 +442,8 @@ impl LLMProxyHandler {
                     upstream_status: Some(status.as_u16()),
                     duration_ms: started.elapsed().as_millis() as u64,
                     estimated_token_units,
+                    auth_mode: mode_as_str(auth_mode),
+                    credential_origin,
                 });
 
                 return Ok(LLMProxyResponse {
@@ -433,6 +466,8 @@ impl LLMProxyHandler {
             upstream_status: Some(status.as_u16()),
             duration_ms: started.elapsed().as_millis() as u64,
             estimated_token_units,
+            auth_mode: mode_as_str(auth_mode),
+            credential_origin,
         });
 
         Ok(LLMProxyResponse {
@@ -467,6 +502,8 @@ impl LLMProxyHandler {
             upstream_status: upstream_status.or_else(|| error.upstream_status()),
             duration_ms: started.elapsed().as_millis() as u64,
             estimated_token_units: 0,
+            auth_mode: "unknown",
+            credential_origin: UpstreamCredentialOrigin::Config,
         });
     }
 
@@ -483,6 +520,8 @@ impl LLMProxyHandler {
             upstream_status: event.upstream_status,
             duration_ms: event.duration_ms,
             estimated_token_units: event.estimated_token_units,
+            auth_mode: event.auth_mode.to_string(),
+            credential_origin: event.credential_origin,
         };
         audit.emit();
 
@@ -509,6 +548,15 @@ struct TerminalEvent<'a> {
     upstream_status: Option<u16>,
     duration_ms: u64,
     estimated_token_units: u32,
+    auth_mode: &'a str,
+    credential_origin: UpstreamCredentialOrigin,
+}
+
+fn mode_as_str(mode: UpstreamAuthMode) -> &'static str {
+    match mode {
+        UpstreamAuthMode::Static => "static",
+        UpstreamAuthMode::Passthrough => "passthrough",
+    }
 }
 
 fn attach_pokrov_metadata(

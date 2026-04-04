@@ -10,7 +10,7 @@ use std::{
 use axum::{
     body::Body,
     extract::State,
-    http::{StatusCode, header},
+    http::{StatusCode, header, HeaderMap},
     response::IntoResponse,
     routing::post,
     Json, Router,
@@ -22,7 +22,7 @@ use tokio::{net::TcpListener, sync::{Mutex, oneshot}};
 #[derive(Clone)]
 struct MockState {
     mode: MockProviderMode,
-    requests: Arc<Mutex<Vec<Value>>>,
+    requests: Arc<Mutex<Vec<CapturedChatRequest>>>,
     hits: Arc<AtomicUsize>,
 }
 
@@ -34,7 +34,7 @@ pub enum MockProviderMode {
 
 pub struct MockProviderHandle {
     pub base_url: String,
-    requests: Arc<Mutex<Vec<Value>>>,
+    requests: Arc<Mutex<Vec<CapturedChatRequest>>>,
     hits: Arc<AtomicUsize>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
@@ -46,7 +46,23 @@ impl MockProviderHandle {
     }
 
     pub async fn captured_requests(&self) -> Vec<Value> {
-        self.requests.lock().await.clone()
+        self
+            .requests
+            .lock()
+            .await
+            .iter()
+            .map(|request| request.body.clone())
+            .collect()
+    }
+
+    pub async fn captured_authorization_headers(&self) -> Vec<Option<String>> {
+        self
+            .requests
+            .lock()
+            .await
+            .iter()
+            .map(|request| request.authorization.clone())
+            .collect()
     }
 
     pub async fn shutdown(mut self) {
@@ -58,7 +74,7 @@ impl MockProviderHandle {
 }
 
 pub async fn start_mock_provider(mode: MockProviderMode) -> MockProviderHandle {
-    let requests = Arc::new(Mutex::new(Vec::new()));
+    let requests = Arc::new(Mutex::new(Vec::<CapturedChatRequest>::new()));
     let hits = Arc::new(AtomicUsize::new(0));
     let state = MockState {
         mode,
@@ -96,10 +112,17 @@ pub async fn start_mock_provider(mode: MockProviderMode) -> MockProviderHandle {
 
 async fn mock_chat_completions(
     State(state): State<MockState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     state.hits.fetch_add(1, Ordering::Relaxed);
-    state.requests.lock().await.push(body);
+    state.requests.lock().await.push(CapturedChatRequest {
+        body,
+        authorization: headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string),
+    });
 
     match state.mode {
         MockProviderMode::Json { status, ref body } => (
@@ -117,6 +140,12 @@ async fn mock_chat_completions(
             response
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct CapturedChatRequest {
+    body: Value,
+    authorization: Option<String>,
 }
 
 pub fn write_key_file(value: &str) -> PathBuf {

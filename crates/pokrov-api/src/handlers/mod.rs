@@ -15,6 +15,7 @@ pub struct HealthResponse {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ReadyChecks {
     pub config: &'static str,
+    pub auth: &'static str,
     pub policy: &'static str,
     pub llm: &'static str,
     pub mcp: &'static str,

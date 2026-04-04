@@ -104,6 +104,93 @@ mcp:
     upstream.shutdown().await;
 }
 
+#[tokio::test]
+async fn mcp_byok_passthrough_overhead_stays_within_budget() {
+    let upstream = start_mock_mcp_server(MockMcpMode::Json {
+        status: 200,
+        body: serde_json::json!({"result": {"content": {"ok": true}}}),
+    })
+    .await;
+
+    let gateway_key_path = write_key_file("mcp-gateway-key");
+    let config_path = write_runtime_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 900
+security:
+  api_keys:
+    - key: file:{gateway_key}
+      profile: strict
+auth:
+  upstream_auth_mode: passthrough
+sanitization:
+  enabled: false
+mcp:
+  defaults:
+    profile_id: strict
+    upstream_timeout_ms: 5000
+    output_sanitization: false
+  servers:
+    - id: repo-tools
+      endpoint: {upstream_base}
+      enabled: true
+      allowed_tools:
+        - read_file
+      blocked_tools: []
+      tools:
+        read_file:
+          enabled: true
+"#,
+        gateway_key = gateway_key_path.display(),
+        upstream_base = upstream.base_url,
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .expect("client should build");
+
+    let request = serde_json::json!({
+        "server": "repo-tools",
+        "tool": "read_file",
+        "arguments": {"path": "src/lib.rs"},
+        "metadata": {"profile": "strict"}
+    });
+
+    let mut latencies = Vec::new();
+    for _ in 0..20 {
+        let started = Instant::now();
+        let response = client
+            .post(format!("{}/v1/mcp/tool-call", handle.base_url()))
+            .header("x-pokrov-api-key", "mcp-gateway-key")
+            .header("authorization", "Bearer upstream-byok-key")
+            .json(&request)
+            .send()
+            .await
+            .expect("request should complete");
+        assert_eq!(response.status(), StatusCode::OK);
+        latencies.push(started.elapsed().as_millis() as u64);
+    }
+
+    latencies.sort_unstable();
+    let p95 = percentile(&latencies, 95);
+    assert!(p95 <= 50, "p95 latency must be <= 50ms, got {p95}ms");
+
+    handle.shutdown().await.expect("shutdown should succeed");
+    upstream.shutdown().await;
+}
+
 fn percentile(samples: &[u64], p: usize) -> u64 {
     if samples.is_empty() {
         return 0;

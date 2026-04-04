@@ -40,10 +40,14 @@ impl McpUpstreamClient {
         arguments: &Value,
     ) -> Result<McpToolResultEnvelope, McpProxyError> {
         let endpoint = build_endpoint(&context.endpoint);
-        let response = self
+        let mut request = self
             .client
             .post(endpoint)
-            .timeout(Duration::from_millis(context.timeout_ms))
+            .timeout(Duration::from_millis(context.timeout_ms));
+        if let Some(token) = context.upstream_bearer_token.as_ref() {
+            request = request.bearer_auth(token);
+        }
+        let response = request
             .json(&serde_json::json!({
                 "request_id": context.request_id,
                 "tool": context.tool_id,

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use bytes::Bytes;
 use futures_util::stream::BoxStream;
 use http::StatusCode;
+use pokrov_config::UpstreamAuthMode;
 use pokrov_core::types::PolicyAction;
 use serde::Serialize;
 use serde_json::Value;
@@ -59,6 +60,25 @@ pub struct UpstreamRequestContext {
     pub endpoint: String,
     pub timeout_ms: u64,
     pub stream: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpstreamCredentialOrigin {
+    Config,
+    Request,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectedUpstreamCredential {
+    pub token: String,
+    pub origin: UpstreamCredentialOrigin,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuthAuditMetadata {
+    pub auth_mode: UpstreamAuthMode,
+    pub credential_origin: UpstreamCredentialOrigin,
 }
 
 #[derive(Debug, Clone, Serialize)]

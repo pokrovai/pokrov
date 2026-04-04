@@ -100,6 +100,7 @@ mcp:
     let response = client
         .post(format!("{}/v1/mcp/tool-call", handle.base_url()))
         .header("authorization", "Bearer mcp-test-key")
+        .header("x-pokrov-client-id", "tenant-sensitive-id")
         .json(&serde_json::json!({
             "server": "repo-tools",
             "tool": "read_file",
@@ -118,6 +119,7 @@ mcp:
     assert!(!serialized.contains("raw_arguments"));
     assert!(!serialized.contains("raw_tool_output"));
     assert!(!serialized.contains("raw_rule_matches"));
+    assert!(!serialized.contains("tenant-sensitive-id"));
 
     handle.shutdown().await.expect("shutdown should succeed");
     upstream.shutdown().await;

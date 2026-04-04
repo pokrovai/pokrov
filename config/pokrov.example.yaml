@@ -18,6 +18,22 @@ security:
     - key: env:POKROV_API_KEY
       profile: strict
 
+auth:
+  upstream_auth_mode: static
+
+identity:
+  resolution_order:
+    - gateway_auth_subject
+    - x_pokrov_client_id
+    - ingress_identity
+  profile_bindings:
+    tenant-a: minimal
+  rate_limit_bindings:
+    tenant-a: strict
+  required_for_policy: false
+  required_for_rate_limit: false
+  fallback_policy_profile: strict
+
 rate_limit:
   enabled: true
   default_profile: strict

@@ -39,11 +39,62 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
     validate_llm(config.llm.as_ref(), &mut issues);
     validate_mcp(config.mcp.as_ref(), &mut issues);
     validate_rate_limit(&config.rate_limit, &mut issues);
+    validate_identity(config, &mut issues);
 
     if issues.is_empty() {
         Ok(())
     } else {
         Err(ConfigError::Validation { path: path.to_path_buf(), issues })
+    }
+}
+
+fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) {
+    if config.identity.resolution_order.is_empty() {
+        issues.push(ValidationIssue::new(
+            "identity.resolution_order",
+            "must contain at least one identity source",
+        ));
+    }
+
+    if let Some(fallback) = config.identity.fallback_policy_profile.as_ref() {
+        if !matches!(fallback.as_str(), "minimal" | "strict" | "custom") {
+            issues.push(ValidationIssue::new(
+                "identity.fallback_policy_profile",
+                "must be one of minimal|strict|custom",
+            ));
+        }
+    }
+
+    for (identity, profile) in &config.identity.profile_bindings {
+        if identity.trim().is_empty() {
+            issues.push(ValidationIssue::new(
+                "identity.profile_bindings",
+                "must not contain empty identity keys",
+            ));
+        }
+
+        if !matches!(profile.as_str(), "minimal" | "strict" | "custom") {
+            issues.push(ValidationIssue::new(
+                format!("identity.profile_bindings.{identity}"),
+                "must be one of minimal|strict|custom",
+            ));
+        }
+    }
+
+    for (identity, profile) in &config.identity.rate_limit_bindings {
+        if identity.trim().is_empty() {
+            issues.push(ValidationIssue::new(
+                "identity.rate_limit_bindings",
+                "must not contain empty identity keys",
+            ));
+        }
+
+        if !config.rate_limit.profiles.contains_key(profile) {
+            issues.push(ValidationIssue::new(
+                format!("identity.rate_limit_bindings.{identity}"),
+                "must reference an existing rate-limit profile",
+            ));
+        }
     }
 }
 
