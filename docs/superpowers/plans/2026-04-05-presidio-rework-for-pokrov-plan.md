@@ -1,0 +1,213 @@
+# Presidio-Rework For Pokrov: Parity-Driven Families With Evaluation Evidence
+
+## Summary
+- Goal: deliver a `Pokrov-compatible full` implementation of selected Presidio handler families without losing the concrete mechanisms inside each family.
+- Main scope:
+  - text core families
+  - structured and semi-structured processing
+  - remote recognizer contract
+  - evaluation and evidence workstream
+- Product boundary:
+  - `Native Pokrov Core`: analyzer, recognizers, operators, registry, safe explainability, JSON and semi-structured processing
+  - `Pokrov Extensions`: ML, PHI, OCR, image services, and batch structured workers
+  - `Out of Scope`: Python SDK parity, UI and demos, notebooks, Spark and Fabric recipes, reversible deanonymization in core
+
+## Family Coverage Targets
+- `Pattern recognizers`
+  - Implement natively: multi-pattern per entity, score and priority per pattern, validators and invalidators, normalization before validation, config and YAML loading.
+  - Exclude from core: runtime code hooks and Python class loading.
+- `Checksum / validation recognizers`
+  - Implement natively: `regex -> normalize -> checksum -> context score`, hard reject invalid candidates, deterministic score adjustments.
+  - First wave: card-like numbers, IBAN, IP and URL validation, selected deterministic national IDs.
+- `Context-aware recognizers`
+  - Implement natively: positive and negative context windows, recognizer-specific context dictionaries, EN and RU lexical context scoring.
+  - Exclude from core: lemma, POS, or deep NLP context.
+- `Deny / allow list recognizers`
+  - Implement natively: exact deny lists, allowlist suppression, profile, tenant, language, and path-class binding.
+- `Recognizer registry and loading`
+  - Implement natively: predefined and custom recognizers, deterministic ordering, profile, language, and path-class assembly, trusted config loading.
+  - Restrict ad-hoc recognizers to explicit policy gates and trusted sources.
+- `Decision process / explainability`
+  - Implement natively in metadata-only form: recognizer provenance, safe reason codes, confidence buckets, suppression and overlap trace.
+  - Never expose raw snippets, fragments, or nearby text.
+- `Anonymizer operators`
+  - Implement natively: `replace`, `redact`, `mask`, `hash`, `keep`, with entity, category, and profile mappings.
+  - Exclude from core parity target: custom lambda operators, reversible encrypt and decrypt, deanonymization.
+- `Remote recognizer contract`
+  - Implement as an adapter contract: normalize external spans, scores, and provenance into Pokrov hit model; final policy remains in Pokrov.
+  - Require timeout budgets, degraded-mode metadata, and fail-closed default behavior.
+- `Structured / semi-structured processors`
+  - Implement natively: JSON traversal, field-aware semantics, and per-field analyzer and operator binding.
+  - Implement as separate batch or offline mode: CSV, tabular, SQL-style processors, and dataset jobs.
+  - Preserve field semantics rather than treating structured data as generic string leaves.
+
+## Architecture Changes
+- Evolve `pokrov-core` into a pipeline with the following layers:
+  - `recognizer`
+  - `registry`
+  - `analysis`
+  - `operator`
+  - `policy`
+  - `transform`
+  - `audit/explain`
+  - `adapter`
+- Introduce two recognizer classes:
+  - `NativeRecognizer`
+  - `RemoteRecognizer`
+- Introduce a stable internal detection contract with:
+  - entity or category
+  - JSON pointer or logical field path
+  - start and end for string leaves when applicable
+  - score or confidence
+  - source recognizer id
+  - evidence class
+  - safe reason codes
+  - optional suggested action
+- Introduce execution modes:
+  - `inline_proxy_mode`: lightweight native recognizers only
+  - `extended_inline_mode`: native plus allowed remote recognizers with short timeout
+  - `batch_mode`: structured batch, OCR or image, heavy ML or PHI
+- Preserve crate boundaries:
+  - `pokrov-core`: recognizers, registry, analyzer flow, operators, overlap, policy, transform
+  - `pokrov-config`: recognizer packs, connector config, language and profile bindings
+  - `pokrov-proxy-llm` and `pokrov-proxy-mcp`: engine orchestration only
+  - external services: ML NER, OCR and image, PHI, DICOM, structured batch jobs
+
+## Evaluation And Evidence
+- Add a first-class `Evaluation Lab` workstream rather than relying only on unit and integration tests.
+- Maintain three corpora:
+  - `Synthetic corpus`: deterministic families, overlaps, checksums, context, lists, operators, nested JSON
+  - `Curated gold corpus`: de-identified realistic EN and RU prompts, tool calls, outputs, and structured JSON
+  - `Adversarial corpus`: obfuscation, unicode tricks, mixed languages, fragmented JSON, bypass patterns
+- Use three reference layers:
+  - `Gold truth` as the main oracle
+  - `Presidio baseline` as parity reference, not ground truth
+  - `Standards mapping` for coverage accountability:
+    - HIPAA Safe Harbor
+    - NIST PII vocabulary and privacy risk framing
+    - GDPR personal-data taxonomy anchor
+- Track five metric groups:
+  - detection: precision, recall, F2, per-entity, per-family, per-language
+  - parity: delta versus Presidio by family, entity, and operator
+  - security: leakage checks, fail-closed correctness, adversarial bypass rate
+  - runtime: p50 and p95 latency, native versus remote split
+  - transformation: operator correctness, overlap correctness, JSON validity
+- Introduce progressive quality gates:
+  - baseline collection only
+  - regression gates for deterministic families
+  - thresholds for priority entities and families
+  - rollout gates for structured and remote flows
+- Add a shared evaluation case schema with:
+  - `case_id`
+  - `language`
+  - `mode`
+  - `input`
+  - `expected_entities`
+  - `expected_operator_outcome`
+  - `expected_policy_outcome`
+  - `tags`
+  - `source`
+  - `notes`
+- Use the following external datasets and baseline sources:
+  - `presidio-research` as the default workflow scaffold for generation, analysis, splits, and parity reporting
+  - `n2c2 / i2b2` de-identification datasets as the main restricted-access clinical-text benchmark where access is allowed
+  - `Pseudo-PHI-DICOM-Data` from TCIA as the future default DICOM/image benchmark
+  - Pokrov-owned de-identified internal corpus as the main proxy-specific benchmark
+  - `Vanilla Presidio`, `Tuned Presidio`, and optionally `NLM Scrubber` as comparative baselines
+- Keep explicit metadata for every external dataset:
+  - access model
+  - license or redistribution limits
+  - supported languages
+  - supported entity classes
+  - intended handler families
+- Build the `Phase 1A` starter corpus with:
+  - deterministic positives for email, phone, card-like numbers, IBAN, IP, URL, secret tokens, and corporate markers
+  - deterministic negatives for invalid lookalikes and allowlist scenarios
+  - context boost and suppression pairs
+  - overlap and operator cases
+  - nested structured JSON cases
+  - adversarial smoke cases for spacing, punctuation, mixed-language, and unicode-obfuscation patterns
+- Run the first baseline set against:
+  - `Vanilla Presidio`
+  - `Tuned Presidio`
+  - current and updated Pokrov native pipeline
+  - optional PHI baseline such as `NLM Scrubber` only for the clinical workstream
+
+## Phased Roadmap
+- `Phase 1A`
+  - recognizer framework
+  - pattern, checksum, context, allowlist, and denylist families
+  - EN and RU packs
+  - operator expansion
+  - evaluation case format
+  - synthetic corpus
+  - first Presidio parity runner
+- `Phase 1B`
+  - safe explainability
+  - deterministic family scoreboards
+  - regression reports
+  - latency evidence
+- `Phase 2`
+  - remote recognizer contract
+  - self-hosted ML recognizer service
+  - cloud recognizer connectors
+  - curated gold corpus
+  - adversarial corpus
+  - degradation metrics
+- `Phase 3`
+  - field-aware JSON and semi-structured semantics
+  - batch processors for tabular, SQL, and export workflows
+  - structured evaluation scorecards
+- `Phase 4`
+  - medical families
+  - country-specific packs
+  - image, OCR, and DICOM services
+  - extended evaluation harness
+
+## Public Interfaces And Contracts
+- Add stable recognizer APIs and traits for native and remote families.
+- Add configuration schema for:
+  - recognizer packs
+  - validators
+  - context dictionaries
+  - allow and deny lists
+  - remote connector routing and timeout policies
+- Add internal result schema for safe explainability and normalized recognizer hits.
+- Add evaluation case schema and report formats for parity, quality, and readiness scoreboards.
+- Preserve the proxy API principle: proxy layers continue receiving one policy-owned decision from Pokrov core.
+
+## Test Plan
+- `Unit`
+  - multi-pattern matching
+  - deterministic ordering
+  - validators and invalidators
+  - checksum rejection
+  - context boost and suppression
+  - allowlist suppression
+  - operator application order
+  - JSON validity preservation
+- `Integration`
+  - registry assembly by profile, language, and path class
+  - remote recognizer normalization
+  - fail-closed and degraded-mode behavior
+  - JSON and semi-structured field-aware processing
+  - LLM and MCP sanitization with new families enabled
+- `Evaluation runs`
+  - fast local synthetic subset
+  - full corpus run
+  - Presidio versus Pokrov baseline comparison
+- `Security`
+  - no raw payload or raw fragments in explain, logs, or audit
+  - adversarial bypass tracking
+  - structured batch summaries remain metadata-only
+- `Performance`
+  - inline mode budget remains preserved for native families
+  - remote recognizers stay isolated behind explicit mode and timeout gates
+
+## Assumptions And Defaults
+- Compatibility mode is `Pokrov-compatible full`, not strict literal full Presidio parity.
+- Current parity focus is text core plus structured processing.
+- Base language scope is `EN + RU`; additional language coverage comes through packs or services.
+- Default policy for remote recognizers is `fail-closed`.
+- Presidio is used as a comparative baseline, not the sole source of truth.
+- Deanonymization, runtime custom lambdas, Python runtime parity, and heavy NLP or OCR inside proxy process are outside core roadmap.
