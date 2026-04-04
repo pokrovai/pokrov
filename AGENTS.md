@@ -211,6 +211,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-04
 - In-memory rate-limit/runtime state + metadata-only audit/log sinks; file-based release evidence artifacts (005-hardening-release)
 - Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror (006-byok-passthrough-auth)
 - In-memory runtime state для identity bindings/rate-limit counters + metadata-only audit/log sinks (006-byok-passthrough-auth)
+- Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror, bytes, futures-util (007-codex-agent-compat)
+- In-memory request/runtime state + metadata-only audit/log sinks (007-codex-agent-compat)
 
 ## Project Structure
 
@@ -236,9 +238,9 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 007-codex-agent-compat: Added Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror, bytes, futures-util
 - 006-byok-passthrough-auth: Added Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror
 - 005-hardening-release: Added Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_json, serde_yaml, prometheus, uuid, reqwest, bytes, futures-util, thiserror
-- 004-mcp-mediation: Added Rust stable 1.85+ + axum, tokio, serde, serde_json, serde_yaml, tower, tracing, uuid, reqwest, thiserror
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

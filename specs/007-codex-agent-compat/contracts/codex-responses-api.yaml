@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  title: Pokrov Codex Responses Compatibility API
+  version: 0.1.0
+  description: >-
+    Minimal compatibility contract for Codex-style Responses API mapped to
+    Pokrov LLM sanitization-first proxy flow.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/responses:
+    post:
+      summary: Codex-compatible response request through Pokrov
+      operationId: postResponsesCompatibility
+      parameters:
+        - name: X-Pokrov-Api-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Gateway credential for Pokrov boundary authorization.
+        - name: X-Pokrov-Client-Id
+          in: header
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Optional identity hint for profile/rate-limit resolution.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResponsesRequest'
+      responses:
+        '200':
+          description: Allowed request; returns JSON or SSE stream.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsesJsonSuccess'
+            text/event-stream:
+              schema:
+                type: string
+                description: >-
+                  SSE stream with sanitized events and terminal `data: [DONE]`.
+        '400':
+          description: Invalid or unsupported request shape in minimal compatibility subset.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Gateway authentication failed.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Blocked by policy before upstream call.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Missing/invalid upstream credentials in active auth mode.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded for resolved identity profile.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitError'
+        '502':
+          description: Upstream request failed.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Upstream unavailable.
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    ResponsesRequest:
+      type: object
+      additionalProperties: true
+      required:
+        - model
+        - input
+      properties:
+        model:
+          type: string
+          minLength: 1
+        input:
+          description: Minimal Codex-compatible input subset accepted by v1 compatibility path.
+        stream:
+          type: boolean
+          default: false
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    ResponsesJsonSuccess:
+      type: object
+      additionalProperties: true
+      required:
+        - request_id
+        - output
+        - pokrov
+      properties:
+        request_id:
+          type: string
+        output:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        pokrov:
+          $ref: '#/components/schemas/PokrovMetadata'
+
+    PokrovMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - profile
+        - action
+        - sanitized_input
+        - sanitized_output
+        - rule_hits
+      properties:
+        profile:
+          type: string
+        action:
+          type: string
+          enum:
+            - allow
+            - mask
+            - replace
+            - redact
+            - block
+        sanitized_input:
+          type: boolean
+        sanitized_output:
+          type: boolean
+        rule_hits:
+          type: integer
+          minimum: 0
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - error
+      properties:
+        request_id:
+          type: string
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unsupported_request_subset
+                - gateway_unauthorized
+                - upstream_credential_missing
+                - upstream_credential_invalid
+                - policy_blocked
+                - rate_limit_exceeded
+                - upstream_error
+                - upstream_unavailable
+            message:
+              type: string
+              maxLength: 256
+
+    RateLimitError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - retry_after_ms
+          properties:
+            retry_after_ms:
+              type: integer
+              minimum: 0
+security: []
+
+x-safety-notes:
+  metadata_only_audit: true
+  passthrough_auth_split:
+    gateway_header: X-Pokrov-Api-Key
+    upstream_header: Authorization
+  out_of_scope:
+    - broad_responses_api_parity
+    - mcp_path_expansion

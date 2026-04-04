@@ -1,0 +1,69 @@
+version: 1
+name: pokrov-codex-compat-config-contract
+description: Runtime and behavior contract for Codex compatibility endpoint `/v1/responses`.
+
+runtime:
+  auth:
+    upstream_auth_mode:
+      type: enum
+      values:
+        - static
+        - passthrough
+      default: static
+      required: true
+      behavior:
+        static: use provider credential configured in runtime
+        passthrough: require upstream bearer credential from request
+
+  gateway_auth:
+    required: true
+    accepted_headers:
+      - X-Pokrov-Api-Key
+      - Authorization
+    passthrough_guard:
+      passthrough_requires_api_key_gateway_auth: true
+
+  compatibility:
+    responses_endpoint:
+      enabled: true
+      path: /v1/responses
+      subset: minimal_codex_sync_and_stream
+      backwards_compatible_chat_completions: true
+
+  identity:
+    resolution_order:
+      - gateway_auth_subject
+      - x_pokrov_client_id
+      - ingress_identity
+    required_for_policy: false
+    required_for_rate_limit: false
+    fallback_policy_profile: strict
+
+observability:
+  request_id_required: true
+  metadata_only_audit: true
+  metrics:
+    include_routes:
+      - /v1/responses
+    include_auth_stages:
+      - gateway_auth
+      - upstream_credentials
+
+constraints:
+  - Sanitization and policy evaluation MUST run before upstream call for `/v1/responses`.
+  - Gateway auth and upstream credential validation MUST be independent in passthrough mode.
+  - Raw sensitive payload and credentials MUST NOT appear in logs, metrics, audit, or error bodies.
+  - Existing `/v1/chat/completions` behavior MUST remain backward-compatible.
+  - Unsupported Responses features MUST fail predictably with metadata-only structured errors.
+
+acceptance:
+  - responses_sync_happy_path: pass
+  - responses_stream_happy_path: pass
+  - passthrough_missing_upstream_credential_blocked_pre_upstream: pass
+  - metadata_only_observability_verified: pass
+  - chat_completions_no_regression: pass
+
+out_of_scope:
+  - full_responses_family_parity
+  - mcp_compatibility_extension
+  - a2a_rbac_siem_ui
