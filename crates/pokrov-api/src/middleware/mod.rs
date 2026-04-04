@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header, header::HeaderName, HeaderMap, HeaderValue, Request, StatusCode},
+    http::{header::HeaderName, HeaderMap, HeaderValue, Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -9,6 +9,7 @@ use std::time::Instant;
 use uuid::Uuid;
 
 use crate::app::{AppState, RuntimeStateView};
+use crate::auth::parse_bearer_token;
 use crate::middleware::request_id::normalize_or_generate_request_id;
 
 pub mod request_id;
@@ -118,14 +119,6 @@ pub async fn active_requests_middleware(
 
 fn resolve_policy_profile(state: &AppState, headers: &HeaderMap) -> Option<String> {
     parse_bearer_token(headers).and_then(|token| state.sanitization.profile_for_token(token))
-}
-
-fn parse_bearer_token(headers: &HeaderMap) -> Option<&str> {
-    let header = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    header
-        .strip_prefix("Bearer ")
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
 }
 
 fn normalize_route(path: &str) -> &'static str {

@@ -209,7 +209,8 @@ impl IntoResponse for ApiError {
             if let Ok(value) = HeaderValue::from_str(&rate_limit.remaining.to_string()) {
                 response.headers_mut().insert(X_RATE_LIMIT_REMAINING, value);
             }
-            if let Ok(value) = HeaderValue::from_str(&rate_limit.reset_at_unix_ms.to_string()) {
+            let reset_seconds = reset_header_seconds(rate_limit.reset_at_unix_ms);
+            if let Ok(value) = HeaderValue::from_str(&reset_seconds.to_string()) {
                 response.headers_mut().insert(X_RATE_LIMIT_RESET, value);
             }
         }
@@ -222,6 +223,10 @@ fn retry_after_header_seconds(retry_after_ms: u64) -> u64 {
     (retry_after_ms.saturating_add(999) / 1000).max(1)
 }
 
+fn reset_header_seconds(reset_at_unix_ms: u64) -> u64 {
+    reset_at_unix_ms / 1000
+}
+
 #[cfg(test)]
 mod tests {
     use axum::response::IntoResponse;
@@ -229,7 +234,7 @@ mod tests {
 
     use crate::app::{RateLimitDecision, RateLimitReason};
 
-    use super::{ApiError, RETRY_AFTER, retry_after_header_seconds};
+    use super::{ApiError, RETRY_AFTER, X_RATE_LIMIT_RESET, retry_after_header_seconds};
 
     #[test]
     fn retry_after_seconds_uses_ceiling_rounding() {
@@ -256,7 +261,12 @@ mod tests {
             .headers()
             .get(RETRY_AFTER)
             .and_then(|value| value.to_str().ok());
+        let reset_header = response
+            .headers()
+            .get(X_RATE_LIMIT_RESET)
+            .and_then(|value| value.to_str().ok());
 
         assert_eq!(header, Some("2"));
+        assert_eq!(reset_header, Some("1700000000"));
     }
 }

@@ -1,6 +1,6 @@
 use axum::{
     extract::{rejection::JsonRejection, Extension, State},
-    http::{header, HeaderMap},
+    http::HeaderMap,
     Json,
 };
 use pokrov_core::types::{
@@ -9,7 +9,7 @@ use pokrov_core::types::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{app::AppState, error::ApiError};
+use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EvaluateHttpRequest {
@@ -94,11 +94,6 @@ pub async fn handle_evaluate(
         explain: result.explain,
         audit: result.audit,
     }))
-}
-
-fn parse_bearer_token(headers: &HeaderMap) -> Option<&str> {
-    let header = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    header.strip_prefix("Bearer ").map(str::trim).filter(|token| !token.is_empty())
 }
 
 fn map_evaluate_error(request_id: String, error: EvaluateError) -> ApiError {

@@ -94,33 +94,43 @@ impl RateLimiter {
         let token_units = token_units.max(1);
 
         let mut windows = self.windows.lock().await;
-        let request_result = evaluate_bucket(
+        let request_key = RateLimitWindowKey {
+            api_key_id: api_key_id.to_string(),
+            profile_id: profile_id.to_string(),
+            kind: RateLimitWindowKind::Requests,
+        };
+        let token_key = RateLimitWindowKey {
+            api_key_id: api_key_id.to_string(),
+            profile_id: profile_id.to_string(),
+            kind: RateLimitWindowKind::TokenUnits,
+        };
+
+        let request_result = inspect_bucket(
             &mut windows,
-            RateLimitWindowKey {
-                api_key_id: api_key_id.to_string(),
-                profile_id: profile_id.to_string(),
-                kind: RateLimitWindowKind::Requests,
-            },
+            &request_key,
             request_limit,
             1,
             now_monotonic,
             now_wall_clock,
-            mode,
         );
 
-        let token_result = evaluate_bucket(
+        let token_result = inspect_bucket(
             &mut windows,
-            RateLimitWindowKey {
-                api_key_id: api_key_id.to_string(),
-                profile_id: profile_id.to_string(),
-                kind: RateLimitWindowKind::TokenUnits,
-            },
+            &token_key,
             token_limit,
             token_units,
             now_monotonic,
             now_wall_clock,
-            mode,
         );
+
+        // Enforce mode applies consumption only when both buckets pass to avoid
+        // draining the request window on token-budget rejections.
+        let should_consume = mode == RateLimitEnforcementMode::DryRun
+            || (!request_result.exceeded && !token_result.exceeded);
+        if should_consume {
+            consume_bucket(&mut windows, &request_key, 1);
+            consume_bucket(&mut windows, &token_key, token_units);
+        }
 
         if request_result.exceeded {
             return RateLimitDecision {
@@ -158,23 +168,23 @@ impl RateLimiter {
     }
 }
 
-fn evaluate_bucket(
+fn inspect_bucket(
     windows: &mut HashMap<RateLimitWindowKey, RateLimitWindowState>,
-    key: RateLimitWindowKey,
+    key: &RateLimitWindowKey,
     limit: u32,
     requested: u32,
     now_monotonic: Instant,
     now_wall_clock: SystemTime,
-    mode: RateLimitEnforcementMode,
 ) -> BucketResult {
     let window = windows
-        .entry(key)
+        .entry(key.clone())
         .or_insert_with(|| RateLimitWindowState::new(now_monotonic));
     window.reset_if_stale(now_monotonic, WINDOW_DURATION);
 
     let used = window.consumed;
     let remaining = limit.saturating_sub(used);
     let exceeded = requested > remaining;
+    let consumed_after_request = used.saturating_add(requested);
 
     let elapsed = now_monotonic.duration_since(window.window_started_at);
     let retry_after_ms =
@@ -182,16 +192,22 @@ fn evaluate_bucket(
     let reset_at_unix_ms = unix_ms(now_wall_clock)
         .saturating_add(WINDOW_DURATION.saturating_sub(elapsed).as_millis() as u64);
 
-    if !exceeded || mode == RateLimitEnforcementMode::DryRun {
-        window.consumed = window.consumed.saturating_add(requested);
-    }
-
     BucketResult {
         exceeded,
         limit,
-        remaining: if exceeded { 0 } else { limit.saturating_sub(window.consumed) },
+        remaining: if exceeded { 0 } else { limit.saturating_sub(consumed_after_request) },
         retry_after_ms: if exceeded { retry_after_ms.max(1) } else { 0 },
         reset_at_unix_ms,
+    }
+}
+
+fn consume_bucket(
+    windows: &mut HashMap<RateLimitWindowKey, RateLimitWindowState>,
+    key: &RateLimitWindowKey,
+    requested: u32,
+) {
+    if let Some(window) = windows.get_mut(key) {
+        window.consumed = window.consumed.saturating_add(requested);
     }
 }
 
@@ -209,9 +225,12 @@ fn unix_ms(now: SystemTime) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::RateLimiter;
+    use super::{RateLimitWindowKey, RateLimitWindowKind, RateLimiter};
     use pokrov_config::rate_limit::{RateLimitEnforcementMode, RateLimitProfile};
-    use std::{collections::BTreeMap, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+    use std::{
+        collections::BTreeMap,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
 
     #[tokio::test]
     async fn blocks_when_request_budget_is_exhausted_in_enforce_mode() {
@@ -283,6 +302,37 @@ mod tests {
             )
             .await;
         assert!(allowed.allowed);
+    }
+
+    #[tokio::test]
+    async fn does_not_consume_request_budget_when_token_budget_rejects() {
+        let limiter = limiter_with_profile(3, 3, RateLimitEnforcementMode::Enforce);
+        let now = Instant::now();
+        let wall = UNIX_EPOCH + Duration::from_secs(20);
+
+        let first = limiter
+            .evaluate_at("k1", "strict", 3, now, wall)
+            .await;
+        assert!(first.allowed);
+
+        let second = limiter
+            .evaluate_at("k1", "strict", 1, now, wall)
+            .await;
+        assert!(!second.allowed);
+        assert_eq!(
+            second.reason,
+            crate::app::RateLimitReason::TokenBudgetExhausted
+        );
+
+        let windows = limiter.windows.lock().await;
+        let request_window = windows
+            .get(&RateLimitWindowKey {
+                api_key_id: "k1".to_string(),
+                profile_id: "strict".to_string(),
+                kind: RateLimitWindowKind::Requests,
+            })
+            .expect("request window should be present");
+        assert_eq!(request_window.consumed, 1);
     }
 
     fn limiter_with_profile(

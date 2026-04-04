@@ -1,3 +1,5 @@
+mod auth;
+
 pub mod app;
 pub mod error;
 pub mod handlers;
