@@ -7,6 +7,8 @@
 - YAML-конфиг bootstrap runtime
 - Секреты передаются через env vars или mounted files, но не в открытом виде в
   YAML
+- Baseline acceptance environment: single-node Linux/amd64 или Darwin/arm64,
+  не менее 2 vCPU и 4 GiB RAM, loopback network без внешнего load balancer
 
 ## Example Config
 
@@ -52,8 +54,10 @@ curl -sS http://127.0.0.1:8080/health
 curl -sS -i http://127.0.0.1:8080/ready
 ```
 
-5. Убедиться, что ответы содержат `request_id`, а `/ready` возвращает `200`
-   только после завершения инициализации.
+5. Формальный pass/fail check:
+   - `/health` MUST вернуть `200`;
+   - `/ready` MUST вернуть `200` после инициализации;
+   - ответы MUST содержать `x-request-id` header и `request_id` в body.
 6. Остановить процесс `Ctrl+C` и убедиться, что shutdown проходит без panic.
 
 ## Invalid Config Check
@@ -73,6 +77,8 @@ curl -sS -i http://127.0.0.1:8080/ready
    - lifecycle logs фиксируют `draining` и финальный `stopped`;
    - активные запросы получают время на завершение в пределах
      `drain_timeout_ms`.
+   Формальный критерий: во время draining `/ready` MUST вернуть `503` (или
+   соединение закрывается до ответа после завершения shutdown).
 
 ## Container Run
 
@@ -102,6 +108,8 @@ curl -sS -i http://127.0.0.1:8080/ready
 
 4. Выполнить `docker stop` и убедиться, что контейнер проходит через not-ready
    фазу перед завершением.
+   Формальный критерий аналогичен local run: `/health=200`, `/ready=200` до
+   stop, затем `/ready!=200` в фазе draining.
 
 ## Expected Evidence
 
@@ -109,3 +117,8 @@ curl -sS -i http://127.0.0.1:8080/ready
 - Невалидный конфиг не переводит runtime в ready.
 - Structured logs содержат lifecycle metadata без raw payload.
 - Каждый probe response коррелируется по `request_id` в header/body и логах.
+
+## Formal Verification Reference
+
+- Для release/pass-fail протокола используйте
+  `docs/verification/001-bootstrap-runtime.md`.
