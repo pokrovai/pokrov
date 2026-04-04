@@ -43,6 +43,8 @@ fn structured_logging_remains_metadata_only() {
             blocked: false,
             upstream_status: Some(200),
             duration_ms: 3,
+            auth_mode: "static",
+            credential_origin: "config",
         }
         .emit();
     });

@@ -41,6 +41,7 @@ pub trait RuntimeMetricsHooks: Send + Sync {
         _policy_profile: &str,
     ) {
     }
+    fn on_auth_decision(&self, _auth_mode: &str, _stage: &str, _decision: &str) {}
     fn on_upstream_error(&self, _route: &str, _provider: &str, _error_class: &str) {}
     fn on_request_duration_seconds(&self, _route: &str, _path_class: &str, _decision: &str, _seconds: f64) {
     }

@@ -26,6 +26,14 @@ mod llm_proxy_streaming_path;
 mod llm_proxy_route_and_stream_contract_path;
 #[path = "integration/llm_proxy_upstream_error_path.rs"]
 mod llm_proxy_upstream_error_path;
+#[path = "integration/llm_proxy_byok_passthrough_happy_path.rs"]
+mod llm_proxy_byok_passthrough_happy_path;
+#[path = "integration/llm_proxy_byok_passthrough_missing_credential_path.rs"]
+mod llm_proxy_byok_passthrough_missing_credential_path;
+#[path = "integration/llm_proxy_gateway_auth_failure_path.rs"]
+mod llm_proxy_gateway_auth_failure_path;
+#[path = "integration/llm_proxy_byok_invalid_provider_credential_path.rs"]
+mod llm_proxy_byok_invalid_provider_credential_path;
 #[path = "integration/mcp_allowed_tool_path.rs"]
 mod mcp_allowed_tool_path;
 #[path = "integration/mcp_argument_validation_path.rs"]
@@ -70,3 +78,9 @@ mod hardening_degraded_shutdown_flow;
 mod hardening_end_to_end_release_flow;
 #[path = "integration/hardening_release_evidence_fail_path.rs"]
 mod hardening_release_evidence_fail_path;
+#[path = "integration/byok_identity_rate_limit_isolation_path.rs"]
+mod byok_identity_rate_limit_isolation_path;
+#[path = "integration/byok_identity_policy_binding_path.rs"]
+mod byok_identity_policy_binding_path;
+#[path = "integration/byok_end_to_end_flow.rs"]
+mod byok_end_to_end_flow;

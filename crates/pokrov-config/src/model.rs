@@ -15,6 +15,10 @@ pub struct RuntimeConfig {
     #[serde(default)]
     pub security: SecurityConfig,
     #[serde(default)]
+    pub auth: AuthConfig,
+    #[serde(default)]
+    pub identity: IdentityConfig,
+    #[serde(default)]
     pub sanitization: SanitizationConfig,
     #[serde(default)]
     pub policies: Option<BTreeMap<String, serde_yaml::Value>>,
@@ -48,6 +52,65 @@ pub struct LlmProviderConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LlmProviderAuthConfig {
     pub api_key: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UpstreamAuthMode {
+    #[default]
+    Static,
+    Passthrough,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AuthConfig {
+    #[serde(default)]
+    pub upstream_auth_mode: UpstreamAuthMode,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            upstream_auth_mode: UpstreamAuthMode::Static,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IdentityConfig {
+    #[serde(default = "default_identity_resolution_order")]
+    pub resolution_order: Vec<IdentitySource>,
+    #[serde(default)]
+    pub profile_bindings: BTreeMap<String, String>,
+    #[serde(default)]
+    pub rate_limit_bindings: BTreeMap<String, String>,
+    #[serde(default)]
+    pub required_for_policy: bool,
+    #[serde(default)]
+    pub required_for_rate_limit: bool,
+    #[serde(default)]
+    pub fallback_policy_profile: Option<String>,
+}
+
+impl Default for IdentityConfig {
+    fn default() -> Self {
+        Self {
+            resolution_order: default_identity_resolution_order(),
+            profile_bindings: BTreeMap::new(),
+            rate_limit_bindings: BTreeMap::new(),
+            required_for_policy: false,
+            required_for_rate_limit: false,
+            fallback_policy_profile: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentitySource {
+    GatewayAuthSubject,
+    XPokrovClientId,
+    IngressIdentity,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -337,6 +400,14 @@ fn to_policy_profile(profile_id: &str, profile: &SanitizationProfile) -> PolicyP
 
 fn default_component() -> String {
     "runtime".to_string()
+}
+
+fn default_identity_resolution_order() -> Vec<IdentitySource> {
+    vec![
+        IdentitySource::GatewayAuthSubject,
+        IdentitySource::XPokrovClientId,
+        IdentitySource::IngressIdentity,
+    ]
 }
 
 fn default_true() -> bool {

@@ -8,8 +8,11 @@ use axum::{
 use std::time::Instant;
 use uuid::Uuid;
 
-use crate::app::{AppState, RuntimeStateView};
-use crate::auth::parse_bearer_token;
+use crate::app::{AppState, ClientIdentity, GatewayAuthContext, IdentityEvidence, RuntimeStateView};
+use crate::auth::{
+    fingerprint_gateway_auth_subject, parse_gateway_credential, parse_identity_from_headers,
+    resolve_identity_from_sources,
+};
 use crate::middleware::request_id::normalize_or_generate_request_id;
 
 pub mod request_id;
@@ -38,14 +41,29 @@ pub async fn request_id_middleware(
 
 pub async fn active_requests_middleware(
     State(state): State<AppState>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Response {
     let request_id =
         request.extensions().get::<String>().cloned().unwrap_or_else(|| Uuid::new_v4().to_string());
     let method = request.method().clone();
     let path = request.uri().path().to_string();
-    let policy_profile = resolve_policy_profile(&state, request.headers());
+    let auth_mode = match state.auth.upstream_auth_mode {
+        pokrov_config::UpstreamAuthMode::Static => "static",
+        pokrov_config::UpstreamAuthMode::Passthrough => "passthrough",
+    };
+    let gateway_auth = resolve_gateway_auth_context(&state, request.headers());
+    let client_identity = resolve_client_identity(&state, request.headers(), &gateway_auth);
+    let policy_profile = resolve_policy_profile(
+        &state,
+        request.headers(),
+        client_identity.as_ref(),
+        gateway_auth.authenticated,
+    );
+    request.extensions_mut().insert(gateway_auth.clone());
+    if let Some(identity) = client_identity.clone() {
+        request.extensions_mut().insert(identity);
+    }
     let runtime_state = state.lifecycle.state();
 
     if matches!(runtime_state, RuntimeStateView::Draining | RuntimeStateView::Stopped)
@@ -67,10 +85,21 @@ pub async fn active_requests_middleware(
     let started = Instant::now();
     tracing::info!(
         component = "runtime",
+        action = "auth_stage",
+        request_id = %request_id,
+        stage = "gateway_auth",
+        decision = if gateway_auth.authenticated { "pass" } else { "fail" },
+        auth_mode = auth_mode
+    );
+    tracing::info!(
+        component = "runtime",
         action = "request_started",
         request_id = %request_id,
         method = %method,
-        path = %path
+        path = %path,
+        auth_mode = auth_mode,
+        client_identity = ?client_identity.as_ref().map(|identity| identity.id.as_str()),
+        gateway_auth = gateway_auth.authenticated
     );
 
     let response = next.run(request).await;
@@ -117,8 +146,83 @@ pub async fn active_requests_middleware(
     response
 }
 
-fn resolve_policy_profile(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    parse_bearer_token(headers).and_then(|token| state.sanitization.profile_for_token(token))
+fn resolve_policy_profile(
+    state: &AppState,
+    headers: &HeaderMap,
+    client_identity: Option<&ClientIdentity>,
+    gateway_authenticated: bool,
+) -> Option<String> {
+    if let Some(identity) = client_identity {
+        if let Some(profile) = state.auth.identity_profile_bindings.get(&identity.id) {
+            return Some(profile.clone());
+        }
+    }
+
+    if state.auth.required_for_policy && !gateway_authenticated {
+        return state.auth.fallback_policy_profile.clone();
+    }
+
+    if let Some(gateway) = parse_gateway_credential(headers) {
+        if let Some(profile) = state.sanitization.profile_for_token(gateway.token) {
+            return Some(profile);
+        }
+    }
+
+    state.auth.fallback_policy_profile.clone()
+}
+
+fn resolve_gateway_auth_context(state: &AppState, headers: &HeaderMap) -> GatewayAuthContext {
+    let Some(credential) = parse_gateway_credential(headers) else {
+        return GatewayAuthContext {
+            authenticated: false,
+            auth_subject: None,
+            auth_mechanism: None,
+            failure_reason: Some("missing_gateway_auth"),
+        };
+    };
+
+    if state.sanitization.profile_for_token(credential.token).is_some() {
+        GatewayAuthContext {
+            authenticated: true,
+            auth_subject: Some(fingerprint_gateway_auth_subject(credential.token)),
+            auth_mechanism: Some(credential.mechanism),
+            failure_reason: None,
+        }
+    } else {
+        GatewayAuthContext {
+            authenticated: false,
+            auth_subject: None,
+            auth_mechanism: Some(credential.mechanism),
+            failure_reason: Some("invalid_gateway_auth"),
+        }
+    }
+}
+
+fn resolve_client_identity(
+    state: &AppState,
+    headers: &HeaderMap,
+    gateway_auth: &GatewayAuthContext,
+) -> Option<ClientIdentity> {
+    let (header_identity, ingress_identity) = parse_identity_from_headers(headers);
+    let identity = resolve_identity_from_sources(
+        state.auth.identity_resolution_order.as_slice(),
+        header_identity,
+        ingress_identity,
+        gateway_auth.auth_subject.as_deref(),
+    )?;
+    let source = if Some(identity) == gateway_auth.auth_subject.as_deref() {
+        IdentityEvidence::GatewayAuth
+    } else if Some(identity) == header_identity {
+        IdentityEvidence::Header
+    } else {
+        IdentityEvidence::IngressContext
+    };
+
+    Some(ClientIdentity {
+        id: identity.to_string(),
+        source,
+        profile_hint: state.auth.identity_profile_bindings.get(identity).cloned(),
+    })
 }
 
 fn normalize_route(path: &str) -> &'static str {

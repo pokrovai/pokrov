@@ -4,11 +4,12 @@
 
     use super::validate_runtime_config;
     use crate::model::{
-        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, LlmConfig, LlmDefaultsConfig,
-        LlmProviderAuthConfig, LlmProviderConfig, LlmRouteConfig, LogFormat, LogLevel,
-        LoggingConfig, McpConfig, McpDefaultsConfig, McpServerDefinition, McpToolPolicy,
-        RuntimeConfig, SanitizationConfig, SanitizationProfile, SanitizationProfiles, SecurityConfig,
-        ServerConfig, ShutdownConfig, ToolArgumentConstraints,
+        ApiKeyBinding, AuthConfig, CategoryActionsConfig, CustomRuleConfig, IdentityConfig,
+        IdentitySource, LlmConfig, LlmDefaultsConfig, LlmProviderAuthConfig, LlmProviderConfig,
+        LlmRouteConfig, LogFormat, LogLevel, LoggingConfig, McpConfig, McpDefaultsConfig,
+        McpServerDefinition, McpToolPolicy, RuntimeConfig, SanitizationConfig, SanitizationProfile,
+        SanitizationProfiles, SecurityConfig, ServerConfig, ShutdownConfig, ToolArgumentConstraints,
+        UpstreamAuthMode,
     };
 
     fn valid_config() -> RuntimeConfig {
@@ -27,6 +28,21 @@
                     key: "env:POKROV_API_KEY".to_string(),
                     profile: "strict".to_string(),
                 }],
+            },
+            auth: AuthConfig {
+                upstream_auth_mode: UpstreamAuthMode::Static,
+            },
+            identity: IdentityConfig {
+                resolution_order: vec![
+                    IdentitySource::GatewayAuthSubject,
+                    IdentitySource::XPokrovClientId,
+                    IdentitySource::IngressIdentity,
+                ],
+                profile_bindings: std::collections::BTreeMap::new(),
+                rate_limit_bindings: std::collections::BTreeMap::new(),
+                required_for_policy: false,
+                required_for_rate_limit: false,
+                fallback_policy_profile: Some("strict".to_string()),
             },
             sanitization: SanitizationConfig {
                 enabled: true,
@@ -81,6 +97,7 @@
             policies: None,
             llm: None,
             mcp: None,
+            rate_limit: crate::rate_limit::RateLimitConfig::default(),
         }
     }
 
@@ -295,4 +312,27 @@
 
         assert!(error.to_string().contains("mcp.servers[0].allowed_tools"));
         assert!(error.to_string().contains("must contain at least one tool id when server is enabled"));
+    }
+
+    #[test]
+    fn rejects_empty_identity_resolution_order() {
+        let mut config = valid_config();
+        config.identity.resolution_order.clear();
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("empty identity resolution order must fail");
+        assert!(error.to_string().contains("identity.resolution_order"));
+    }
+
+    #[test]
+    fn rejects_unknown_identity_profile_binding() {
+        let mut config = valid_config();
+        config
+            .identity
+            .profile_bindings
+            .insert("tenant-a".to_string(), "unknown".to_string());
+
+        let error = validate_runtime_config(&config, Path::new("config.yaml"))
+            .expect_err("unknown identity profile must fail");
+        assert!(error.to_string().contains("identity.profile_bindings.tenant-a"));
     }

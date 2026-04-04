@@ -9,7 +9,7 @@ use std::{
 };
 
 use pokrov_api::app::{
-    build_router, AppState, LlmProxyState, McpProxyState, RateLimitState, ResolvedApiKeyBinding,
+    build_router, AppState, AuthState, LlmProxyState, McpProxyState, RateLimitState, ResolvedApiKeyBinding,
     SanitizationState,
 };
 use pokrov_api::middleware::rate_limit::RateLimiter;
@@ -308,7 +308,8 @@ where
 
     let resolved_keys = resolve_api_key_bindings(&config)?;
     let policy_loaded = !config.sanitization.enabled || evaluator.is_some();
-    lifecycle.set_config_loaded(policy_loaded).await;
+    let auth_loaded = !config.identity.resolution_order.is_empty();
+    lifecycle.set_config_loaded(policy_loaded && auth_loaded).await;
     lifecycle
         .set_llm_routes_loaded(!is_llm_enabled(&config))
         .await;
@@ -362,6 +363,15 @@ where
         mcp: McpProxyState {
             enabled: mcp_enabled,
             handler: mcp_handler.map(Arc::new),
+        },
+        auth: AuthState {
+            upstream_auth_mode: config.auth.upstream_auth_mode,
+            identity_resolution_order: Arc::new(config.identity.resolution_order.clone()),
+            identity_profile_bindings: Arc::new(config.identity.profile_bindings.clone()),
+            identity_rate_limit_bindings: Arc::new(config.identity.rate_limit_bindings.clone()),
+            fallback_policy_profile: config.identity.fallback_policy_profile.clone(),
+            required_for_policy: config.identity.required_for_policy,
+            required_for_rate_limit: config.identity.required_for_rate_limit,
         },
     };
 

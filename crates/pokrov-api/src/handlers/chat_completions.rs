@@ -6,13 +6,21 @@ use axum::{
     Json,
 };
 use pokrov_proxy_llm::normalize::estimate_token_units;
-use pokrov_proxy_llm::audit::LLMRateLimitAuditEvent;
+use pokrov_proxy_llm::audit::{LLMAuthStageAuditEvent, LLMRateLimitAuditEvent};
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
 
 use super::rate_limit::evaluate_and_record_rate_limit;
-use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
+use crate::{
+    app::{AppState, GatewayAuthMechanism},
+    auth::{
+        fingerprint_gateway_auth_subject, parse_bearer_token, parse_gateway_credential,
+        parse_identity_from_headers, resolve_identity_from_sources,
+    },
+    error::ApiError,
+};
 
+/// Handles OpenAI-compatible chat-completion requests through the policy and sanitization pipeline.
 pub async fn handle_chat_completions(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
@@ -23,18 +31,120 @@ pub async fn handle_chat_completions(
         .map(|Json(body)| body)
         .map_err(|rejection| map_json_rejection(request_id.clone(), rejection))?;
 
-    let token = parse_bearer_token(&headers)
-        .ok_or_else(|| ApiError::unauthorized(request_id.clone(), "missing bearer authorization"))?;
-
-    let api_key_profile = state.sanitization.profile_for_token(token).ok_or_else(|| {
-        ApiError::unauthorized(request_id.clone(), "invalid API key or profile binding")
+    let mode_label = match state.auth.upstream_auth_mode {
+        pokrov_config::UpstreamAuthMode::Static => "static",
+        pokrov_config::UpstreamAuthMode::Passthrough => "passthrough",
+    };
+    let gateway = parse_gateway_credential(&headers).ok_or_else(|| {
+        state
+            .metrics
+            .on_auth_decision(mode_label, "gateway_auth", "fail");
+        LLMAuthStageAuditEvent {
+            request_id: request_id.clone(),
+            auth_mode: mode_label,
+            stage: "gateway_auth",
+            decision: "fail",
+        }
+        .emit();
+        ApiError::gateway_unauthorized(request_id.clone())
     })?;
+
+    let api_key_profile = state.sanitization.profile_for_token(gateway.token).ok_or_else(|| {
+        state
+            .metrics
+            .on_auth_decision(mode_label, "gateway_auth", "fail");
+        LLMAuthStageAuditEvent {
+            request_id: request_id.clone(),
+            auth_mode: mode_label,
+            stage: "gateway_auth",
+            decision: "fail",
+        }
+        .emit();
+        ApiError::gateway_unauthorized(request_id.clone())
+    })?;
+    state
+        .metrics
+        .on_auth_decision(mode_label, "gateway_auth", "pass");
+    LLMAuthStageAuditEvent {
+        request_id: request_id.clone(),
+        auth_mode: mode_label,
+        stage: "gateway_auth",
+        decision: "pass",
+    }
+    .emit();
+    let (header_identity, ingress_identity) = parse_identity_from_headers(&headers);
+    let gateway_auth_subject = fingerprint_gateway_auth_subject(gateway.token);
+    let client_identity = resolve_identity_from_sources(
+        state.auth.identity_resolution_order.as_slice(),
+        header_identity,
+        ingress_identity,
+        Some(gateway_auth_subject.as_str()),
+    )
+    .unwrap_or(gateway.token);
+    let profile_id = state
+        .auth
+        .identity_profile_bindings
+        .get(client_identity)
+        .cloned()
+        .or_else(|| state.auth.fallback_policy_profile.clone())
+        .unwrap_or_else(|| api_key_profile.clone());
+    let rate_limit_profile = state
+        .auth
+        .identity_rate_limit_bindings
+        .get(client_identity)
+        .cloned()
+        .unwrap_or_else(|| api_key_profile.clone());
+
+    let upstream_credential = match state.auth.upstream_auth_mode {
+        pokrov_config::UpstreamAuthMode::Static => None,
+        pokrov_config::UpstreamAuthMode::Passthrough => {
+            if !matches!(gateway.mechanism, GatewayAuthMechanism::ApiKey) {
+                state
+                    .metrics
+                    .on_auth_decision(mode_label, "upstream_credentials", "fail");
+                LLMAuthStageAuditEvent {
+                    request_id: request_id.clone(),
+                    auth_mode: mode_label,
+                    stage: "upstream_credentials",
+                    decision: "fail",
+                }
+                .emit();
+                return Err(ApiError::upstream_credential_missing(request_id));
+            }
+
+            let credential = parse_bearer_token(&headers).ok_or_else(|| {
+                state
+                    .metrics
+                    .on_auth_decision(mode_label, "upstream_credentials", "fail");
+                LLMAuthStageAuditEvent {
+                    request_id: request_id.clone(),
+                    auth_mode: mode_label,
+                    stage: "upstream_credentials",
+                    decision: "fail",
+                }
+                .emit();
+                ApiError::upstream_credential_missing(request_id.clone())
+            })?;
+            state
+                .metrics
+                .on_auth_decision(mode_label, "upstream_credentials", "pass");
+            LLMAuthStageAuditEvent {
+                request_id: request_id.clone(),
+                auth_mode: mode_label,
+                stage: "upstream_credentials",
+                decision: "pass",
+            }
+            .emit();
+            Some(credential.to_string())
+        }
+    };
+    let rate_limit_key = client_identity.to_string();
 
     if let Some(decision) = evaluate_and_record_rate_limit(
         &state,
         "/v1/chat/completions",
-        token,
-        &api_key_profile,
+        &rate_limit_key,
+        &rate_limit_profile,
         estimate_token_units(&payload),
     )
     .await
@@ -42,7 +152,7 @@ pub async fn handle_chat_completions(
         if !matches!(decision.reason, crate::app::RateLimitReason::WithinBudget) {
             LLMRateLimitAuditEvent {
                 request_id: request_id.clone(),
-                profile_id: api_key_profile.clone(),
+                profile_id: profile_id.clone(),
                 decision: if decision.allowed { "dry_run" } else { "blocked" }.to_string(),
                 retry_after_ms: decision.retry_after_ms,
                 limit: decision.limit,
@@ -61,7 +171,13 @@ pub async fn handle_chat_completions(
     })?;
 
     let response = handler
-        .handle_chat_completion(request_id.clone(), payload, &api_key_profile)
+        .handle_chat_completion(
+            request_id.clone(),
+            payload,
+            &profile_id,
+            state.auth.upstream_auth_mode,
+            upstream_credential.as_deref(),
+        )
         .await
         .map_err(|error| {
             if error.code().as_str().starts_with("upstream_") {

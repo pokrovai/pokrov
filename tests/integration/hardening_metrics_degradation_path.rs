@@ -23,6 +23,7 @@ async fn readiness_reports_degraded_when_metrics_rendering_fails_but_health_stay
         rate_limit: pokrov_api::app::RateLimitState::default(),
         llm: pokrov_api::app::LlmProxyState::default(),
         mcp: pokrov_api::app::McpProxyState::default(),
+        auth: pokrov_api::app::AuthState::default(),
     });
 
     let health = app

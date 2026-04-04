@@ -1,0 +1,64 @@
+version: 1
+name: pokrov-byok-auth-config-contract
+description: Runtime configuration contract for dual-mode upstream authentication and client identity bindings.
+
+runtime:
+  security:
+    gateway_auth:
+      enabled: true
+      accepted_mechanisms:
+        - api_key
+        - bearer
+      metadata_only_failures: true
+
+  auth:
+    upstream_auth_mode:
+      type: enum
+      values:
+        - static
+        - passthrough
+      default: static
+      required: true
+      behavior:
+        static: use provider credentials from runtime config
+        passthrough: use provider credentials from client request context
+
+  identity:
+    resolution_order:
+      - gateway_auth_subject
+      - x_pokrov_client_id
+      - ingress_identity
+    required_for_policy: false
+    required_for_rate_limit: false
+    fallback_policy_profile: strict
+
+  llm:
+    providers:
+      - id: string
+        auth:
+          static:
+            api_key_ref: env_or_file_secret_ref
+          passthrough:
+            request_bearer_header: Authorization
+
+  mcp:
+    servers:
+      - id: string
+        auth:
+          static:
+            upstream_token_ref: env_or_file_secret_ref
+          passthrough:
+            request_bearer_header: Authorization
+
+constraints:
+  - Gateway auth and upstream provider auth MUST be validated independently.
+  - Missing client gateway auth MUST block request before upstream call.
+  - Missing provider credential in active mode MUST return structured metadata-only error.
+  - Identity-bound policy and rate-limit decisions MUST be deterministic for same identity/config/input.
+  - Secrets and credentials MUST NOT be persisted in logs, metrics, audit, or error bodies.
+
+acceptance:
+  - static_mode_backwards_compatible: true
+  - passthrough_mode_enabled: true
+  - identity_isolation_for_policy_and_rate_limit: true
+  - metadata_only_observability_for_auth_flows: true

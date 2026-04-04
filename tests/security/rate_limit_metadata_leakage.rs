@@ -74,6 +74,7 @@ llm:
     let _ = client
         .post(format!("{}/v1/chat/completions", runtime.base_url()))
         .bearer_auth("security-hardening-key")
+        .header("x-pokrov-client-id", "tenant-sensitive-id")
         .json(&payload)
         .send()
         .await
@@ -82,6 +83,7 @@ llm:
     let blocked = client
         .post(format!("{}/v1/chat/completions", runtime.base_url()))
         .bearer_auth("security-hardening-key")
+        .header("x-pokrov-client-id", "tenant-sensitive-id")
         .json(&payload)
         .send()
         .await
@@ -91,6 +93,7 @@ llm:
     assert!(text.contains("rate_limit_exceeded"));
     assert!(!text.contains("sk-prod-123"));
     assert!(!text.contains("messages"));
+    assert!(!text.contains("tenant-sensitive-id"));
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     mock_provider.shutdown().await;

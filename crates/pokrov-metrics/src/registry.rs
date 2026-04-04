@@ -35,6 +35,7 @@ pub struct RuntimeMetricsRegistry {
     requests_total: IntCounterVec,
     blocked_total: IntCounterVec,
     rate_limit_events_total: IntCounterVec,
+    auth_decisions_total: IntCounterVec,
     upstream_errors_total: IntCounterVec,
     request_duration_seconds: HistogramVec,
     force_render_failure: AtomicBool,
@@ -55,6 +56,10 @@ impl RuntimeMetricsRegistry {
             Opts::new("pokrov_rate_limit_events_total", "Total rate limit events"),
             &["route", "limit_kind", "decision", "policy_profile"],
         )?;
+        let auth_decisions_total = IntCounterVec::new(
+            Opts::new("pokrov_auth_decisions_total", "Total auth stage decisions by mode"),
+            &["auth_mode", "stage", "decision"],
+        )?;
         let upstream_errors_total = IntCounterVec::new(
             Opts::new("pokrov_upstream_errors_total", "Total upstream errors"),
             &["route", "provider", "error_class"],
@@ -71,12 +76,14 @@ impl RuntimeMetricsRegistry {
         prometheus_registry.register(Box::new(requests_total.clone()))?;
         prometheus_registry.register(Box::new(blocked_total.clone()))?;
         prometheus_registry.register(Box::new(rate_limit_events_total.clone()))?;
+        prometheus_registry.register(Box::new(auth_decisions_total.clone()))?;
         prometheus_registry.register(Box::new(upstream_errors_total.clone()))?;
         prometheus_registry.register(Box::new(request_duration_seconds.clone()))?;
 
         requests_total.with_label_values(&["other", "runtime", "2xx", "allowed"]);
         blocked_total.with_label_values(&["other", "policy", "strict"]);
         rate_limit_events_total.with_label_values(&["other", "requests", "blocked", "strict"]);
+        auth_decisions_total.with_label_values(&["static", "gateway_auth", "pass"]);
         upstream_errors_total.with_label_values(&["other", "unknown", "transport"]);
         request_duration_seconds.with_label_values(&["other", "runtime", "allowed"]);
 
@@ -107,6 +114,7 @@ impl RuntimeMetricsRegistry {
             requests_total,
             blocked_total,
             rate_limit_events_total,
+            auth_decisions_total,
             upstream_errors_total,
             request_duration_seconds,
             force_render_failure: AtomicBool::new(false),
@@ -310,6 +318,16 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
             .inc();
     }
 
+    fn on_auth_decision(&self, auth_mode: &str, stage: &str, decision: &str) {
+        self.auth_decisions_total
+            .with_label_values(&[
+                constrain_auth_mode(auth_mode),
+                constrain_auth_stage(stage),
+                constrain_auth_decision(decision),
+            ])
+            .inc();
+    }
+
     fn on_request_duration_seconds(&self, route: &str, path_class: &str, decision: &str, seconds: f64) {
         self.request_duration_seconds
             .with_label_values(&[
@@ -416,6 +434,30 @@ fn constrain_error_class(error_class: &str) -> &str {
     }
 }
 
+fn constrain_auth_mode(value: &str) -> &str {
+    match value {
+        "static" => "static",
+        "passthrough" => "passthrough",
+        _ => "unknown",
+    }
+}
+
+fn constrain_auth_stage(value: &str) -> &str {
+    match value {
+        "gateway_auth" => "gateway_auth",
+        "upstream_credentials" => "upstream_credentials",
+        _ => "other",
+    }
+}
+
+fn constrain_auth_decision(value: &str) -> &str {
+    match value {
+        "pass" => "pass",
+        "fail" => "fail",
+        _ => "other",
+    }
+}
+
 fn status_class(status: u16) -> &'static str {
     match status {
         100..=199 => "1xx",
@@ -439,6 +481,7 @@ mod tests {
         registry.on_request_outcome("/v1/chat/completions", "llm", 200, "allowed");
         registry.on_blocked_request("/v1/chat/completions", "policy", "strict");
         registry.on_rate_limit_event("/v1/chat/completions", "requests", "blocked", "strict");
+        registry.on_auth_decision("passthrough", "gateway_auth", "pass");
         registry.on_upstream_error("/v1/chat/completions", "openai", "upstream_5xx");
         registry.on_request_duration_seconds("/v1/chat/completions", "llm", "allowed", 0.02);
 
@@ -446,6 +489,7 @@ mod tests {
         assert!(rendered.contains("pokrov_requests_total"));
         assert!(rendered.contains("pokrov_blocked_total"));
         assert!(rendered.contains("pokrov_rate_limit_events_total"));
+        assert!(rendered.contains("pokrov_auth_decisions_total"));
         assert!(rendered.contains("pokrov_upstream_errors_total"));
         assert!(rendered.contains("pokrov_request_duration_seconds"));
     }

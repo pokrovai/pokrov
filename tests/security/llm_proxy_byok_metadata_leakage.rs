@@ -2,30 +2,20 @@ use std::time::Duration;
 
 use reqwest::StatusCode;
 
-use super::llm_proxy_test_support::{
+use crate::llm_proxy_test_support::{
     MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
 };
 
 #[tokio::test]
-async fn llm_proxy_rejects_invalid_api_key_with_unauthorized_error() {
+async fn passthrough_missing_credential_error_is_metadata_only() {
     let provider = start_mock_provider(MockProviderMode::Json {
         status: 200,
-        body: serde_json::json!({
-            "id": "chatcmpl-1",
-            "object": "chat.completion",
-            "created": 1,
-            "model": "gpt-4o-mini",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop"
-            }]
-        }),
+        body: serde_json::json!({"choices": [{"message": {"role": "assistant", "content": "ok"}}]}),
     })
     .await;
 
-    let runtime_key_path = write_key_file("llm-test-key");
-    let provider_key_path = write_key_file("provider-test-key");
+    let gateway_key_path = write_key_file("gateway-byok-key");
+    let provider_key_path = write_key_file("provider-static-fallback");
     let config_path = write_runtime_config(&format!(
         r#"
 server:
@@ -39,33 +29,12 @@ shutdown:
   grace_period_ms: 900
 security:
   api_keys:
-    - key: file:{runtime_key}
+    - key: file:{gateway_key}
       profile: strict
+auth:
+  upstream_auth_mode: passthrough
 sanitization:
-  enabled: true
-  default_profile: strict
-  profiles:
-    minimal:
-      mode_default: enforce
-      categories:
-        secrets: mask
-        pii: allow
-        corporate_markers: allow
-      mask_visible_suffix: 4
-    strict:
-      mode_default: enforce
-      categories:
-        secrets: block
-        pii: redact
-        corporate_markers: mask
-      mask_visible_suffix: 4
-    custom:
-      mode_default: dry_run
-      categories:
-        secrets: redact
-        pii: mask
-        corporate_markers: mask
-      mask_visible_suffix: 4
+  enabled: false
 llm:
   providers:
     - id: openai
@@ -76,13 +45,12 @@ llm:
   routes:
     - model: gpt-4o-mini
       provider_id: openai
-      output_sanitization: false
       enabled: true
   defaults:
     profile_id: strict
     output_sanitization: false
 "#,
-        runtime_key = runtime_key_path.display(),
+        gateway_key = gateway_key_path.display(),
         provider_key = provider_key_path.display(),
         provider_base = provider.base_url,
     ));
@@ -97,7 +65,7 @@ llm:
 
     let response = client
         .post(format!("{}/v1/chat/completions", handle.base_url()))
-        .header("authorization", "Bearer wrong-key")
+        .header("x-pokrov-api-key", "gateway-byok-key")
         .json(&serde_json::json!({
             "model": "gpt-4o-mini",
             "stream": false,
@@ -107,9 +75,20 @@ llm:
         .await
         .expect("request should complete");
 
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let request_id_header = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("request id header should be present")
+        .to_string();
     let body: serde_json::Value = response.json().await.expect("json body expected");
-    assert_eq!(body["error"]["code"], "gateway_unauthorized");
+    let serialized = serde_json::to_string(&body).expect("body should serialize");
+
+    assert_eq!(body["error"]["code"], "upstream_credential_missing");
+    assert_eq!(body["request_id"].as_str(), Some(request_id_header.as_str()));
+    assert!(!serialized.contains("provider-byok-key"));
+    assert!(!serialized.contains("authorization"));
     assert_eq!(provider.request_count(), 0);
 
     handle.shutdown().await.expect("shutdown should succeed");

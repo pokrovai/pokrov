@@ -50,6 +50,42 @@ impl ApiError {
         }
     }
 
+    pub fn gateway_unauthorized(request_id: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "gateway_unauthorized",
+            message: "Client is not authorized to use Pokrov gateway".to_string(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: None,
+        }
+    }
+
+    pub fn upstream_credential_missing(request_id: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "upstream_credential_missing",
+            message: "Upstream provider credential is required for passthrough mode".to_string(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: None,
+        }
+    }
+
+    pub fn upstream_credential_invalid(request_id: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "upstream_credential_invalid",
+            message: "Upstream provider credential is invalid".to_string(),
+            request_id: request_id.into(),
+            allowed: None,
+            details: None,
+            rate_limit: None,
+        }
+    }
+
     pub fn payload_too_large(request_id: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::PAYLOAD_TOO_LARGE,

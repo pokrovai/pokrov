@@ -10,6 +10,8 @@ sanitization profiles for `POST /v1/sanitize/evaluate` and LLM routing for
 - `logging.level`, `logging.format=json`
 - `shutdown.drain_timeout_ms`, `shutdown.grace_period_ms`
 - `security.api_keys[*].key` and `security.api_keys[*].profile`
+- `auth.upstream_auth_mode`
+- `identity.resolution_order`
 - `rate_limit.enabled`, `rate_limit.default_profile`, `rate_limit.profiles`
 - `sanitization.enabled`, `sanitization.default_profile`, `sanitization.profiles`
 - `llm.providers`, `llm.routes`, `llm.defaults` (required when LLM proxy path is enabled)
@@ -20,6 +22,15 @@ Secrets must be provided only as references (`env:NAME` or `file:/path`).
 fail-fast startup when at least one configured key reference cannot be resolved.
 `security.fail_on_unresolved_provider_keys` is optional (default `false`) and enables
 fail-fast startup when at least one LLM provider auth reference cannot be resolved.
+`auth.upstream_auth_mode` supports `static` and `passthrough`:
+- `static`: provider credentials are loaded from runtime config references.
+- `passthrough`: provider credentials are read from request `Authorization` header,
+  while gateway access is validated independently via `X-Pokrov-Api-Key` or bearer token.
+
+`identity.resolution_order` defines deterministic identity extraction priority with:
+- `gateway_auth_subject`
+- `x_pokrov_client_id`
+- `ingress_identity`
 
 ## Policy Profiles
 

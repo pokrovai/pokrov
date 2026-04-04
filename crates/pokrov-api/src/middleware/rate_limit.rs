@@ -18,7 +18,7 @@ enum RateLimitWindowKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct RateLimitWindowKey {
-    api_key_id: String,
+    identity_key: String,
     profile_id: String,
     kind: RateLimitWindowKind,
 }
@@ -49,12 +49,12 @@ impl RateLimiter {
 
     pub async fn evaluate(
         &self,
-        api_key_id: &str,
+        identity_key: &str,
         profile_id: &str,
         token_units: u32,
     ) -> RateLimitDecision {
         self.evaluate_at(
-            api_key_id,
+            identity_key,
             profile_id,
             token_units,
             Instant::now(),
@@ -65,7 +65,7 @@ impl RateLimiter {
 
     async fn evaluate_at(
         &self,
-        api_key_id: &str,
+        identity_key: &str,
         profile_id: &str,
         token_units: u32,
         now_monotonic: Instant,
@@ -95,12 +95,12 @@ impl RateLimiter {
 
         let mut windows = self.windows.lock().await;
         let request_key = RateLimitWindowKey {
-            api_key_id: api_key_id.to_string(),
+            identity_key: identity_key.to_string(),
             profile_id: profile_id.to_string(),
             kind: RateLimitWindowKind::Requests,
         };
         let token_key = RateLimitWindowKey {
-            api_key_id: api_key_id.to_string(),
+            identity_key: identity_key.to_string(),
             profile_id: profile_id.to_string(),
             kind: RateLimitWindowKind::TokenUnits,
         };
@@ -327,7 +327,7 @@ mod tests {
         let windows = limiter.windows.lock().await;
         let request_window = windows
             .get(&RateLimitWindowKey {
-                api_key_id: "k1".to_string(),
+                identity_key: "k1".to_string(),
                 profile_id: "strict".to_string(),
                 kind: RateLimitWindowKind::Requests,
             })

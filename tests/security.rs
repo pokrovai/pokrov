@@ -10,6 +10,8 @@ pub mod hardening_test_support;
 mod llm_proxy_auth_validation;
 #[path = "security/llm_proxy_metadata_leakage.rs"]
 mod llm_proxy_metadata_leakage;
+#[path = "security/llm_proxy_byok_metadata_leakage.rs"]
+mod llm_proxy_byok_metadata_leakage;
 #[path = "security/mcp_auth_validation.rs"]
 mod mcp_auth_validation;
 #[path = "security/mcp_block_before_execution.rs"]

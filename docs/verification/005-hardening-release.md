@@ -62,6 +62,23 @@ Expected result:
   - `X-RateLimit-Remaining`
   - `X-RateLimit-Reset`
 
+## BYOK Passthrough Verification
+
+```bash
+curl -sS -i -X POST http://127.0.0.1:8080/v1/chat/completions \
+  -H "X-Pokrov-Api-Key: $POKROV_API_KEY" \
+  -H "Authorization: Bearer provider-passthrough-key" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'
+```
+
+Expected result:
+
+- `200` for valid gateway key + valid upstream credential in passthrough mode.
+- `422 upstream_credential_missing` when provider credential is absent.
+- `401 gateway_unauthorized` when gateway auth fails.
+- No raw `Authorization` values in response body or logs.
+
 ## Logging Safety Check
 
 - Run both allow and blocked scenarios through LLM and MCP paths.

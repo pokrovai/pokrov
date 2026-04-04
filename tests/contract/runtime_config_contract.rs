@@ -8,6 +8,11 @@ fn contract_path() -> PathBuf {
         .join("specs/001-bootstrap-runtime/contracts/runtime-config.schema.yaml")
 }
 
+fn byok_config_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/006-byok-passthrough-auth/contracts/byok-auth-config.yaml")
+}
+
 #[test]
 fn runtime_config_schema_exposes_bootstrap_required_sections() {
     let raw = std::fs::read_to_string(contract_path()).expect("schema should exist");
@@ -118,6 +123,41 @@ llm:
     assert!(error
         .to_string()
         .contains("must reference an existing enabled provider"));
+}
+
+#[test]
+fn byok_runtime_config_contract_declares_dual_auth_modes() {
+    let raw =
+        std::fs::read_to_string(byok_config_contract_path()).expect("byok config contract should exist");
+    let contract: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("byok config contract should parse");
+
+    let modes = contract["runtime"]["auth"]["upstream_auth_mode"]["values"]
+        .as_sequence()
+        .expect("auth mode values must be present")
+        .iter()
+        .filter_map(serde_yaml::Value::as_str)
+        .collect::<Vec<_>>();
+
+    assert!(modes.contains(&"static"));
+    assert!(modes.contains(&"passthrough"));
+}
+
+#[test]
+fn byok_runtime_config_contract_declares_identity_requirements() {
+    let raw =
+        std::fs::read_to_string(byok_config_contract_path()).expect("byok config contract should exist");
+    let contract: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("byok config contract should parse");
+
+    assert_eq!(
+        contract["runtime"]["identity"]["required_for_policy"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        contract["runtime"]["identity"]["required_for_rate_limit"].as_bool(),
+        Some(false)
+    );
 }
 
 fn write_temp_config(content: &str) -> std::path::PathBuf {

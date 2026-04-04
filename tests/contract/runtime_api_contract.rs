@@ -15,6 +15,11 @@ fn hardening_contract_path() -> PathBuf {
         .join("specs/005-hardening-release/contracts/hardening-api.yaml")
 }
 
+fn byok_contract_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("specs/006-byok-passthrough-auth/contracts/byok-auth-api.yaml")
+}
+
 #[test]
 fn runtime_api_contract_contains_expected_probe_routes() {
     let raw = std::fs::read_to_string(contract_path()).expect("contract file should exist");
@@ -80,5 +85,30 @@ fn hardening_runtime_contract_declares_degraded_ready_state() {
     assert!(
         statuses.contains(&"degraded"),
         "ReadyResponse.status must declare degraded state"
+    );
+}
+
+#[test]
+fn byok_runtime_contract_covers_mcp_auth_failure_semantics() {
+    let raw = std::fs::read_to_string(byok_contract_path()).expect("byok contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("byok contract should parse");
+
+    let responses = &api["paths"]["/v1/mcp/tool-call"]["post"]["responses"];
+    assert!(responses["401"].is_mapping());
+    assert!(responses["422"].is_mapping());
+    assert!(responses["403"].is_mapping());
+}
+
+#[test]
+fn byok_chat_rate_limit_contract_mentions_identity_bound_behavior() {
+    let raw = std::fs::read_to_string(byok_contract_path()).expect("byok contract should exist");
+    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("byok contract should parse");
+
+    let description = api["paths"]["/v1/chat/completions"]["post"]["responses"]["429"]["description"]
+        .as_str()
+        .expect("429 description must be present");
+    assert!(
+        description.contains("client identity"),
+        "429 contract must describe identity-bound rate limiting"
     );
 }

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -8,7 +9,9 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use pokrov_config::rate_limit::RateLimitEnforcementMode;
+use pokrov_config::{
+    rate_limit::RateLimitEnforcementMode, IdentitySource, UpstreamAuthMode,
+};
 use pokrov_core::SanitizationEngine;
 use pokrov_metrics::registry::RuntimeMetricsRegistry;
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
@@ -184,6 +187,85 @@ impl Default for McpProxyState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityEvidence {
+    GatewayAuth,
+    Header,
+    IngressContext,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ClientIdentity {
+    pub id: String,
+    pub source: IdentityEvidence,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayAuthMechanism {
+    ApiKey,
+    Bearer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GatewayAuthContext {
+    pub authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_mechanism: Option<GatewayAuthMechanism>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialSource {
+    Config,
+    Request,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct UpstreamCredentialSource {
+    pub mode: UpstreamAuthMode,
+    pub provider_id: String,
+    pub credential_present: bool,
+    pub credential_source: CredentialSource,
+}
+
+#[derive(Clone)]
+pub struct AuthState {
+    pub upstream_auth_mode: UpstreamAuthMode,
+    pub identity_resolution_order: Arc<Vec<IdentitySource>>,
+    pub identity_profile_bindings: Arc<BTreeMap<String, String>>,
+    pub identity_rate_limit_bindings: Arc<BTreeMap<String, String>>,
+    pub fallback_policy_profile: Option<String>,
+    pub required_for_policy: bool,
+    pub required_for_rate_limit: bool,
+}
+
+impl Default for AuthState {
+    fn default() -> Self {
+        Self {
+            upstream_auth_mode: UpstreamAuthMode::Static,
+            identity_resolution_order: Arc::new(vec![
+                IdentitySource::GatewayAuthSubject,
+                IdentitySource::XPokrovClientId,
+                IdentitySource::IngressIdentity,
+            ]),
+            identity_profile_bindings: Arc::new(BTreeMap::new()),
+            identity_rate_limit_bindings: Arc::new(BTreeMap::new()),
+            fallback_policy_profile: None,
+            required_for_policy: false,
+            required_for_rate_limit: false,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub lifecycle: Arc<dyn RuntimeStateReader>,
@@ -193,6 +275,7 @@ pub struct AppState {
     pub rate_limit: RateLimitState,
     pub llm: LlmProxyState,
     pub mcp: McpProxyState,
+    pub auth: AuthState,
 }
 
 pub fn build_router(state: AppState) -> Router {

@@ -17,6 +17,7 @@ async fn ready_returns_not_ready_while_startup_is_pending() {
         rate_limit: pokrov_api::app::RateLimitState::default(),
         llm: pokrov_api::app::LlmProxyState::default(),
         mcp: pokrov_api::app::McpProxyState::default(),
+        auth: pokrov_api::app::AuthState::default(),
     });
 
     let response = app
@@ -40,6 +41,7 @@ async fn draining_rejects_new_health_requests() {
         rate_limit: pokrov_api::app::RateLimitState::default(),
         llm: pokrov_api::app::LlmProxyState::default(),
         mcp: pokrov_api::app::McpProxyState::default(),
+        auth: pokrov_api::app::AuthState::default(),
     });
 
     let health_response = app

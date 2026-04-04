@@ -1,0 +1,212 @@
+openapi: 3.1.0
+info:
+  title: Pokrov BYOK Passthrough Auth Contract
+  version: 0.1.0
+  description: >-
+    API contract for dual-mode upstream authorization (`static` and `passthrough`)
+    with separated gateway authentication and metadata-only error semantics.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/chat/completions:
+    post:
+      summary: LLM proxy request with separated gateway and upstream auth
+      operationId: postChatCompletionsByok
+      parameters:
+        - name: X-Pokrov-Api-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Gateway authentication token for Pokrov boundary.
+        - name: X-Pokrov-Client-Id
+          in: header
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Optional client identity used for profile and rate-limit binding.
+      responses:
+        '200':
+          description: Request allowed and proxied to provider
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+        '401':
+          description: Gateway authentication failed
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayAuthError'
+        '422':
+          description: Upstream credentials missing or malformed for active auth mode
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpstreamCredentialError'
+        '429':
+          description: Request blocked by rate-limit bound to client identity
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitError'
+  /v1/mcp/tool-call:
+    post:
+      summary: MCP mediation request with separated gateway and upstream auth
+      operationId: postMcpToolCallByok
+      parameters:
+        - name: X-Pokrov-Api-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Gateway authentication token for Pokrov boundary.
+        - name: X-Pokrov-Client-Id
+          in: header
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Optional client identity used for profile and rate-limit binding.
+      responses:
+        '200':
+          description: Tool call allowed and proxied
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+        '401':
+          description: Gateway authentication failed
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayAuthError'
+        '422':
+          description: Upstream credentials missing or malformed for active auth mode
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpstreamCredentialError'
+        '403':
+          description: Tool blocked by allowlist/policy validation
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyError'
+components:
+  schemas:
+    ErrorBase:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - error
+      properties:
+        request_id:
+          type: string
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+              maxLength: 256
+    GatewayAuthError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - gateway_unauthorized
+                message:
+                  type: string
+                  enum:
+                    - Client is not authorized to use Pokrov gateway
+    UpstreamCredentialError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - upstream_credential_missing
+                    - upstream_credential_invalid
+                message:
+                  type: string
+    RateLimitError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          required:
+            - retry_after_ms
+          properties:
+            retry_after_ms:
+              type: integer
+              minimum: 0
+    PolicyError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorBase'
+        - type: object
+          properties:
+            error:
+              type: object
+              additionalProperties: false
+              required:
+                - code
+                - message
+              properties:
+                code:
+                  type: string
+                  enum:
+                    - blocked_by_policy
+                    - tool_not_allowed
+security: []
