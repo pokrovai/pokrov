@@ -258,4 +258,10 @@ mod tests {
         let units = estimate_token_units(&payload);
         assert_eq!(units, 6);
     }
+
+    #[test]
+    fn estimate_token_units_has_deterministic_minimum_fallback() {
+        assert_eq!(estimate_token_units(&json!(null)), 1);
+        assert_eq!(estimate_token_units(&json!({"n": null, "flag": true, "arr": [0, false]})), 1);
+    }
 }

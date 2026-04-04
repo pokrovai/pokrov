@@ -21,6 +21,8 @@ pub struct ReleaseEvidence {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
     pub gate_status: GateStatus,
+    pub failed_gates: Vec<String>,
+    pub remediation: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,11 +86,12 @@ impl ReleaseEvidence {
         artifacts: Vec<ArtifactChecksum>,
         notes: Vec<String>,
     ) -> Self {
-        let gate_status = if performance.pass && security.pass && operational.pass {
-            GateStatus::Pass
-        } else {
-            GateStatus::Fail
-        };
+        let failed_gates = collect_failed_gates(&performance, &security, &operational);
+        let gate_status = if failed_gates.is_empty() { GateStatus::Pass } else { GateStatus::Fail };
+        let remediation = failed_gates
+            .iter()
+            .map(|gate| remediation_for_gate(gate))
+            .collect();
 
         Self {
             release_id,
@@ -108,7 +111,86 @@ impl ReleaseEvidence {
             artifacts,
             notes,
             gate_status,
+            failed_gates,
+            remediation,
         }
+    }
+}
+
+fn collect_failed_gates(
+    performance: &PerformanceEvidence,
+    security: &SecurityEvidence,
+    operational: &OperationalEvidence,
+) -> Vec<String> {
+    let mut failed = Vec::new();
+
+    if !performance.pass {
+        failed.push("performance".to_string());
+    }
+
+    if security.invalid_auth == GateStatus::Fail {
+        failed.push("security.invalid_auth".to_string());
+    }
+    if security.rate_limit_abuse == GateStatus::Fail {
+        failed.push("security.rate_limit_abuse".to_string());
+    }
+    if security.log_safety == GateStatus::Fail {
+        failed.push("security.log_safety".to_string());
+    }
+    if security.secret_handling == GateStatus::Fail {
+        failed.push("security.secret_handling".to_string());
+    }
+    if !security.pass && !failed.iter().any(|gate| gate.starts_with("security.")) {
+        failed.push("security".to_string());
+    }
+
+    if operational.readiness_behavior == GateStatus::Fail {
+        failed.push("operational.readiness_behavior".to_string());
+    }
+    if operational.graceful_shutdown_behavior == GateStatus::Fail {
+        failed.push("operational.graceful_shutdown_behavior".to_string());
+    }
+    if operational.observability_behavior == GateStatus::Fail {
+        failed.push("operational.observability_behavior".to_string());
+    }
+    if !operational.pass && !failed.iter().any(|gate| gate.starts_with("operational.")) {
+        failed.push("operational".to_string());
+    }
+
+    failed
+}
+
+fn remediation_for_gate(gate: &str) -> String {
+    match gate {
+        "performance" => "Re-run performance verification and update latency/throughput baselines."
+            .to_string(),
+        "security.invalid_auth" => {
+            "Fix unauthorized request handling and verify metadata-only error responses.".to_string()
+        }
+        "security.rate_limit_abuse" => {
+            "Harden rate-limit enforcement and re-run abuse scenario checks.".to_string()
+        }
+        "security.log_safety" => {
+            "Remove sensitive fields from logs and re-run log safety checks.".to_string()
+        }
+        "security.secret_handling" => {
+            "Move secrets to env/file refs and re-validate deployment handling.".to_string()
+        }
+        "security" => "Re-run all security verification suites and update evidence artifacts."
+            .to_string(),
+        "operational.readiness_behavior" => {
+            "Fix readiness transitions and validate degraded/draining behavior.".to_string()
+        }
+        "operational.graceful_shutdown_behavior" => {
+            "Fix graceful shutdown sequencing and validate inflight request draining.".to_string()
+        }
+        "operational.observability_behavior" => {
+            "Fix metrics/log observability path and re-run operational checks.".to_string()
+        }
+        "operational" => {
+            "Re-run operational verification suites and refresh release evidence.".to_string()
+        }
+        _ => format!("Resolve verification failure for gate '{gate}' and regenerate evidence."),
     }
 }
 
@@ -183,5 +265,59 @@ mod tests {
         );
 
         assert_eq!(evidence.gate_status, GateStatus::Pass);
+        assert!(evidence.failed_gates.is_empty());
+        assert!(evidence.remediation.is_empty());
+    }
+
+    #[test]
+    fn fail_evidence_contains_deterministic_failed_gates_and_remediation() {
+        let evidence = ReleaseEvidence::build(
+            "release-2".to_string(),
+            "deadbee".to_string(),
+            "k6".to_string(),
+            PerformanceEvidence {
+                runs: 3,
+                p50_ms: 10.0,
+                p95_ms: 30.0,
+                p99_ms: 90.0,
+                throughput_rps: 700.0,
+                startup_seconds: 2.0,
+                pass: false,
+            },
+            SecurityEvidence {
+                invalid_auth: GateStatus::Pass,
+                rate_limit_abuse: GateStatus::Fail,
+                log_safety: GateStatus::Pass,
+                secret_handling: GateStatus::Pass,
+                pass: false,
+            },
+            OperationalEvidence {
+                metrics_coverage_percent: 100,
+                readiness_behavior: GateStatus::Fail,
+                graceful_shutdown_behavior: GateStatus::Pass,
+                observability_behavior: GateStatus::Pass,
+                pass: false,
+            },
+            Vec::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(evidence.gate_status, GateStatus::Fail);
+        assert_eq!(
+            evidence.failed_gates,
+            vec![
+                "performance".to_string(),
+                "security.rate_limit_abuse".to_string(),
+                "operational.readiness_behavior".to_string(),
+            ]
+        );
+        assert_eq!(evidence.remediation.len(), evidence.failed_gates.len());
+        assert!(
+            evidence
+                .remediation
+                .iter()
+                .all(|item| !item.trim().is_empty()),
+            "each failed gate must have remediation guidance"
+        );
     }
 }

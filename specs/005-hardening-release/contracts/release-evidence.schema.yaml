@@ -13,6 +13,8 @@ required:
   - operational
   - artifacts
   - gate_status
+  - failed_gates
+  - remediation
 properties:
   release_id:
     type: string
@@ -161,6 +163,16 @@ properties:
     enum:
       - pass
       - fail
+  failed_gates:
+    type: array
+    items:
+      type: string
+      minLength: 1
+  remediation:
+    type: array
+    items:
+      type: string
+      minLength: 1
 
 allOf:
   - if:
@@ -181,3 +193,20 @@ allOf:
       properties:
         gate_status:
           const: pass
+        failed_gates:
+          maxItems: 0
+        remediation:
+          maxItems: 0
+  - if:
+      properties:
+        gate_status:
+          const: fail
+    then:
+      required:
+        - failed_gates
+        - remediation
+      properties:
+        failed_gates:
+          minItems: 1
+        remediation:
+          minItems: 1

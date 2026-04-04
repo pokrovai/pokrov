@@ -70,6 +70,11 @@
 - **FR-008**: Система MUST документировать release readiness criteria и результаты проверки перед пилотным выпуском.
 - **FR-009**: Система MUST возвращать предсказуемые rate-limit ответы без раскрытия sensitive metadata.
 - **FR-010**: Система MUST сохранять observability и graceful degradation даже при частичном истощении лимитов или ошибках upstream.
+- **FR-011**: Система MUST применять token-like limiting детерминированно для LLM и MCP JSON paths, где запрос доступен для безопасной оценки объема; при недоступной оценке MUST применяться только request budget без silent bypass других защит.
+- **FR-012**: Алгоритм token-like оценки MUST использовать фиксированную, документированную формулу и fallback semantics; изменение формулы требует обновления release verification baseline.
+- **FR-013**: Для профилей с dry-run enforcement система MUST формировать и логировать decision как `dry_run` без hard-block ответа клиенту, сохраняя metadata-only и observability инварианты.
+- **FR-014**: При частичной деградации observability (`/metrics` недоступен при живом runtime) `/health` MUST оставаться liveness-only, а `/ready` MUST отражать policy-configurable degraded-ready состояние без утечки payload данных.
+- **FR-015**: При частичном провале release-evidence (провален хотя бы один gate) итоговый статус MUST быть `fail`, а пакет evidence MUST включать детерминированный список проваленных gate и требуемых remediation шагов.
 
 ### Ключевые сущности *(добавляйте, если фича работает с данными)*
 
@@ -89,6 +94,7 @@
 - **Логи**: MUST появиться записи о rate limiting, upstream errors и release verification без утечек payload.
 - **Метрики**: MUST быть доступны все обязательные Prometheus series из PRD.
 - **Health/Readiness**: Readiness MUST корректно отражать деградацию, если runtime не способен безопасно обслуживать трафик.
+- **Health/Readiness**: При отказе `/metrics` и рабочем proxy-path readiness MUST явно сигнализировать degraded-ready/non-ready по документированному правилу, health при этом остается liveness probe.
 - **Документация/конфиг**: MUST быть подготовлены release notes, deployment guidance и verification checklist.
 
 ## Required Test Coverage *(обязательно)*
@@ -106,6 +112,8 @@
 - **SC-002**: Throughput достигает не менее 500 RPS на baseline payload в контрольном окружении.
 - **SC-003**: 100% обязательных Prometheus metrics доступны и подтверждены проверками.
 - **SC-004**: 100% релизных лог- и audit-проверок проходят без обнаружения raw sensitive payload.
+- **SC-005**: 100% rate-limit решений в dry-run профиле наблюдаемы как `dry_run` события и не приводят к ошибкам блокировки клиента.
+- **SC-006**: 100% release-evidence пакетов с хотя бы одним проваленным gate имеют итоговый статус `fail` и содержат machine-checkable перечень failed gates.
 
 ## Acceptance Evidence *(обязательно)*
 
@@ -119,3 +127,5 @@
 - Hardening release выполняется после завершения bootstrap, sanitization core, LLM proxy и MCP mediation.
 - Pilot release не требует web UI, external control plane или enterprise governance функций.
 - Performance verification проводится на baseline payload и baseline инфраструктуре, согласованных в PRD.
+- Baseline инфраструктура для acceptance фиксируется как single-node 4 vCPU / 8 GiB RAM, стабильная сеть без внешнего throttling и неизменный verification dataset из release runbook.
+- Baseline token-like формула фиксируется в release документации; смена формулы или единиц измерения требует пересчета целевых порогов и обновления acceptance evidence.

@@ -117,11 +117,15 @@
   - `security: SecurityEvidence`
   - `operational: OperationalEvidence`
   - `gate_status: "pass" | "fail"`
+  - `failed_gates: Vec<String>`
+  - `remediation: Vec<String>`
 - **Relationships**:
   - агрегирует результаты test/probe workflows;
   - входит в `DeploymentPackageManifest`.
 - **Validation rules**:
   - `gate_status=pass` только если все обязательные блоки помечены `pass`;
+  - при `gate_status=fail` `failed_gates` и `remediation` обязательны и непустые;
+  - порядок `failed_gates` детерминирован (фиксированный gate order);
   - evidence не включает raw prompt/tool/model samples.
 
 ## PerformanceEvidence
