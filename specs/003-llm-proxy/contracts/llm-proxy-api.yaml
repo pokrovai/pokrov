@@ -59,7 +59,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: Request blocked by policy before upstream call
+          description: Request blocked by policy before upstream call in both stream and non-stream modes
           headers:
             X-Request-Id:
               schema:
@@ -79,7 +79,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Model is not routed to any configured provider
+          description: Model has no active deterministic route (including disabled route/provider) and no fallback is applied
           headers:
             X-Request-Id:
               schema:

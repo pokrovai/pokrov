@@ -70,6 +70,8 @@
 - **FR-008**: Система MUST применять output sanitization, если это включено выбранным policy profile.
 - **FR-009**: Система MUST возвращать metadata summary обработки вместе с ответом, не раскрывая сырой sensitive content.
 - **FR-010**: Система MUST формировать metadata-only audit event для каждого LLM flow.
+- **FR-011**: Для `model` без активного маршрута (или с disabled route/provider) система MUST возвращать детерминированную структурированную ошибку `invalid_request`/`upstream_unavailable` без fallback к неявному provider.
+- **FR-012**: Семантика policy outcome MUST быть одинаковой для stream и non-stream режимов: `block` всегда останавливает upstream до начала проксирования, `allow` всегда сохраняет metadata-only ограничения.
 
 ### Ключевые сущности *(добавляйте, если фича работает с данными)*
 
@@ -106,6 +108,7 @@
 - **SC-002**: Не менее 95% типовых non-stream LLM запросов укладываются в NFR latency overhead v1.
 - **SC-003**: 100% policy block сценариев завершаются без upstream call.
 - **SC-004**: 100% проверенных audit/log артефактов по LLM path не содержат raw prompts или raw responses.
+- **SC-005**: Не менее 99% типовых запросов на baseline-нагрузке завершаются без transport/internal ошибки при доступном upstream provider.
 
 ## Acceptance Evidence *(обязательно)*
 
@@ -119,3 +122,5 @@
 - В scope входит только OpenAI-compatible chat completion surface, без дополнительных LLM API family.
 - Provider routing опирается на заранее заданную конфигурацию, а не на динамический control plane.
 - Input/output sanitization использует детерминированный sanitization core из предыдущей фичи.
+- OpenAI-compatible scope для v1 ограничен `/v1/chat/completions` (JSON и SSE), без function-calling orchestration surface, embeddings и assistants API.
+- Baseline reliability/latency acceptance проводится при фиксированных таймаутах upstream и неизменном наборе типовых payload из verification runbook.
