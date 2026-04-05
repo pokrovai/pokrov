@@ -7,6 +7,7 @@ use pokrov_core::types::{
     AuditSummary, EvaluateError, EvaluateRequest, EvaluationMode, ExplainSummary, PathClass,
     PolicyAction,
 };
+use pokrov_config::GatewayAuthMode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -53,7 +54,7 @@ pub async fn handle_evaluate(
         return Err(ApiError::gateway_unauthorized(request_id.clone()));
     }
 
-    if matches!(state.auth.gateway_auth_mode, pokrov_config::GatewayAuthMode::ApiKey) {
+    if matches!(state.auth.gateway_auth_mode, GatewayAuthMode::ApiKey) {
         let token = parse_bearer_token(&headers).ok_or_else(|| {
             ApiError::unauthorized(request_id.clone(), "missing bearer authorization")
         })?;

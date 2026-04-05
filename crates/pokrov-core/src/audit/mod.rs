@@ -6,6 +6,7 @@ use std::{
 use crate::{
     policy::category_to_key,
     types::{
+        foundation::action_key,
         AuditSummary, EvaluateDecision, EvaluateRequest, ExplainCategory, ExplainSummary, PolicyAction,
         ResolvedSpan,
     },
@@ -102,7 +103,7 @@ fn foundation_family_counts(rule_hits_total: u32, resolved_hits_total: u32) -> B
 fn explain_reason_codes(resolved_spans: &[ResolvedSpan]) -> Vec<String> {
     resolved_spans
         .iter()
-        .map(|span| format!("{}:{:?}", category_to_key(span.category), span.effective_action))
+        .map(|span| format!("{}:{}", category_to_key(span.category), action_key(span.effective_action)))
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -212,6 +213,100 @@ mod tests {
         assert!(
             explain.confidence_buckets.is_empty(),
             "priority is precedence metadata, not detector confidence"
+        );
+    }
+
+    #[test]
+    fn explain_reason_codes_use_wire_action_keys() {
+        let decision = EvaluateDecision {
+            final_action: PolicyAction::Redact,
+            rule_hits_total: 1,
+            hits_by_category: BTreeMap::from([("secrets".to_string(), 1)]),
+            resolved_spans: vec![ResolvedSpanView {
+                category: DetectionCategory::Secrets,
+                effective_action: PolicyAction::Redact,
+                start: 10,
+                end: 20,
+            }],
+            deterministic_signature: "sig".to_string(),
+        };
+
+        let explain = build_explain_summary(
+            "strict",
+            Enforce,
+            &decision,
+            &[ResolvedSpan {
+                json_pointer: "/payload".to_string(),
+                start: 10,
+                end: 20,
+                winning_rule_id: "builtin.secret".to_string(),
+                category: DetectionCategory::Secrets,
+                effective_action: PolicyAction::Redact,
+                priority: 900,
+                replacement_template: None,
+                suppressed_rule_ids: Vec::new(),
+            }],
+        );
+
+        assert_eq!(explain.reason_codes, vec!["secrets:redact".to_string()]);
+    }
+
+    #[test]
+    fn explain_summary_reports_mixed_provenance_without_payload() {
+        let decision = EvaluateDecision {
+            final_action: PolicyAction::Redact,
+            rule_hits_total: 2,
+            hits_by_category: BTreeMap::from([("secrets".to_string(), 2)]),
+            resolved_spans: vec![
+                ResolvedSpanView {
+                    category: DetectionCategory::Secrets,
+                    effective_action: PolicyAction::Redact,
+                    start: 10,
+                    end: 20,
+                },
+                ResolvedSpanView {
+                    category: DetectionCategory::Secrets,
+                    effective_action: PolicyAction::Redact,
+                    start: 22,
+                    end: 30,
+                },
+            ],
+            deterministic_signature: "sig".to_string(),
+        };
+
+        let explain = build_explain_summary(
+            "strict",
+            Enforce,
+            &decision,
+            &[
+                ResolvedSpan {
+                    json_pointer: "/payload".to_string(),
+                    start: 10,
+                    end: 20,
+                    winning_rule_id: "builtin.secret".to_string(),
+                    category: DetectionCategory::Secrets,
+                    effective_action: PolicyAction::Redact,
+                    priority: 900,
+                    replacement_template: None,
+                    suppressed_rule_ids: Vec::new(),
+                },
+                ResolvedSpan {
+                    json_pointer: "/payload".to_string(),
+                    start: 22,
+                    end: 30,
+                    winning_rule_id: "custom.rule".to_string(),
+                    category: DetectionCategory::Secrets,
+                    effective_action: PolicyAction::Redact,
+                    priority: 900,
+                    replacement_template: None,
+                    suppressed_rule_ids: Vec::new(),
+                },
+            ],
+        );
+
+        assert_eq!(
+            explain.provenance_summary,
+            vec!["built_in_rule".to_string(), "custom_rule".to_string()]
         );
     }
 
