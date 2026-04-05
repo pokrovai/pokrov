@@ -1,12 +1,12 @@
 use axum::{
     extract::{Extension, State},
-    http::{header, HeaderValue},
     http::StatusCode,
+    http::{header, HeaderValue},
     response::{IntoResponse, Response},
 };
 
 use super::request_context::{
-    RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
+    resolve_request_context, RequestContextHooks, UpstreamCredentialRequirement,
 };
 use crate::{
     app::{AppState, GatewayAuthContext},
@@ -28,19 +28,13 @@ pub async fn handle_models(
         &request_id,
         "/v1/models",
         UpstreamCredentialRequirement::Optional,
-        &RequestContextHooks {
-            on_auth_stage,
-            emit_auth_stage,
-            map_error: None,
-        },
+        &RequestContextHooks { on_auth_stage, emit_auth_stage, map_error: None },
     )
     .map_err(|error| error.with_response_metadata_mode(metadata_mode))?;
 
     if state.llm.handler.is_none() {
-        return Err(
-            ApiError::runtime_not_ready(request_id.clone(), "llm proxy is not ready")
-                .with_response_metadata_mode(metadata_mode),
-        );
+        return Err(ApiError::runtime_not_ready(request_id.clone(), "llm proxy is not ready")
+            .with_response_metadata_mode(metadata_mode));
     }
     state.metrics.on_models_catalog_request();
     let payload = state.llm.model_catalog_payload.clone().ok_or_else(|| {
@@ -49,14 +43,18 @@ pub async fn handle_models(
     })?;
 
     let mut response = (StatusCode::OK, payload.as_ref().clone()).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
     Ok(response)
 }
 
-fn on_auth_stage(state: &AppState, mode: &'static str, stage: &'static str, decision: &'static str) {
+fn on_auth_stage(
+    state: &AppState,
+    mode: &'static str,
+    stage: &'static str,
+    decision: &'static str,
+) {
     state.metrics.on_auth_decision(mode, stage, decision);
 }
 

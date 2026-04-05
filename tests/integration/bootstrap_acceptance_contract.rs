@@ -39,11 +39,8 @@ security:
         .expect("health request should succeed");
     assert_eq!(health.status(), StatusCode::OK);
 
-    let ready = client
-        .get(format!("{base_url}/ready"))
-        .send()
-        .await
-        .expect("ready request should succeed");
+    let ready =
+        client.get(format!("{base_url}/ready")).send().await.expect("ready request should succeed");
     assert_eq!(ready.status(), StatusCode::OK);
 
     let shutdown_task = tokio::spawn(async move { handle.shutdown().await });
@@ -64,20 +61,13 @@ security:
         }
     }
 
-    assert!(
-        seen_not_ready,
-        "runtime should stop returning ready=200 while draining"
-    );
+    assert!(seen_not_ready, "runtime should stop returning ready=200 while draining");
 
-    shutdown_task
-        .await
-        .expect("shutdown task should join")
-        .expect("shutdown should succeed");
+    shutdown_task.await.expect("shutdown task should join").expect("shutdown should succeed");
 }
 
 fn write_temp_config(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp config should be created");
-    file.write_all(content.as_bytes())
-        .expect("temp config should be written");
+    file.write_all(content.as_bytes()).expect("temp config should be written");
     file.into_temp_path().keep().expect("temp config path")
 }

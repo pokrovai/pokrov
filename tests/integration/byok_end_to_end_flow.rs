@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use crate::llm_proxy_test_support::{
-    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
 };
 
 #[tokio::test]
@@ -113,9 +113,10 @@ llm:
     assert_eq!(static_response.status(), StatusCode::OK);
     static_runtime.shutdown().await.expect("shutdown should succeed");
 
-    let passthrough_runtime = pokrov_runtime::bootstrap::spawn_runtime_for_tests(passthrough_config)
-        .await
-        .expect("runtime should start");
+    let passthrough_runtime =
+        pokrov_runtime::bootstrap::spawn_runtime_for_tests(passthrough_config)
+            .await
+            .expect("runtime should start");
     let passthrough_response = client
         .post(format!("{}/v1/chat/completions", passthrough_runtime.base_url()))
         .header("x-pokrov-api-key", "gateway-key")
@@ -125,10 +126,7 @@ llm:
         .await
         .expect("request should complete");
     assert_eq!(passthrough_response.status(), StatusCode::OK);
-    passthrough_runtime
-        .shutdown()
-        .await
-        .expect("shutdown should succeed");
+    passthrough_runtime.shutdown().await.expect("shutdown should succeed");
 
     provider.shutdown().await;
 }

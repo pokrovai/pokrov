@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use super::mcp_test_support::{
-    MockMcpMode, start_mock_mcp_server, write_key_file, write_runtime_config,
+    start_mock_mcp_server, write_key_file, write_runtime_config, MockMcpMode,
 };
 
 #[tokio::test]
@@ -67,10 +67,7 @@ mcp:
         .expect("client should build");
 
     let response = client
-        .post(format!(
-            "{}/v1/mcp/tools/read_file/invoke",
-            handle.base_url()
-        ))
+        .post(format!("{}/v1/mcp/tools/read_file/invoke", handle.base_url()))
         .header("authorization", "Bearer mcp-test-key")
         .json(&serde_json::json!({
             "server": "repo-tools",

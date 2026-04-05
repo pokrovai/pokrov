@@ -1,16 +1,16 @@
 use axum::{
-    extract::{Path, rejection::JsonRejection, Extension, State},
+    extract::{rejection::JsonRejection, Extension, Path, State},
     http::HeaderMap,
     Json,
 };
-use pokrov_proxy_mcp::types::{McpRequestMetadata, McpToolCallRequest, McpToolCallResponse};
 use pokrov_proxy_mcp::audit::{McpAuthStageAuditEvent, McpRateLimitAuditEvent};
+use pokrov_proxy_mcp::types::{McpRequestMetadata, McpToolCallRequest, McpToolCallResponse};
 use serde::Deserialize;
 
-use super::request_context::{
-    RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
-};
 use super::rate_limit::{estimate_json_token_units, evaluate_and_record_rate_limit};
+use super::request_context::{
+    resolve_request_context, RequestContextHooks, UpstreamCredentialRequirement,
+};
 use crate::{
     app::{AppState, GatewayAuthContext},
     error::ApiError,
@@ -33,11 +33,9 @@ pub async fn handle_mcp_tool_call(
     body: Result<Json<McpToolCallRequest>, JsonRejection>,
 ) -> Result<Json<McpToolCallResponse>, ApiError> {
     let metadata_mode = state.mcp.response_metadata_mode;
-    let body = body
-        .map(|Json(body)| body)
-        .map_err(|rejection| {
-            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
-        })?;
+    let body = body.map(|Json(body)| body).map_err(|rejection| {
+        map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+    })?;
 
     let context = resolve_request_context(
         &state,
@@ -77,8 +75,7 @@ pub async fn handle_mcp_tool_call(
         }
         if !decision.allowed {
             return Err(enforce_mcp_error_contract(ApiError::rate_limit_exceeded(
-                request_id,
-                decision,
+                request_id, decision,
             ))
             .with_response_metadata_mode(metadata_mode));
         }
@@ -109,9 +106,7 @@ pub async fn handle_mcp_tool_call(
                     Some(status) if (500..600).contains(&status) => "upstream_5xx",
                     _ => "transport",
                 };
-                state
-                    .metrics
-                    .on_upstream_error("/v1/mcp/tool-call", "mcp", error_class);
+                state.metrics.on_upstream_error("/v1/mcp/tool-call", "mcp", error_class);
             }
             ApiError::from_mcp_proxy(error).with_response_metadata_mode(metadata_mode)
         })?;
@@ -119,7 +114,12 @@ pub async fn handle_mcp_tool_call(
     Ok(Json(response))
 }
 
-fn on_auth_stage(state: &AppState, mode: &'static str, stage: &'static str, decision: &'static str) {
+fn on_auth_stage(
+    state: &AppState,
+    mode: &'static str,
+    stage: &'static str,
+    decision: &'static str,
+) {
     state.metrics.on_auth_decision(mode, stage, decision);
 }
 
@@ -130,13 +130,8 @@ fn emit_auth_stage(
     stage: &'static str,
     decision: &'static str,
 ) {
-    McpAuthStageAuditEvent {
-        request_id: request_id.to_string(),
-        auth_mode: mode,
-        stage,
-        decision,
-    }
-    .emit();
+    McpAuthStageAuditEvent { request_id: request_id.to_string(), auth_mode: mode, stage, decision }
+        .emit();
 }
 
 fn map_error(error: ApiError) -> ApiError {
@@ -153,19 +148,16 @@ pub async fn handle_mcp_tool_call_with_tool_name(
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<Json<McpToolCallResponse>, ApiError> {
     let metadata_mode = state.mcp.response_metadata_mode;
-    let path_body = body
-        .map(|Json(body)| body)
-        .map_err(|rejection| {
-            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
-        })?;
-    let path_body: McpToolInvokePathRequest =
-        serde_json::from_value(path_body).map_err(|_| {
-            enforce_mcp_error_contract(ApiError::invalid_request(
-                request_id.clone(),
-                "invalid request body",
-            ))
-            .with_response_metadata_mode(metadata_mode)
-        })?;
+    let path_body = body.map(|Json(body)| body).map_err(|rejection| {
+        map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+    })?;
+    let path_body: McpToolInvokePathRequest = serde_json::from_value(path_body).map_err(|_| {
+        enforce_mcp_error_contract(ApiError::invalid_request(
+            request_id.clone(),
+            "invalid request body",
+        ))
+        .with_response_metadata_mode(metadata_mode)
+    })?;
     let body = McpToolCallRequest {
         server: path_body.server,
         // The path-based invoke endpoint treats the URL segment as the source of truth for tool id.
@@ -186,10 +178,9 @@ pub async fn handle_mcp_tool_call_with_tool_name(
 
 fn map_json_rejection(request_id: String, rejection: JsonRejection) -> ApiError {
     match rejection {
-        JsonRejection::BytesRejection(_) => enforce_mcp_error_contract(ApiError::payload_too_large(
-            request_id,
-            "request body exceeds configured size limit",
-        )),
+        JsonRejection::BytesRejection(_) => enforce_mcp_error_contract(
+            ApiError::payload_too_large(request_id, "request body exceeds configured size limit"),
+        ),
         _ => enforce_mcp_error_contract(ApiError::invalid_request(
             request_id,
             "invalid request body",

@@ -93,9 +93,7 @@ async fn block_outcome_does_not_include_sanitized_payload() {
 
 fn write_config_with_file_key(token: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let mut key_file = NamedTempFile::new().expect("key file should be created");
-    key_file
-        .write_all(token.as_bytes())
-        .expect("key file should be written");
+    key_file.write_all(token.as_bytes()).expect("key file should be written");
     let key_path = key_file.into_temp_path().keep().expect("key path should persist");
 
     let key_path_display = key_path.display();

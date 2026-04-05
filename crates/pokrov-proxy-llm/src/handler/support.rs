@@ -86,10 +86,7 @@ pub(super) fn attach_request_id(
         )
     })?;
 
-    object.insert(
-        "request_id".to_string(),
-        Value::String(request_id.to_string()),
-    );
+    object.insert("request_id".to_string(), Value::String(request_id.to_string()));
     Ok(())
 }
 

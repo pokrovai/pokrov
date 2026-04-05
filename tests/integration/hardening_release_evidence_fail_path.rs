@@ -18,32 +18,23 @@ async fn release_evidence_fail_output_contains_failed_gates_and_remediation() {
 
     let mut file = std::fs::File::open(&output_path).expect("evidence file should exist");
     let mut body = String::new();
-    file.read_to_string(&mut body)
-        .expect("evidence file should be readable");
+    file.read_to_string(&mut body).expect("evidence file should be readable");
 
-    let payload: serde_json::Value = serde_json::from_str(&body).expect("evidence must be valid json");
+    let payload: serde_json::Value =
+        serde_json::from_str(&body).expect("evidence must be valid json");
     assert_eq!(payload["gate_status"], "fail");
 
-    let failed_gates = payload["failed_gates"]
-        .as_array()
-        .expect("failed_gates must be an array");
-    let remediation = payload["remediation"]
-        .as_array()
-        .expect("remediation must be an array");
+    let failed_gates = payload["failed_gates"].as_array().expect("failed_gates must be an array");
+    let remediation = payload["remediation"].as_array().expect("remediation must be an array");
 
-    assert!(
-        !failed_gates.is_empty(),
-        "failed evidence must include at least one failed gate"
-    );
+    assert!(!failed_gates.is_empty(), "failed evidence must include at least one failed gate");
     assert_eq!(
         failed_gates.len(),
         remediation.len(),
         "failed gates and remediation entries must have one-to-one mapping"
     );
     assert!(
-        failed_gates
-            .iter()
-            .any(|item| item.as_str() == Some("performance")),
+        failed_gates.iter().any(|item| item.as_str() == Some("performance")),
         "default generated evidence should include performance failure"
     );
 }

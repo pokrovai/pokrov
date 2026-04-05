@@ -49,7 +49,8 @@ async fn readiness_reports_degraded_when_metrics_rendering_fails_but_health_stay
     let body = axum::body::to_bytes(ready.into_body(), usize::MAX)
         .await
         .expect("ready body should decode");
-    let payload: serde_json::Value = serde_json::from_slice(&body).expect("ready body must be json");
+    let payload: serde_json::Value =
+        serde_json::from_slice(&body).expect("ready body must be json");
     assert_eq!(payload["status"], "degraded");
     assert_eq!(payload["checks"]["runtime"], "ok");
 }

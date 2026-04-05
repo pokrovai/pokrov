@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use reqwest::StatusCode;
 
-use crate::llm_proxy_test_support::{start_mock_provider, write_key_file, write_runtime_config, MockProviderMode};
+use crate::llm_proxy_test_support::{
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
+};
 
 #[tokio::test]
 async fn hardening_flow_covers_rate_limit_and_metrics_in_single_runtime() {

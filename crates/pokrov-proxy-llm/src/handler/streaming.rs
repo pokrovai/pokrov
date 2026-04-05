@@ -8,11 +8,12 @@ use serde_json::Value;
 use crate::{
     errors::LLMProxyError,
     stream::{
-        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse, sanitize_sse_stream,
+        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse,
+        sanitize_sse_stream,
     },
     types::{
-        LLMProxyBody, LLMProxyResponse, RouteResolution, UpstreamCredentialOrigin, UpstreamStreamResponse,
-        RESPONSES_ENDPOINT,
+        LLMProxyBody, LLMProxyResponse, RouteResolution, UpstreamCredentialOrigin,
+        UpstreamStreamResponse, RESPONSES_ENDPOINT,
     },
 };
 
@@ -50,10 +51,7 @@ impl LLMProxyHandler {
             )
             .await;
 
-        let UpstreamStreamResponse {
-            status,
-            body: upstream_body,
-        } = match upstream {
+        let UpstreamStreamResponse { status, body: upstream_body } = match upstream {
             Ok(response) => response,
             Err(error) => {
                 self.emit_error_event(

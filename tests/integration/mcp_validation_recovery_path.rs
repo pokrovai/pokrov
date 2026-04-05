@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use super::mcp_test_support::{
-    MockMcpMode, start_mock_mcp_server, write_key_file, write_runtime_config,
+    start_mock_mcp_server, write_key_file, write_runtime_config, MockMcpMode,
 };
 
 #[tokio::test]
@@ -85,10 +85,7 @@ mcp:
     assert_eq!(denied.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let denied_body: serde_json::Value = denied.json().await.expect("json body expected");
     assert_eq!(denied_body["allowed"], serde_json::json!(false));
-    assert_eq!(
-        denied_body["error"]["code"],
-        serde_json::json!("argument_validation_failed")
-    );
+    assert_eq!(denied_body["error"]["code"], serde_json::json!("argument_validation_failed"));
     assert_eq!(upstream.request_count(), 0);
 
     let corrected = client

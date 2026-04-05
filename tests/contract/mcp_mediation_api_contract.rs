@@ -18,11 +18,9 @@ fn mcp_contract_defines_tool_call_endpoint_and_success_shape() {
     let operation = &api["paths"]["/v1/mcp/tool-call"]["post"];
     assert!(operation.is_mapping(), "mcp tool-call endpoint must exist");
 
-    let success_schema = &operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"];
-    assert_eq!(
-        success_schema.as_str(),
-        Some("#/components/schemas/McpToolCallResponse")
-    );
+    let success_schema =
+        &operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"];
+    assert_eq!(success_schema.as_str(), Some("#/components/schemas/McpToolCallResponse"));
 }
 
 #[test]
@@ -36,9 +34,8 @@ fn mcp_contract_exposes_blocked_validation_and_unsupported_variant_errors() {
     assert!(status_403.is_mapping(), "403 response must be declared");
     assert!(status_422.is_mapping(), "422 response must be declared");
     assert!(status_503.is_mapping(), "503 response must be declared");
-    let status_422_description = status_422["description"]
-        .as_str()
-        .expect("422 response description must be present");
+    let status_422_description =
+        status_422["description"].as_str().expect("422 response description must be present");
     assert!(
         status_422_description.contains("without upstream retry"),
         "422 contract must declare deterministic deny outcome without upstream retry"
@@ -60,8 +57,10 @@ fn mcp_contract_exposes_blocked_validation_and_unsupported_variant_errors() {
 
 #[test]
 fn hardening_contract_covers_mcp_invoke_path_and_rate_limit_error() {
-    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should parse");
+    let raw = std::fs::read_to_string(hardening_contract_path())
+        .expect("hardening contract should exist");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("hardening contract should parse");
 
     let operation = &api["paths"]["/v1/mcp/tools/{toolName}/invoke"]["post"];
     assert!(operation.is_mapping(), "hardening MCP invoke endpoint must be declared");

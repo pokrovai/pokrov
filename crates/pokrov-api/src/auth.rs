@@ -16,24 +16,16 @@ pub(crate) struct GatewayCredential<'a> {
 
 pub(crate) fn parse_gateway_credential(headers: &HeaderMap) -> Option<GatewayCredential<'_>> {
     if let Some(token) = parse_header_token(headers, &X_POKROV_API_KEY) {
-        return Some(GatewayCredential {
-            token,
-            mechanism: GatewayAuthMechanism::ApiKey,
-        });
+        return Some(GatewayCredential { token, mechanism: GatewayAuthMechanism::ApiKey });
     }
 
-    parse_bearer_token(headers).map(|token| GatewayCredential {
-        token,
-        mechanism: GatewayAuthMechanism::Bearer,
-    })
+    parse_bearer_token(headers)
+        .map(|token| GatewayCredential { token, mechanism: GatewayAuthMechanism::Bearer })
 }
 
 pub(crate) fn parse_bearer_token(headers: &HeaderMap) -> Option<&str> {
     let header = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    header
-        .strip_prefix("Bearer ")
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
+    header.strip_prefix("Bearer ").map(str::trim).filter(|token| !token.is_empty())
 }
 
 pub(crate) fn parse_header_token_by_name<'a>(
@@ -113,12 +105,7 @@ pub(crate) fn fingerprint_gateway_auth_subject(token: &str) -> String {
 }
 
 fn parse_header_token<'a>(headers: &'a HeaderMap, name: &HeaderName) -> Option<&'a str> {
-    headers
-        .get(name)?
-        .to_str()
-        .ok()
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
+    headers.get(name)?.to_str().ok().map(str::trim).filter(|token| !token.is_empty())
 }
 
 #[cfg(test)]
@@ -138,10 +125,7 @@ mod tests {
     #[test]
     fn parse_bearer_token_normalizes_prefix_and_whitespace() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Bearer   token-123   "),
-        );
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer   token-123   "));
 
         assert_eq!(parse_bearer_token(&headers), Some("token-123"));
     }
@@ -162,10 +146,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("x-custom-auth", HeaderValue::from_static(" mesh-subject "));
 
-        assert_eq!(
-            parse_header_token_by_name(&headers, "x-custom-auth"),
-            Some("mesh-subject")
-        );
+        assert_eq!(parse_header_token_by_name(&headers, "x-custom-auth"), Some("mesh-subject"));
     }
 
     #[test]

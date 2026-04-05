@@ -10,10 +10,10 @@ use pokrov_proxy_llm::audit::{LLMAuthStageAuditEvent, LLMRateLimitAuditEvent};
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
 
-use super::request_context::{
-    RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
-};
 use super::rate_limit::evaluate_and_record_rate_limit;
+use super::request_context::{
+    resolve_request_context, RequestContextHooks, UpstreamCredentialRequirement,
+};
 use crate::{
     app::{AppState, GatewayAuthContext},
     error::ApiError,
@@ -28,11 +28,9 @@ pub async fn handle_responses(
     body: Result<Json<Value>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let metadata_mode = state.llm.response_metadata_mode;
-    let payload = body
-        .map(|Json(body)| body)
-        .map_err(|rejection| {
-            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
-        })?;
+    let payload = body.map(|Json(body)| body).map_err(|rejection| {
+        map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+    })?;
     let is_stream_request = payload.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
     let context = resolve_request_context(
@@ -73,10 +71,8 @@ pub async fn handle_responses(
             .emit();
         }
         if !decision.allowed {
-            return Err(
-                ApiError::rate_limit_exceeded(request_id, decision)
-                    .with_response_metadata_mode(metadata_mode),
-            );
+            return Err(ApiError::rate_limit_exceeded(request_id, decision)
+                .with_response_metadata_mode(metadata_mode));
         }
     }
 
@@ -118,28 +114,22 @@ pub async fn handle_responses(
     match response.body {
         LLMProxyBody::Json(body) => Ok((
             response.status,
-            Json(map_chat_to_responses_envelope(
-                body,
-                state.llm.response_metadata_mode,
-            )),
+            Json(map_chat_to_responses_envelope(body, state.llm.response_metadata_mode)),
         )
             .into_response()),
         LLMProxyBody::Sse(body) => {
             // For SSE, request correlation is provided by the x-request-id response header.
             let mut sse_response = Response::new(Body::from(body));
             *sse_response.status_mut() = response.status;
-            sse_response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("text/event-stream"),
-            );
-            sse_response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("no-cache"),
-            );
-            sse_response.headers_mut().insert(
-                header::CONNECTION,
-                HeaderValue::from_static("keep-alive"),
-            );
+            sse_response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            sse_response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            sse_response
+                .headers_mut()
+                .insert(header::CONNECTION, HeaderValue::from_static("keep-alive"));
 
             Ok(sse_response)
         }
@@ -147,25 +137,27 @@ pub async fn handle_responses(
             // For SSE, request correlation is provided by the x-request-id response header.
             let mut sse_response = Response::new(Body::from_stream(stream));
             *sse_response.status_mut() = response.status;
-            sse_response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("text/event-stream"),
-            );
-            sse_response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("no-cache"),
-            );
-            sse_response.headers_mut().insert(
-                header::CONNECTION,
-                HeaderValue::from_static("keep-alive"),
-            );
+            sse_response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            sse_response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            sse_response
+                .headers_mut()
+                .insert(header::CONNECTION, HeaderValue::from_static("keep-alive"));
 
             Ok(sse_response)
         }
     }
 }
 
-fn on_auth_stage(state: &AppState, mode: &'static str, stage: &'static str, decision: &'static str) {
+fn on_auth_stage(
+    state: &AppState,
+    mode: &'static str,
+    stage: &'static str,
+    decision: &'static str,
+) {
     state.metrics.on_responses_auth_stage(mode, stage, decision);
 }
 
@@ -203,11 +195,8 @@ fn map_chat_to_responses_envelope(body: Value, metadata_mode: ResponseMetadataMo
                         .and_then(Value::as_str)
                         .unwrap_or("assistant")
                         .to_string();
-                    let text = message
-                        .get("content")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
+                    let text =
+                        message.get("content").and_then(Value::as_str).unwrap_or("").to_string();
                     serde_json::json!({
                         "type": "message",
                         "role": role,
@@ -235,10 +224,7 @@ fn map_chat_to_responses_envelope(body: Value, metadata_mode: ResponseMetadataMo
 
 fn estimate_responses_token_units(payload: &Value) -> u32 {
     match payload {
-        Value::Object(map) => map
-            .get("input")
-            .map(estimate_responses_token_units)
-            .unwrap_or(1),
+        Value::Object(map) => map.get("input").map(estimate_responses_token_units).unwrap_or(1),
         Value::String(text) => ((text.chars().count() as u32) / 4).max(1),
         Value::Array(items) => items
             .iter()

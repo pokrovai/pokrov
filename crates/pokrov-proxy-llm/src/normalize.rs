@@ -4,10 +4,13 @@ use serde_json::Value;
 
 use crate::{
     errors::LLMProxyError,
-    types::{ALLOWED_ROLES, ContentBlock, LLMMessage, LLMRequestEnvelope, MessageContent},
+    types::{ContentBlock, LLMMessage, LLMRequestEnvelope, MessageContent, ALLOWED_ROLES},
 };
 
-pub fn normalize_request(request_id: &str, payload: Value) -> Result<LLMRequestEnvelope, LLMProxyError> {
+pub fn normalize_request(
+    request_id: &str,
+    payload: Value,
+) -> Result<LLMRequestEnvelope, LLMProxyError> {
     let object = payload.as_object().ok_or_else(|| {
         LLMProxyError::invalid_request(request_id, "request body must be a JSON object")
     })?;
@@ -17,7 +20,9 @@ pub fn normalize_request(request_id: &str, payload: Value) -> Result<LLMRequestE
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| LLMProxyError::invalid_request(request_id, "field 'model' must be a non-empty string"))?
+        .ok_or_else(|| {
+            LLMProxyError::invalid_request(request_id, "field 'model' must be a non-empty string")
+        })?
         .to_string();
 
     let messages_value = object.get("messages").ok_or_else(|| {
@@ -41,7 +46,10 @@ pub fn normalize_request(request_id: &str, payload: Value) -> Result<LLMRequestE
     })
 }
 
-pub fn normalize_responses_payload(request_id: &str, payload: Value) -> Result<Value, LLMProxyError> {
+pub fn normalize_responses_payload(
+    request_id: &str,
+    payload: Value,
+) -> Result<Value, LLMProxyError> {
     let object = payload.as_object().ok_or_else(|| {
         LLMProxyError::invalid_request(request_id, "request body must be a JSON object")
     })?;
@@ -51,11 +59,13 @@ pub fn normalize_responses_payload(request_id: &str, payload: Value) -> Result<V
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| LLMProxyError::invalid_request(request_id, "field 'model' must be a non-empty string"))?;
+        .ok_or_else(|| {
+            LLMProxyError::invalid_request(request_id, "field 'model' must be a non-empty string")
+        })?;
     let stream = object.get("stream").and_then(Value::as_bool).unwrap_or(false);
-    let input = object.get("input").ok_or_else(|| {
-        LLMProxyError::invalid_request(request_id, "field 'input' is required")
-    })?;
+    let input = object
+        .get("input")
+        .ok_or_else(|| LLMProxyError::invalid_request(request_id, "field 'input' is required"))?;
     let messages = normalize_responses_input(request_id, input)?;
 
     let mut mapped = serde_json::Map::from_iter([
@@ -94,9 +104,9 @@ pub fn estimate_token_units(payload: &Value) -> u32 {
 }
 
 fn normalize_messages(request_id: &str, value: &Value) -> Result<Vec<LLMMessage>, LLMProxyError> {
-    let messages = value
-        .as_array()
-        .ok_or_else(|| LLMProxyError::invalid_request(request_id, "field 'messages' must be an array"))?;
+    let messages = value.as_array().ok_or_else(|| {
+        LLMProxyError::invalid_request(request_id, "field 'messages' must be an array")
+    })?;
 
     if messages.is_empty() {
         return Err(LLMProxyError::invalid_request(
@@ -118,7 +128,9 @@ fn normalize_responses_input(request_id: &str, input: &Value) -> Result<Vec<Valu
             "role": "user",
             "content": text,
         })]),
-        Value::Object(message) => normalize_responses_message_object(request_id, message).map(|item| vec![item]),
+        Value::Object(message) => {
+            normalize_responses_message_object(request_id, message).map(|item| vec![item])
+        }
         Value::Array(items) => {
             if items.is_empty() {
                 return Err(LLMProxyError::invalid_request(
@@ -135,7 +147,9 @@ fn normalize_responses_input(request_id: &str, input: &Value) -> Result<Vec<Valu
                         "role": "user",
                         "content": text,
                     })),
-                    Value::Object(message) => normalize_responses_message_object(request_id, message),
+                    Value::Object(message) => {
+                        normalize_responses_message_object(request_id, message)
+                    }
                     _ => Err(LLMProxyError::invalid_request(
                         request_id,
                         format!("input[{idx}] is not supported in minimal responses subset"),
@@ -160,16 +174,10 @@ fn normalize_responses_message_object(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            LLMProxyError::invalid_request(
-                request_id,
-                "input message requires non-empty 'role'",
-            )
+            LLMProxyError::invalid_request(request_id, "input message requires non-empty 'role'")
         })?;
     let content = message.get("content").ok_or_else(|| {
-        LLMProxyError::invalid_request(
-            request_id,
-            "input message requires 'content'",
-        )
+        LLMProxyError::invalid_request(request_id, "input message requires 'content'")
     })?;
 
     match content {
@@ -188,12 +196,13 @@ fn normalize_responses_message_object(
     }))
 }
 
-fn normalize_message(request_id: &str, index: usize, value: &Value) -> Result<LLMMessage, LLMProxyError> {
+fn normalize_message(
+    request_id: &str,
+    index: usize,
+    value: &Value,
+) -> Result<LLMMessage, LLMProxyError> {
     let object = value.as_object().ok_or_else(|| {
-        LLMProxyError::invalid_request(
-            request_id,
-            format!("messages[{index}] must be an object"),
-        )
+        LLMProxyError::invalid_request(request_id, format!("messages[{index}] must be an object"))
     })?;
 
     let role = object
@@ -202,7 +211,10 @@ fn normalize_message(request_id: &str, index: usize, value: &Value) -> Result<LL
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            LLMProxyError::invalid_request(request_id, format!("messages[{index}].role is required"))
+            LLMProxyError::invalid_request(
+                request_id,
+                format!("messages[{index}].role is required"),
+            )
         })?
         .to_string();
 
@@ -250,9 +262,7 @@ fn normalize_content(
         let block_object = block.as_object().ok_or_else(|| {
             LLMProxyError::invalid_request(
                 request_id,
-                format!(
-                    "messages[{message_index}].content[{index}] must be an object"
-                ),
+                format!("messages[{message_index}].content[{index}] must be an object"),
             )
         })?;
 
@@ -272,11 +282,7 @@ fn normalize_content(
         let text = block_object.get("text").and_then(Value::as_str).map(str::to_string);
         let json = block_object.get("json").cloned();
 
-        normalized_blocks.push(ContentBlock {
-            block_type,
-            text,
-            json,
-        });
+        normalized_blocks.push(ContentBlock { block_type, text, json });
     }
 
     Ok(MessageContent::Blocks(normalized_blocks))
@@ -313,9 +319,9 @@ fn estimate_token_units_inner(payload: &Value) -> u32 {
         Value::Array(values) => values
             .iter()
             .fold(0u32, |acc, value| acc.saturating_add(estimate_token_units_inner(value))),
-        Value::Object(map) => map.values().fold(0u32, |acc, value| {
-            acc.saturating_add(estimate_token_units_inner(value))
-        }),
+        Value::Object(map) => map
+            .values()
+            .fold(0u32, |acc, value| acc.saturating_add(estimate_token_units_inner(value))),
     }
 }
 
@@ -340,11 +346,7 @@ mod tests {
         assert_eq!(normalized.model, "gpt-4o-mini");
         assert_eq!(normalized.messages.len(), 1);
 
-        let profile = resolve_profile_id(
-            normalized.profile_hint.as_deref(),
-            "strict",
-            "custom",
-        );
+        let profile = resolve_profile_id(normalized.profile_hint.as_deref(), "strict", "custom");
         assert_eq!(profile, "minimal");
     }
 
@@ -397,8 +399,8 @@ mod tests {
             "input": [42],
         });
 
-        let error = normalize_responses_payload("req-2", payload)
-            .expect_err("unsupported item must fail");
+        let error =
+            normalize_responses_payload("req-2", payload).expect_err("unsupported item must fail");
         assert_eq!(error.code().as_str(), "invalid_request");
     }
 }

@@ -15,9 +15,6 @@ mod tests {
 
     #[test]
     fn preserves_non_ascii_codepoints() {
-        assert_eq!(
-            normalize_model_key("  Модель/Τεστ  "),
-            "Модель/Τεστ"
-        );
+        assert_eq!(normalize_model_key("  Модель/Τεστ  "), "Модель/Τεστ");
     }
 }

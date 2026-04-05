@@ -97,10 +97,7 @@ pub(super) fn resolve_request_context(
         pokrov_config::UpstreamAuthMode::Static => None,
         pokrov_config::UpstreamAuthMode::Passthrough => {
             // Local-only endpoints (for example, model catalog discovery) must not require provider credentials.
-            if matches!(
-                upstream_credential_requirement,
-                UpstreamCredentialRequirement::Optional
-            ) {
+            if matches!(upstream_credential_requirement, UpstreamCredentialRequirement::Optional) {
                 return Ok(ResolvedRequestContext {
                     mode_label,
                     rate_limit_key: client_identity.to_string(),
@@ -129,9 +126,9 @@ pub(super) fn resolve_request_context(
                 Some(GatewayAuthMechanism::ApiKey)
                 | Some(GatewayAuthMechanism::InternalMtls)
                 | Some(GatewayAuthMechanism::MeshMtls)
-                | None => parse_bearer_token(headers)
-                    .map(str::to_string)
-                    .ok_or_else(missing_upstream)?,
+                | None => {
+                    parse_bearer_token(headers).map(str::to_string).ok_or_else(missing_upstream)?
+                }
                 Some(GatewayAuthMechanism::Bearer) => {
                     if !state.auth.allow_single_bearer_passthrough {
                         (hooks.on_auth_stage)(state, mode_label, "upstream_credentials", "fail");

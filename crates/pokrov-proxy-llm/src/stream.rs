@@ -96,11 +96,7 @@ pub fn sanitize_sse_stream(
         body.push_str("\n\n");
     }
 
-    Ok(StreamSanitizationResult {
-        body,
-        rule_hits_total: total_hits,
-        final_action,
-    })
+    Ok(StreamSanitizationResult { body, rule_hits_total: total_hits, final_action })
 }
 
 pub fn convert_chat_sse_to_responses_sse(
@@ -226,10 +222,8 @@ fn extract_text_delta(value: &Value) -> Option<String> {
     let choices = value.get("choices")?.as_array()?;
     let mut merged = String::new();
     for choice in choices {
-        if let Some(text) = choice
-            .get("delta")
-            .and_then(|delta| delta.get("content"))
-            .and_then(Value::as_str)
+        if let Some(text) =
+            choice.get("delta").and_then(|delta| delta.get("content")).and_then(Value::as_str)
         {
             merged.push_str(text);
         }
@@ -255,7 +249,8 @@ mod tests {
     };
 
     use super::{
-        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse, sanitize_sse_stream,
+        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse,
+        sanitize_sse_stream,
     };
 
     fn engine() -> SanitizationEngine {

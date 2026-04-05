@@ -43,10 +43,7 @@ security:
     }
 
     let avg_ms = started.elapsed().as_millis() / 20;
-    assert!(
-        avg_ms <= 50,
-        "average probe latency should remain within 50 ms, got {avg_ms} ms"
-    );
+    assert!(avg_ms <= 50, "average probe latency should remain within 50 ms, got {avg_ms} ms");
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
 }

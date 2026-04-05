@@ -107,9 +107,8 @@ mod tests {
             }
         });
 
-        let (mapped, transformed_fields) = map_string_leaves(&input, &mut |_ptr, text| {
-            format!("***{text}***")
-        });
+        let (mapped, transformed_fields) =
+            map_string_leaves(&input, &mut |_ptr, text| format!("***{text}***"));
 
         assert_eq!(mapped["nested"]["b"], 42);
         assert_eq!(mapped["nested"]["c"][1], true);

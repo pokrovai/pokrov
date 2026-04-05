@@ -19,10 +19,8 @@ pub struct McpUpstreamClient {
 
 impl McpUpstreamClient {
     pub fn new() -> Result<Self, McpProxyError> {
-        let client = reqwest::Client::builder()
-            .pool_max_idle_per_host(16)
-            .build()
-            .map_err(|error| {
+        let client =
+            reqwest::Client::builder().pool_max_idle_per_host(16).build().map_err(|error| {
                 McpProxyError::upstream_unavailable(
                     SYSTEM_REQUEST_ID,
                     SYSTEM_SERVER_ID,
@@ -40,10 +38,8 @@ impl McpUpstreamClient {
         arguments: &Value,
     ) -> Result<McpToolResultEnvelope, McpProxyError> {
         let endpoint = build_endpoint(&context.endpoint);
-        let mut request = self
-            .client
-            .post(endpoint)
-            .timeout(Duration::from_millis(context.timeout_ms));
+        let mut request =
+            self.client.post(endpoint).timeout(Duration::from_millis(context.timeout_ms));
         if let Some(token) = context.upstream_bearer_token.as_ref() {
             request = request.bearer_auth(token);
         }
@@ -98,43 +94,22 @@ fn normalize_result(payload: Value) -> Result<McpToolResultEnvelope, String> {
                         .get("content_type")
                         .and_then(Value::as_str)
                         .map(str::to_string);
-                    let truncated = result_object
-                        .get("truncated")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
+                    let truncated =
+                        result_object.get("truncated").and_then(Value::as_bool).unwrap_or(false);
 
-                    return Ok(McpToolResultEnvelope {
-                        content,
-                        content_type,
-                        truncated,
-                    });
+                    return Ok(McpToolResultEnvelope { content, content_type, truncated });
                 }
             }
 
-            let content = object
-                .get("content")
-                .cloned()
-                .unwrap_or_else(|| Value::Object(object.clone()));
-            let content_type = object
-                .get("content_type")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let truncated = object
-                .get("truncated")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+            let content =
+                object.get("content").cloned().unwrap_or_else(|| Value::Object(object.clone()));
+            let content_type =
+                object.get("content_type").and_then(Value::as_str).map(str::to_string);
+            let truncated = object.get("truncated").and_then(Value::as_bool).unwrap_or(false);
 
-            Ok(McpToolResultEnvelope {
-                content,
-                content_type,
-                truncated,
-            })
+            Ok(McpToolResultEnvelope { content, content_type, truncated })
         }
-        _ => Ok(McpToolResultEnvelope {
-            content: payload,
-            content_type: None,
-            truncated: false,
-        }),
+        _ => Ok(McpToolResultEnvelope { content: payload, content_type: None, truncated: false }),
     }
 }
 
@@ -161,7 +136,10 @@ fn map_status_error(
     )
 }
 
-fn map_transport_error(context: &McpUpstreamRequestContext, error: reqwest::Error) -> McpProxyError {
+fn map_transport_error(
+    context: &McpUpstreamRequestContext,
+    error: reqwest::Error,
+) -> McpProxyError {
     if error.is_timeout() || error.is_connect() {
         return McpProxyError::upstream_unavailable(
             &context.request_id,

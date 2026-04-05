@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use super::mcp_test_support::{
-    MockMcpMode, start_mock_mcp_server, write_key_file, write_runtime_config,
+    start_mock_mcp_server, write_key_file, write_runtime_config, MockMcpMode,
 };
 
 #[tokio::test]
@@ -236,10 +236,7 @@ mcp:
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert_eq!(body["allowed"], serde_json::json!(false));
     assert_eq!(body["error"]["code"], serde_json::json!("tool_call_blocked"));
-    assert_eq!(
-        body["error"]["details"]["reason"],
-        serde_json::json!("output_blocked")
-    );
+    assert_eq!(body["error"]["details"]["reason"], serde_json::json!("output_blocked"));
     assert!(body["error"]["details"]["violation_count"].as_u64().unwrap_or(0) >= 1);
 
     assert_eq!(upstream.request_count(), 1);

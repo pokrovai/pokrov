@@ -29,16 +29,19 @@ pub fn apply_transforms(
     }
 
     for spans in spans_by_pointer.values_mut() {
-        spans.sort_by(|left, right| left.start.cmp(&right.start).then_with(|| left.end.cmp(&right.end)));
+        spans.sort_by(|left, right| {
+            left.start.cmp(&right.start).then_with(|| left.end.cmp(&right.end))
+        });
     }
 
-    let (sanitized_payload, transformed_fields_count) = map_string_leaves(payload, &mut |pointer, text| {
-        let Some(spans) = spans_by_pointer.get(pointer) else {
-            return text.to_string();
-        };
+    let (sanitized_payload, transformed_fields_count) =
+        map_string_leaves(payload, &mut |pointer, text| {
+            let Some(spans) = spans_by_pointer.get(pointer) else {
+                return text.to_string();
+            };
 
-        apply_spans(text, spans, mask_visible_suffix)
-    });
+            apply_spans(text, spans, mask_visible_suffix)
+        });
 
     TransformResult {
         final_action,

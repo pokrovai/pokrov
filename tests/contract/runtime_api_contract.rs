@@ -52,7 +52,8 @@ fn runtime_api_contract_readiness_statuses_and_headers_match_expectations() {
 #[test]
 fn runtime_contract_suite_covers_mcp_mediation_route() {
     let raw = std::fs::read_to_string(mcp_contract_path()).expect("mcp contract file should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("mcp contract should be valid yaml");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("mcp contract should be valid yaml");
 
     assert!(
         api["paths"]["/v1/mcp/tool-call"]["post"].is_mapping(),
@@ -62,16 +63,20 @@ fn runtime_contract_suite_covers_mcp_mediation_route() {
 
 #[test]
 fn hardening_runtime_contract_includes_metrics_endpoint() {
-    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract file should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should be valid yaml");
+    let raw = std::fs::read_to_string(hardening_contract_path())
+        .expect("hardening contract file should exist");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("hardening contract should be valid yaml");
 
     assert!(api["paths"]["/metrics"]["get"].is_mapping());
 }
 
 #[test]
 fn hardening_runtime_contract_declares_degraded_ready_state() {
-    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should parse");
+    let raw = std::fs::read_to_string(hardening_contract_path())
+        .expect("hardening contract should exist");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("hardening contract should parse");
 
     let ready_503 = &api["paths"]["/ready"]["get"]["responses"]["503"];
     assert!(ready_503.is_mapping(), "hardening /ready must declare 503");
@@ -82,10 +87,7 @@ fn hardening_runtime_contract_declares_degraded_ready_state() {
         .iter()
         .filter_map(serde_yaml::Value::as_str)
         .collect::<Vec<_>>();
-    assert!(
-        statuses.contains(&"degraded"),
-        "ReadyResponse.status must declare degraded state"
-    );
+    assert!(statuses.contains(&"degraded"), "ReadyResponse.status must declare degraded state");
 }
 
 #[test]
@@ -104,7 +106,8 @@ fn byok_chat_rate_limit_contract_mentions_identity_bound_behavior() {
     let raw = std::fs::read_to_string(byok_contract_path()).expect("byok contract should exist");
     let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("byok contract should parse");
 
-    let description = api["paths"]["/v1/chat/completions"]["post"]["responses"]["429"]["description"]
+    let description = api["paths"]["/v1/chat/completions"]["post"]["responses"]["429"]
+        ["description"]
         .as_str()
         .expect("429 description must be present");
     assert!(

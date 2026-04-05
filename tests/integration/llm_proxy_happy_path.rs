@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use super::llm_proxy_test_support::{
-    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
 };
 
 #[tokio::test]
@@ -120,7 +120,8 @@ llm:
 
     let captured = provider.captured_requests().await;
     assert_eq!(captured.len(), 1);
-    let captured_text = serde_json::to_string(&captured[0]).expect("captured request should serialize");
+    let captured_text =
+        serde_json::to_string(&captured[0]).expect("captured request should serialize");
     assert!(
         !captured_text.contains("sk-test-12345678"),
         "upstream request must not contain raw secret token"

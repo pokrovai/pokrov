@@ -55,38 +55,23 @@ pub enum LLMProxyError {
 
 impl LLMProxyError {
     pub fn invalid_request(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::InvalidRequest {
-            request_id: request_id.into(),
-            message: message.into(),
-        }
+        Self::InvalidRequest { request_id: request_id.into(), message: message.into() }
     }
 
     pub fn unauthorized(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::Unauthorized {
-            request_id: request_id.into(),
-            message: message.into(),
-        }
+        Self::Unauthorized { request_id: request_id.into(), message: message.into() }
     }
 
     pub fn policy_blocked(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::PolicyBlocked {
-            request_id: request_id.into(),
-            message: message.into(),
-        }
+        Self::PolicyBlocked { request_id: request_id.into(), message: message.into() }
     }
 
     pub fn model_not_routed(request_id: impl Into<String>, model: impl Into<String>) -> Self {
-        Self::ModelNotRouted {
-            request_id: request_id.into(),
-            model: model.into(),
-        }
+        Self::ModelNotRouted { request_id: request_id.into(), model: model.into() }
     }
 
     pub fn alias_conflict(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::AliasConflict {
-            request_id: request_id.into(),
-            message: message.into(),
-        }
+        Self::AliasConflict { request_id: request_id.into(), message: message.into() }
     }
 
     pub fn upstream_error(
@@ -181,21 +166,16 @@ impl LLMProxyError {
 
     pub fn provider_id(&self) -> Option<&str> {
         match self {
-            Self::UpstreamError { provider_id, .. } | Self::UpstreamUnavailable { provider_id, .. } => {
-                provider_id.as_deref()
-            }
+            Self::UpstreamError { provider_id, .. }
+            | Self::UpstreamUnavailable { provider_id, .. } => provider_id.as_deref(),
             _ => None,
         }
     }
 
     pub const fn upstream_status(&self) -> Option<u16> {
         match self {
-            Self::UpstreamError {
-                upstream_status, ..
-            }
-            | Self::UpstreamUnavailable {
-                upstream_status, ..
-            } => *upstream_status,
+            Self::UpstreamError { upstream_status, .. }
+            | Self::UpstreamUnavailable { upstream_status, .. } => *upstream_status,
             _ => None,
         }
     }
@@ -206,7 +186,9 @@ impl LLMProxyError {
             | Self::Unauthorized { message, .. }
             | Self::PolicyBlocked { message, .. }
             | Self::AliasConflict { message, .. } => message.clone(),
-            Self::ModelNotRouted { .. } => "requested model is not routed to a configured provider".to_string(),
+            Self::ModelNotRouted { .. } => {
+                "requested model is not routed to a configured provider".to_string()
+            }
             Self::UpstreamError { .. } => "upstream request failed".to_string(),
             Self::UpstreamUnavailable { .. } => "upstream provider is unavailable".to_string(),
         }

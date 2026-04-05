@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use super::mcp_test_support::{
-    MockMcpMode, start_mock_mcp_server, write_key_file, write_runtime_config,
+    start_mock_mcp_server, write_key_file, write_runtime_config, MockMcpMode,
 };
 
 #[tokio::test]
@@ -80,10 +80,7 @@ mcp:
 
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let body: serde_json::Value = response.json().await.expect("json body expected");
-    assert_eq!(
-        body["error"]["code"],
-        serde_json::json!("argument_validation_failed")
-    );
+    assert_eq!(body["error"]["code"], serde_json::json!("argument_validation_failed"));
     assert_eq!(upstream.request_count(), 0);
 
     let serialized = serde_json::to_string(&body).expect("response should serialize");
