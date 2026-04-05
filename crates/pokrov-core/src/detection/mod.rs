@@ -396,6 +396,45 @@ mod tests {
     }
 
     #[test]
+    fn detects_medical_record_number_patterns() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "medical record number MRN-602675 was referenced in ticket"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.medical_record_number"));
+    }
+
+    #[test]
+    fn detects_license_plate_patterns() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Vehicle checkpoint confirms plate FTR 832 for cargo route"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.license_plate"));
+    }
+
+    #[test]
+    fn rejects_license_plate_like_noise() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "build tag XY123 should not be treated as plate"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(!hits.iter().any(|hit| hit.rule_id == "builtin.pii.license_plate"));
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

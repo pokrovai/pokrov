@@ -32,6 +32,8 @@ These are the dataset-label variants currently normalized to Pokrov entities in 
 | `credit_debit_card` | `card_like_number` | 1 | `open_nvidia_nemotron_pii.json` |
 | `email` | `email` | 11 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `ipv4` | `ip_address` | 2 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
+| `license_plate` | `license_plate_contextual` | 5 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
+| `medical_record_number` | `medical_record_number_contextual` | 21 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `phone` | `phone_number` | 0 | none in current cached rows |
 | `phone_number` | `phone_number` | 5 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `street_address` | `en_address_like_high_risk` | 10 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
@@ -50,6 +52,8 @@ These mapped labels already have stable runtime behavior and exact-output replay
 | `credit_debit_card` | `card_like_number` | 1 | `open_nvidia_nemotron_pii.json` |
 | `email` | `email` | 11 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `ipv4` | `ip_address` | 2 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
+| `license_plate` | `license_plate_contextual` | 5 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
+| `medical_record_number` | `medical_record_number_contextual` | 21 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `phone` | `phone_number` | 0 | none in current cached rows |
 | `phone_number` | `phone_number` | 5 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `url` | `url_or_domain` | 6 | `open_nvidia_nemotron_pii.json` |
@@ -65,8 +69,10 @@ The current format-specific runtime assertions use rows that produce determinist
 - `Nemotron` row `23`: `email` -> expected exact redaction
 - `Nemotron` row `2`: `url` -> expected exact redaction
 - `Nemotron` row `3`: `phone_number` -> expected exact redaction
+- `Nemotron` row `18`: `license_plate` -> expected exact redaction
 - `Gretel` row `12`: `credit_card_number` -> expected `block`
 - `Gretel` row `3`: `email` -> expected exact redaction
+- `Gretel` row `14`: `medical_record_number` -> expected exact redaction
 
 These rows are intentionally narrow. They verify runtime behavior only where current detector coverage is explicit and stable.
 
@@ -96,7 +102,6 @@ These labels appear often enough to justify detector-design discussion first.
 | `date_of_birth` | 13 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `first_name` | 17 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `last_name` | 13 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
-| `medical_record_number` | 21 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `ssn` | 15 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 
 ### Medium-frequency backlog candidates
@@ -112,7 +117,6 @@ These labels have enough evidence to justify detector design after the highest-f
 | `blood_type` | 4 | `open_nvidia_nemotron_pii.json` |
 | `county` | 4 | `open_nvidia_nemotron_pii.json` |
 | `employment_status` | 4 | `open_nvidia_nemotron_pii.json` |
-| `license_plate` | 5 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `name` | 5 | `open_gretel_pii_masking_en_v1.json` |
 | `occupation` | 4 | `open_nvidia_nemotron_pii.json` |
 | `religious_belief` | 4 | `open_nvidia_nemotron_pii.json` |
@@ -178,14 +182,12 @@ These labels are present, but each currently has low evidence volume in cached s
 The next detector candidates should be prioritized as:
 
 1. `ssn`
-2. `medical_record_number`
-3. `first_name`
-4. `last_name`
-5. `date_of_birth`
-6. `account_number`
-7. `license_plate`
-8. `swift_bic`
-9. `customer_id`
+2. `first_name`
+3. `last_name`
+4. `date_of_birth`
+5. `account_number`
+6. `swift_bic`
+7. `customer_id`
 
 Rationale:
 
@@ -196,7 +198,7 @@ Rationale:
 ## Current limitations
 
 - The current report is derived from cached open snapshots, not from full upstream datasets.
-- The current runtime assertion set intentionally covers card, email, IPv4, URL, and phone behavior.
+- The current runtime assertion set intentionally covers card, email, IPv4, URL, phone, medical-record, and license-plate behavior.
 - The report includes a dedicated detector-gap priority section for mapped labels that still lack current runtime recognizers or stable exact-output replay assertions.
 - `open_presidio_research_repo.json` is metadata-only and is not part of replay coverage.
 

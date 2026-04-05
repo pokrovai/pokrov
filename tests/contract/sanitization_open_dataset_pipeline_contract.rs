@@ -441,6 +441,76 @@ fn open_dataset_nvidia_row_match_expected_phone_redaction() {
 
 #[test]
 #[ignore = "local cached open snapshots only"]
+fn open_dataset_nvidia_row_match_expected_license_plate_redaction() {
+    let snapshot = read_open_snapshot("open_nvidia_nemotron_pii.json");
+    let engine = analyzer_contract_engine();
+
+    let redact_row = row_by_idx(&snapshot, 18);
+    let redact_text = row_text(redact_row);
+    let redact_annotations = replay_assertable_annotations(redact_row);
+    assert_eq!(redact_annotations.len(), 1, "nvidia license plate row should expose one assertable annotation");
+    assert_eq!(redact_annotations[0].label, "license_plate");
+    let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
+
+    let mut redact_request = analyzer_contract_request("nvidia-row-18-license-plate", EvaluationMode::Enforce);
+    redact_request.payload = serde_json::json!({
+        "messages": [
+            {
+                "role": "user",
+                "content": redact_text,
+            }
+        ]
+    });
+    let redact_result = engine
+        .evaluate(redact_request)
+        .expect("nvidia license plate row should evaluate");
+    assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
+    let actual_text = redact_result.transform.sanitized_payload
+        .as_ref()
+        .and_then(|payload| payload.pointer("/messages/0/content"))
+        .and_then(Value::as_str)
+        .expect("nvidia license plate row should preserve sanitized text");
+    assert_eq!(actual_text, expected_text, "nvidia row 18 license plate sanitized text mismatch");
+    assert!(!actual_text.contains(redact_annotations[0].value.as_str()));
+}
+
+#[test]
+#[ignore = "local cached open snapshots only"]
+fn open_dataset_gretel_row_match_expected_medical_record_redaction() {
+    let snapshot = read_open_snapshot("open_gretel_pii_masking_en_v1.json");
+    let engine = analyzer_contract_engine();
+
+    let redact_row = row_by_idx(&snapshot, 14);
+    let redact_text = row_text(redact_row);
+    let redact_annotations = replay_assertable_annotations(redact_row);
+    assert_eq!(redact_annotations.len(), 1, "gretel medical record row should expose one assertable annotation");
+    assert_eq!(redact_annotations[0].label, "medical_record_number");
+    let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
+
+    let mut redact_request = analyzer_contract_request("gretel-row-14-medical-record", EvaluationMode::Enforce);
+    redact_request.payload = serde_json::json!({
+        "messages": [
+            {
+                "role": "user",
+                "content": redact_text,
+            }
+        ]
+    });
+    let redact_result = engine
+        .evaluate(redact_request)
+        .expect("gretel medical record row should evaluate");
+    assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
+    let actual_text = redact_result.transform.sanitized_payload
+        .as_ref()
+        .and_then(|payload| payload.pointer("/messages/0/content"))
+        .and_then(Value::as_str)
+        .expect("gretel medical record row should preserve sanitized text");
+    assert_eq!(actual_text, expected_text, "gretel row 14 medical record sanitized text mismatch");
+    assert!(!actual_text.contains(redact_annotations[0].value.as_str()));
+}
+
+#[test]
+#[ignore = "local cached open snapshots only"]
 fn dataset_detector_gap_report_is_up_to_date_for_cached_snapshots() {
     let report_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DATASET_DETECTOR_GAP_REPORT_PATH);
     let current = fs::read_to_string(&report_path)
