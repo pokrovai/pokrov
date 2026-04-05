@@ -1,4 +1,5 @@
 mod boundaries;
+mod entity_packs;
 mod hit_families;
 mod transform;
 
@@ -6,6 +7,11 @@ pub use boundaries::{
     foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
     EvaluationArtifactBoundary, EvaluationArtifactClass, ExtensionPointContract,
     ExtensionPointKind, PipelineStageBoundary, StageArtifact, StageId,
+};
+pub use entity_packs::{
+    phase_one_en_ru_entity_pack, DefaultOperatorDirection, EntityLanguageRequirement,
+    EntityPackCoverageReport, EntityPackDefinition, EntityPackLanguage, EntityRiskClass,
+    RecognizerFamily, RiskClassDirection, SupportedEntityDefinition, UnsupportedEntityDefinition,
 };
 pub use hit_families::{
     EvidenceClass, HitLocationKind, NormalizedHit, ResolvedHit, SuppressionStatus, ValidationStatus,
