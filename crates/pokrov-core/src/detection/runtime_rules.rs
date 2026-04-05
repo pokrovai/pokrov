@@ -1,8 +1,6 @@
 use std::{collections::BTreeSet, sync::OnceLock};
-
 use regex::{Regex, RegexBuilder};
 use serde_json::Value;
-
 use crate::{
     detection::deterministic::context::{apply_context_policy, ContextPolicy},
     detection::deterministic::lists::{
@@ -84,7 +82,7 @@ struct RuleMatchContext<'a> {
     field_gate: Option<&'a CompiledFieldGate>,
 }
 
-const BUILTIN_RULES: [BuiltinRuleSpec; 9] = [
+const BUILTIN_RULES: [BuiltinRuleSpec; 10] = [
     BuiltinRuleSpec {
         rule_id: "builtin.secrets.bearer_token",
         category: DetectionCategory::Secrets,
@@ -149,6 +147,15 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 9] = [
         field_gate: None,
     },
     BuiltinRuleSpec {
+        rule_id: "builtin.pii.phone",
+        category: DetectionCategory::Pii,
+        priority: 317,
+        pattern: r"\b(?:\+?\d{1,3}[ -]?)?(?:\(?\d{3}\)?[ -]?)\d{3}[ -]?\d{4}\b",
+        validator: DeterministicValidatorKind::None,
+        normalization: DeterministicNormalizationMode::Preserve,
+        field_gate: None,
+    },
+    BuiltinRuleSpec {
         rule_id: "builtin.pii.card_number",
         category: DetectionCategory::Pii,
         priority: 310,
@@ -175,7 +182,6 @@ pub fn compile_custom_rules(
     if !profile.custom_rules_enabled {
         return Ok(Vec::new());
     }
-
     profile
         .custom_rules
         .iter()
@@ -218,7 +224,6 @@ pub fn detect_payload(
     let max_hits = usize::try_from(profile.max_hits_per_request).unwrap_or(usize::MAX);
     let mut hit_limit_reached = false;
     let mut hits = Vec::new();
-
     visit_string_leaves(payload, &mut |json_pointer, text| {
         if hit_limit_reached {
             return;

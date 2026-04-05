@@ -213,7 +213,7 @@ Rationale:
 ## Current limitations
 
 - The current report is derived from cached open snapshots, not from full upstream datasets.
-- The current runtime assertion set intentionally covers card, email, IPv4, and URL behavior.
+- The current runtime assertion set intentionally covers card, email, IPv4, URL, and phone behavior.
 {limitations}
 - `open_presidio_research_repo.json` is metadata-only and is not part of replay coverage.
 
@@ -336,7 +336,7 @@ fn collect_annotations_direct(
     annotations
 }
 
-fn replay_coverage_entries() -> [ReplayCoverageEntry; 6] {
+fn replay_coverage_entries() -> [ReplayCoverageEntry; 9] {
     [
         ReplayCoverageEntry {
             dataset_name: "ai4privacy",
@@ -351,6 +351,12 @@ fn replay_coverage_entries() -> [ReplayCoverageEntry; 6] {
             expectation: "expected exact redaction",
         },
         ReplayCoverageEntry {
+            dataset_name: "ai4privacy",
+            row_idx: 19,
+            label: "IPV4",
+            expectation: "expected exact redaction",
+        },
+        ReplayCoverageEntry {
             dataset_name: "Nemotron",
             row_idx: 4,
             label: "credit_debit_card",
@@ -360,6 +366,18 @@ fn replay_coverage_entries() -> [ReplayCoverageEntry; 6] {
             dataset_name: "Nemotron",
             row_idx: 23,
             label: "email",
+            expectation: "expected exact redaction",
+        },
+        ReplayCoverageEntry {
+            dataset_name: "Nemotron",
+            row_idx: 2,
+            label: "url",
+            expectation: "expected exact redaction",
+        },
+        ReplayCoverageEntry {
+            dataset_name: "Nemotron",
+            row_idx: 3,
+            label: "phone_number",
             expectation: "expected exact redaction",
         },
         ReplayCoverageEntry {

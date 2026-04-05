@@ -198,6 +198,38 @@ mod tests {
     }
 
     #[test]
+    fn detects_phone_numbers_with_identity_context() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Her phone number is 707-859-9753."
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.pii.phone"),
+            "phone number with lexical phone context should be detected"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_phone_candidates() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Build id 707-859-975 is used in staging"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "builtin.pii.phone"),
+            "invalid short phone candidate should not match builtin phone rule"
+        );
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
