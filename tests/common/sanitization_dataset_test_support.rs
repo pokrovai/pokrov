@@ -69,10 +69,21 @@ pub fn starter_expected_sanitized_payloads() -> BTreeMap<&'static str, Option<Va
             })),
         ),
         (
+            "starter-json-redact-contextual-identifiers-001",
+            Some(serde_json::json!({
+                "tool_args": {
+                    "customer_id": "[REDACTED]",
+                    "account_number": "[REDACTED]",
+                    "swift_bic": "[REDACTED]",
+                    "status": "ok",
+                }
+            })),
+        ),
+        (
             "starter-json-allow-001",
             Some(serde_json::json!({
                 "tool_args": {
-                    "customer_id": "cust_public_12345",
+                    "public_customer_ref": "cust_public_12345",
                     "status": "ok",
                 }
             })),

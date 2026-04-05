@@ -358,6 +358,44 @@ mod tests {
     }
 
     #[test]
+    fn detects_customer_account_and_swift_fields_in_structured_json() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "tool_args": {
+                "customer_id": "cust_prod_90210",
+                "account_number": "C37529641",
+                "swift_bic": "GHTBUS45KLX"
+            }
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.customer_id_field"));
+        assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.account_number_field"));
+        assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.swift_bic_field"));
+    }
+
+    #[test]
+    fn does_not_detect_contextual_identifier_rules_outside_target_fields() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "tool_args": {
+                "status": "cust_prod_90210",
+                "note": "account C37529641",
+                "code": "GHTBUS45KLX"
+            }
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(!hits.iter().any(|hit| hit.rule_id == "builtin.pii.customer_id_field"));
+        assert!(!hits.iter().any(|hit| hit.rule_id == "builtin.pii.account_number_field"));
+        assert!(!hits.iter().any(|hit| hit.rule_id == "builtin.pii.swift_bic_field"));
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
