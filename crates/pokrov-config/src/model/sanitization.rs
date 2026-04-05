@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use pokrov_core::types::{
-    CategoryActions, CustomRule, EvaluationMode, EvaluatorConfig, PolicyAction, PolicyProfile,
+    CategoryActions, CustomRule, DeterministicContextPolicy, DeterministicNormalizationMode as CoreDeterministicNormalizationMode, DeterministicRuleKind, DeterministicRuleMetadata, DeterministicValidatorKind as CoreDeterministicValidatorKind, EvaluationMode, EvaluatorConfig, PolicyAction, PolicyProfile,
 };
 use serde::{Deserialize, Serialize};
 
@@ -182,6 +182,7 @@ fn to_policy_profile(profile_id: &str, profile: &SanitizationProfile) -> PolicyP
             priority: rule.priority,
             replacement_template: rule.replacement.clone(),
             enabled: rule.enabled,
+            deterministic: None,
         })
         .collect::<Vec<_>>();
     custom_rules.extend(deterministic_rules(profile));
@@ -231,6 +232,39 @@ fn deterministic_rules(profile: &SanitizationProfile) -> Vec<CustomRule> {
                 priority: recognizer.family_priority.saturating_add(pattern.base_score),
                 replacement_template: None,
                 enabled: recognizer.enabled,
+                deterministic: Some(DeterministicRuleMetadata {
+                    recognizer_id: recognizer.id.clone(),
+                    rule: DeterministicRuleKind::Pattern {
+                        validator: pattern
+                            .validator
+                            .as_ref()
+                            .map(|validator| match validator.kind {
+                                DeterministicValidatorKind::Luhn => {
+                                    CoreDeterministicValidatorKind::Luhn
+                                }
+                            })
+                            .unwrap_or(CoreDeterministicValidatorKind::None),
+                        normalization: match pattern.normalization {
+                            DeterministicNormalizationMode::Preserve => {
+                                CoreDeterministicNormalizationMode::Preserve
+                            }
+                            DeterministicNormalizationMode::Lowercase => {
+                                CoreDeterministicNormalizationMode::Lowercase
+                            }
+                            DeterministicNormalizationMode::AlnumLowercase => {
+                                CoreDeterministicNormalizationMode::AlnumLowercase
+                            }
+                        },
+                        context: recognizer.context.as_ref().map(|context| {
+                            DeterministicContextPolicy {
+                                positive_terms: context.positive_terms.clone(),
+                                negative_terms: context.negative_terms.clone(),
+                                window: context.window,
+                                suppress_on_negative: context.suppress_on_negative,
+                            }
+                        }),
+                    },
+                }),
             });
         }
 
@@ -239,11 +273,15 @@ fn deterministic_rules(profile: &SanitizationProfile) -> Vec<CustomRule> {
             rules.push(CustomRule {
                 rule_id: format!("deterministic.{}.denylist.{index}", recognizer.id),
                 category: recognizer.category,
-                pattern: escaped,
+                pattern: format!(r"\A{escaped}\z"),
                 action: recognizer.action,
                 priority: recognizer.family_priority.saturating_add(1000),
                 replacement_template: None,
                 enabled: recognizer.enabled,
+                deterministic: Some(DeterministicRuleMetadata {
+                    recognizer_id: recognizer.id.clone(),
+                    rule: DeterministicRuleKind::DenylistExact,
+                }),
             });
         }
     }
@@ -329,9 +367,18 @@ fn default_custom_profile() -> SanitizationProfile {
 
 #[cfg(test)]
 mod tests {
-    use pokrov_core::types::PolicyAction;
+    use pokrov_core::types::{
+        DeterministicNormalizationMode as CoreDeterministicNormalizationMode,
+        DeterministicRuleKind, DeterministicValidatorKind as CoreDeterministicValidatorKind,
+        PolicyAction,
+    };
 
-    use super::RuntimeConfig;
+    use super::{
+        to_policy_profile, CategoryActionsConfig, DeterministicContextConfig,
+        DeterministicNormalizationMode, DeterministicPatternConfig, DeterministicRecognizerConfig,
+        DeterministicValidatorConfig, DeterministicValidatorKind, RuntimeConfig,
+        SanitizationProfile,
+    };
 
     #[test]
     fn evaluator_config_uses_explicit_custom_action_when_present_in_yaml() {
@@ -440,5 +487,109 @@ sanitization:
             .get("strict")
             .expect("strict profile must exist in evaluator config");
         assert_eq!(strict.category_actions.custom, strict.category_actions.corporate_markers);
+    }
+
+    #[test]
+    fn deterministic_denylist_exact_rules_are_anchored_to_full_value() {
+        let profile = SanitizationProfile {
+            mode_default: pokrov_core::types::EvaluationMode::Enforce,
+            categories: CategoryActionsConfig {
+                secrets: PolicyAction::Block,
+                pii: PolicyAction::Redact,
+                corporate_markers: PolicyAction::Mask,
+                custom: None,
+            },
+            mask_visible_suffix: 4,
+            custom_rules: Vec::new(),
+            deterministic_recognizers: vec![DeterministicRecognizerConfig {
+                id: "payment_card".to_string(),
+                category: pokrov_core::types::DetectionCategory::Secrets,
+                action: PolicyAction::Block,
+                family_priority: 500,
+                enabled: true,
+                patterns: Vec::new(),
+                denylist_exact: vec!["4111 1111 1111 1111".to_string()],
+                allowlist_exact: Vec::new(),
+                context: None,
+            }],
+            allow_empty_matches: false,
+        };
+
+        let policy = to_policy_profile("strict", &profile);
+        let denylist_rule = policy
+            .custom_rules
+            .iter()
+            .find(|rule| rule.rule_id == "deterministic.payment_card.denylist.0")
+            .expect("denylist rule must be materialized");
+        assert_eq!(denylist_rule.pattern, r"\A4111 1111 1111 1111\z");
+        assert!(matches!(
+            denylist_rule.deterministic.as_ref().map(|meta| &meta.rule),
+            Some(DeterministicRuleKind::DenylistExact)
+        ));
+    }
+
+    #[test]
+    fn deterministic_pattern_rule_preserves_validator_and_context_metadata() {
+        let profile = SanitizationProfile {
+            mode_default: pokrov_core::types::EvaluationMode::Enforce,
+            categories: CategoryActionsConfig {
+                secrets: PolicyAction::Block,
+                pii: PolicyAction::Redact,
+                corporate_markers: PolicyAction::Mask,
+                custom: None,
+            },
+            mask_visible_suffix: 4,
+            custom_rules: Vec::new(),
+            deterministic_recognizers: vec![DeterministicRecognizerConfig {
+                id: "payment_card".to_string(),
+                category: pokrov_core::types::DetectionCategory::Secrets,
+                action: PolicyAction::Block,
+                family_priority: 600,
+                enabled: true,
+                patterns: vec![DeterministicPatternConfig {
+                    id: "pan".to_string(),
+                    expression: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+                    base_score: 150,
+                    validator: Some(DeterministicValidatorConfig {
+                        kind: DeterministicValidatorKind::Luhn,
+                    }),
+                    normalization: DeterministicNormalizationMode::AlnumLowercase,
+                }],
+                denylist_exact: Vec::new(),
+                allowlist_exact: Vec::new(),
+                context: Some(DeterministicContextConfig {
+                    positive_terms: vec!["card".to_string()],
+                    negative_terms: vec!["demo".to_string()],
+                    window: 16,
+                    suppress_on_negative: true,
+                }),
+            }],
+            allow_empty_matches: false,
+        };
+
+        let policy = to_policy_profile("strict", &profile);
+        let pattern_rule = policy
+            .custom_rules
+            .iter()
+            .find(|rule| rule.rule_id.starts_with("deterministic.payment_card.pattern.pan"))
+            .expect("pattern rule must be materialized");
+
+        match pattern_rule
+            .deterministic
+            .as_ref()
+            .map(|metadata| &metadata.rule)
+            .expect("deterministic metadata must exist")
+        {
+            DeterministicRuleKind::Pattern { validator, normalization, context } => {
+                assert_eq!(*validator, CoreDeterministicValidatorKind::Luhn);
+                assert_eq!(*normalization, CoreDeterministicNormalizationMode::AlnumLowercase);
+                let context = context.as_ref().expect("context must be preserved");
+                assert_eq!(context.window, 16);
+                assert!(context.suppress_on_negative);
+            }
+            DeterministicRuleKind::DenylistExact => {
+                panic!("pattern rule must not be encoded as denylist rule");
+            }
+        }
     }
 }

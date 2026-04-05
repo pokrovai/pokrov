@@ -38,6 +38,7 @@ fn engine() -> SanitizationEngine {
             priority: 900,
             replacement_template: None,
             enabled: true,
+            deterministic: None,
         }],
     };
 
@@ -165,6 +166,7 @@ fn conflicting_partial_transforms_stay_deterministic_across_rule_order() {
         priority: 120,
         replacement_template: Some("[CUSTOM_REPLACED]".to_string()),
         enabled: true,
+        deterministic: None,
     };
     let inner_redact = CustomRule {
         rule_id: "custom.alpha_inner".to_string(),
@@ -174,6 +176,7 @@ fn conflicting_partial_transforms_stay_deterministic_across_rule_order() {
         priority: 80,
         replacement_template: None,
         enabled: true,
+        deterministic: None,
     };
 
     let engine_forward = engine_with_rules(vec![broader_replace.clone(), inner_redact.clone()]);
@@ -271,6 +274,7 @@ fn foundation_trace_plan_changes_when_mask_suffix_changes() {
                 priority: 300,
                 replacement_template: None,
                 enabled: true,
+                deterministic: None,
             }],
         })
     }
