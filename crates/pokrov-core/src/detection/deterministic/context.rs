@@ -6,6 +6,7 @@ pub struct ContextPolicy {
     pub score_boost: i16,
     pub score_penalty: i16,
     pub suppress_on_negative: bool,
+    pub require_positive_match: bool,
 }
 
 impl Default for ContextPolicy {
@@ -16,6 +17,7 @@ impl Default for ContextPolicy {
             score_boost: 10,
             score_penalty: 10,
             suppress_on_negative: false,
+            require_positive_match: false,
         }
     }
 }
@@ -30,9 +32,14 @@ pub fn apply_context_policy(
     let mut score = base_score;
     let mut reason_codes = Vec::new();
 
-    if context.positive_terms.iter().any(|term| lower.contains(term)) {
+    let positive_present = context.positive_terms.iter().any(|term| lower.contains(term));
+    if positive_present {
         score += context.score_boost;
         reason_codes.push("context_positive_boost".to_string());
+    }
+    if context.require_positive_match && !positive_present {
+        reason_codes.push("context_positive_required_missing".to_string());
+        return (score, true, reason_codes);
     }
 
     let negative_present = context.negative_terms.iter().any(|term| lower.contains(term));
@@ -77,5 +84,17 @@ mod tests {
         let (_, suppressed, reasons) = apply_context_policy("demo value", 40, &policy);
         assert!(suppressed);
         assert!(reasons.contains(&"context_negative_suppressed".to_string()));
+    }
+
+    #[test]
+    fn require_positive_match_suppresses_when_context_missing() {
+        let policy = ContextPolicy {
+            positive_terms: vec!["phone".to_string()],
+            require_positive_match: true,
+            ..ContextPolicy::default()
+        };
+        let (_, suppressed, reasons) = apply_context_policy("+79001234567", 40, &policy);
+        assert!(suppressed);
+        assert!(reasons.contains(&"context_positive_required_missing".to_string()));
     }
 }

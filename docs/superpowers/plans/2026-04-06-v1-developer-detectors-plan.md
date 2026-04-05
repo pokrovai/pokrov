@@ -142,7 +142,7 @@ Run:
 - Modify: `tests/contract/sanitization_open_dataset_pipeline_contract.rs`
 
 - [x] Add failing phone positives and adversarial negatives.
-- [ ] Implement a context-gated phone recognizer to limit accidental numeric matches.
+- [x] Implement a context-gated phone recognizer to limit accidental numeric matches.
 - [x] Add exact-output replay assertions for one or more cached `phone_number` rows.
 - [x] Verify no regression in card-like overlap behavior.
 

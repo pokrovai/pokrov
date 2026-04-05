@@ -37,6 +37,7 @@ struct BuiltinRule {
     replacement_template: Option<&'static str>,
     validator: DeterministicValidatorKind,
     normalization: DeterministicNormalizationMode,
+    deterministic_context: Option<CompiledContextPolicy>,
     field_gate: Option<CompiledFieldGate>,
 }
 #[derive(Debug, Clone)]
@@ -53,6 +54,16 @@ struct BuiltinFieldGateSpec {
     json_pointer_suffixes: &'static [&'static str],
 }
 #[derive(Debug, Clone, Copy)]
+struct BuiltinContextSpec {
+    positive_terms: &'static [&'static str],
+    negative_terms: &'static [&'static str],
+    score_boost: i16,
+    score_penalty: i16,
+    suppress_on_negative: bool,
+    require_positive_match: bool,
+    window: u8,
+}
+#[derive(Debug, Clone, Copy)]
 struct BuiltinRuleSpec {
     rule_id: &'static str,
     category: DetectionCategory,
@@ -60,6 +71,7 @@ struct BuiltinRuleSpec {
     pattern: &'static str,
     validator: DeterministicValidatorKind,
     normalization: DeterministicNormalizationMode,
+    deterministic_context: Option<BuiltinContextSpec>,
     field_gate: Option<BuiltinFieldGateSpec>,
 }
 #[derive(Debug, Clone, Copy)]
@@ -244,7 +256,7 @@ fn builtin_rule_context<'a>(
         matcher: &rule.matcher,
         validator: rule.validator,
         normalization: rule.normalization,
-        deterministic_context: None,
+        deterministic_context: rule.deterministic_context.as_ref(),
         deterministic_allowlist: None,
         field_gate: rule.field_gate.as_ref(),
     }
@@ -385,6 +397,21 @@ fn to_context_policy(context: &crate::types::DeterministicContextPolicy) -> Cont
         score_boost: context.score_boost,
         score_penalty: context.score_penalty,
         suppress_on_negative: context.suppress_on_negative,
+        require_positive_match: false,
+    }
+}
+
+fn compile_builtin_context_policy(spec: BuiltinContextSpec) -> CompiledContextPolicy {
+    CompiledContextPolicy {
+        policy: ContextPolicy {
+            positive_terms: spec.positive_terms.iter().map(|term| term.to_lowercase()).collect(),
+            negative_terms: spec.negative_terms.iter().map(|term| term.to_lowercase()).collect(),
+            score_boost: spec.score_boost,
+            score_penalty: spec.score_penalty,
+            suppress_on_negative: spec.suppress_on_negative,
+            require_positive_match: spec.require_positive_match,
+        },
+        window: spec.window,
     }
 }
 
@@ -433,6 +460,9 @@ fn builtin_rules() -> &'static [BuiltinRule] {
                     replacement_template: builtin_replacement_template(spec.rule_id),
                     validator: spec.validator,
                     normalization: spec.normalization,
+                    deterministic_context: spec
+                        .deterministic_context
+                        .map(compile_builtin_context_policy),
                     field_gate: spec.field_gate.map(compile_field_gate),
                 })
                 .collect()

@@ -254,6 +254,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_phone_candidates_without_phone_context() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "raw sequence 8-900-123-45-59 should stay as numeric text without lexical signal"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "builtin.pii.phone"),
+            "phone rule should require lexical context before matching"
+        );
+    }
+
+    #[test]
     fn detects_person_name_fields_in_structured_json() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
