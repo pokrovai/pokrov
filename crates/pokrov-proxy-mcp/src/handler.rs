@@ -409,6 +409,7 @@ mod tests {
                         priority: 100,
                         replacement_template: None,
                         enabled: true,
+                        deterministic: None,
                     }],
                 },
             )]),

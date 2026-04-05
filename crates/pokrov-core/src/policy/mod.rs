@@ -108,11 +108,6 @@ fn compare_winner(
     old_priority: u16,
     old_rule_id: &str,
 ) -> bool {
-    if new_rule_id.starts_with("deterministic.") || old_rule_id.starts_with("deterministic.") {
-        return new_priority > old_priority
-            || (new_priority == old_priority && new_rule_id < old_rule_id);
-    }
-
     new_action.strictness_rank() > old_action.strictness_rank()
         || (new_action == old_action
             && (new_priority > old_priority
@@ -157,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_overlap_prefers_higher_priority_then_stable_rule_id() {
+    fn deterministic_overlap_keeps_strictness_precedence() {
         let hits = vec![
             DetectionHit {
                 rule_id: "deterministic.recognizer_b.pattern.p1".to_string(),
@@ -166,7 +161,7 @@ mod tests {
                 start: 0,
                 end: 8,
                 action: PolicyAction::Mask,
-                priority: 200,
+                priority: 400,
                 replacement_template: None,
             },
             DetectionHit {

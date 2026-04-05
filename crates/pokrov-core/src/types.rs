@@ -65,6 +65,54 @@ pub enum DetectionCategory {
     Custom,
 }
 
+/// Deterministic validator applied to one matched candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeterministicValidatorKind {
+    None,
+    Luhn,
+}
+
+/// Candidate normalization mode applied before deterministic validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeterministicNormalizationMode {
+    Preserve,
+    Lowercase,
+    AlnumLowercase,
+}
+
+/// Recognizer-scoped lexical context controls for deterministic pattern hits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeterministicContextPolicy {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub positive_terms: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub negative_terms: Vec<String>,
+    pub window: u8,
+    pub suppress_on_negative: bool,
+}
+
+/// Deterministic rule kind derived from profile recognizer configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DeterministicRuleKind {
+    Pattern {
+        validator: DeterministicValidatorKind,
+        normalization: DeterministicNormalizationMode,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<DeterministicContextPolicy>,
+    },
+    DenylistExact,
+}
+
+/// Optional deterministic metadata attached to custom rules generated from recognizers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeterministicRuleMetadata {
+    pub recognizer_id: String,
+    pub rule: DeterministicRuleKind,
+}
+
 /// Custom detection rule defined by profile configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CustomRule {
@@ -75,6 +123,8 @@ pub struct CustomRule {
     pub priority: u16,
     pub replacement_template: Option<String>,
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deterministic: Option<DeterministicRuleMetadata>,
 }
 
 /// Category defaults for built-in rule packs.

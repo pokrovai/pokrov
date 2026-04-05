@@ -8,8 +8,12 @@ pub mod deterministic;
 use crate::{
     detection::deterministic::context::{apply_context_policy, ContextPolicy},
     detection::deterministic::lists::{build_allowlist_set, is_allowlisted_exact},
+    detection::deterministic::validation::{validate_candidate, ValidatorKind},
     traversal::visit_string_leaves,
-    types::{DetectionCategory, DetectionHit, EvaluateError, PolicyProfile},
+    types::{
+        DetectionCategory, DetectionHit, DeterministicNormalizationMode, DeterministicRuleKind,
+        DeterministicRuleMetadata, DeterministicValidatorKind, EvaluateError, PolicyProfile,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -20,6 +24,7 @@ pub struct CompiledCustomRule {
     pub priority: u16,
     pub replacement_template: Option<String>,
     pub matcher: Regex,
+    pub deterministic: Option<DeterministicRuleMetadata>,
 }
 
 #[derive(Debug)]
@@ -79,6 +84,7 @@ pub fn compile_custom_rules(
                 priority: rule.priority,
                 replacement_template: rule.replacement_template.clone(),
                 matcher,
+                deterministic: rule.deterministic.clone(),
             })
         })
         .collect()
@@ -118,19 +124,40 @@ pub fn detect_payload(
                 if is_allowlisted_exact(&allowlist, matched.as_str()) {
                     continue;
                 }
-                let priority = if rule.rule_id.starts_with("deterministic.") {
-                    let (score, suppressed, _) = apply_context_policy(
-                        text,
-                        i16::try_from(rule.priority).unwrap_or(i16::MAX),
-                        &ContextPolicy::default(),
-                    );
-                    if suppressed {
-                        continue;
+
+                let mut priority = rule.priority;
+                if let Some(deterministic) = &rule.deterministic {
+                    if let DeterministicRuleKind::Pattern {
+                        validator,
+                        normalization,
+                        context,
+                    } = &deterministic.rule
+                    {
+                        let candidate = normalize_candidate(matched.as_str(), *normalization);
+                        if !validate_for_kind(*validator, &candidate) {
+                            continue;
+                        }
+
+                        if let Some(context) = context.as_ref() {
+                            let policy = to_context_policy(context);
+                            let window = extract_context_window(
+                                text,
+                                matched.start(),
+                                matched.end(),
+                                context.window,
+                            );
+                            let (score, suppressed, _) = apply_context_policy(
+                                &window,
+                                i16::try_from(rule.priority).unwrap_or(i16::MAX),
+                                &policy,
+                            );
+                            if suppressed {
+                                continue;
+                            }
+                            priority = score.max(0) as u16;
+                        }
                     }
-                    score.max(0) as u16
-                } else {
-                    rule.priority
-                };
+                }
                 hits.push(DetectionHit {
                     rule_id: rule.rule_id.clone(),
                     category: rule.category,
@@ -146,6 +173,64 @@ pub fn detect_payload(
     });
 
     hits
+}
+
+fn validate_for_kind(kind: DeterministicValidatorKind, candidate: &str) -> bool {
+    match kind {
+        DeterministicValidatorKind::None => true,
+        DeterministicValidatorKind::Luhn => validate_candidate(ValidatorKind::Luhn, candidate),
+    }
+}
+
+fn normalize_candidate(candidate: &str, mode: DeterministicNormalizationMode) -> String {
+    match mode {
+        DeterministicNormalizationMode::Preserve => candidate.to_string(),
+        DeterministicNormalizationMode::Lowercase => candidate.to_lowercase(),
+        DeterministicNormalizationMode::AlnumLowercase => candidate
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect(),
+    }
+}
+
+fn to_context_policy(context: &crate::types::DeterministicContextPolicy) -> ContextPolicy {
+    ContextPolicy {
+        positive_terms: context
+            .positive_terms
+            .iter()
+            .map(|term| term.to_lowercase())
+            .collect(),
+        negative_terms: context
+            .negative_terms
+            .iter()
+            .map(|term| term.to_lowercase())
+            .collect(),
+        score_boost: 10,
+        score_penalty: 10,
+        suppress_on_negative: context.suppress_on_negative,
+    }
+}
+
+fn extract_context_window(text: &str, start: usize, end: usize, window: u8) -> String {
+    let before = trim_to_chars_start(&text[..start], usize::from(window));
+    let after = trim_to_chars_end(&text[end..], usize::from(window));
+    [before, text[start..end].to_string(), after].concat()
+}
+
+fn trim_to_chars_start(text: &str, max_chars: usize) -> String {
+    let count = text.chars().count();
+    if count <= max_chars {
+        return text.to_string();
+    }
+    text.chars().skip(count - max_chars).collect()
+}
+
+fn trim_to_chars_end(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    text.chars().take(max_chars).collect()
 }
 
 fn builtin_rules() -> &'static [BuiltinRule] {
@@ -170,7 +255,9 @@ mod tests {
     use serde_json::json;
 
     use crate::types::{
-        CategoryActions, CustomRule, DetectionCategory, EvaluationMode, PolicyAction, PolicyProfile,
+        CategoryActions, CustomRule, DetectionCategory, DeterministicContextPolicy,
+        DeterministicNormalizationMode, DeterministicRuleKind, DeterministicRuleMetadata,
+        DeterministicValidatorKind, EvaluationMode, PolicyAction, PolicyProfile,
     };
 
     use super::{compile_custom_rules, detect_payload};
@@ -195,6 +282,7 @@ mod tests {
                 priority: 900,
                 replacement_template: None,
                 enabled: true,
+                deterministic: None,
             }],
         }
     }
@@ -263,12 +351,58 @@ mod tests {
             priority: 200,
             replacement_template: None,
             enabled: true,
+            deterministic: Some(DeterministicRuleMetadata {
+                recognizer_id: "payment_card".to_string(),
+                rule: DeterministicRuleKind::Pattern {
+                    validator: DeterministicValidatorKind::None,
+                    normalization: DeterministicNormalizationMode::Preserve,
+                    context: Some(DeterministicContextPolicy {
+                        positive_terms: Vec::new(),
+                        negative_terms: vec!["demo".to_string()],
+                        window: 32,
+                        suppress_on_negative: false,
+                    }),
+                },
+            }),
         }];
         let custom = compile_custom_rules(&profile).expect("rules should compile");
         let payload = json!({"content": "demo card 4111 1111 1111 1111"});
 
         let hits = detect_payload(&payload, &profile, &custom, &[]);
-        assert_eq!(hits.len(), 1);
-        assert!(hits[0].priority < 200);
+        let deterministic_hit = hits
+            .iter()
+            .find(|hit| hit.rule_id == "deterministic.payment_card.pattern.pan")
+            .expect("deterministic hit must exist");
+        assert!(deterministic_hit.priority < 200);
+    }
+
+    #[test]
+    fn deterministic_luhn_validator_rejects_invalid_candidate() {
+        let mut profile = strict_profile();
+        profile.custom_rules = vec![CustomRule {
+            rule_id: "deterministic.payment_card.pattern.pan".to_string(),
+            category: DetectionCategory::Secrets,
+            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            action: PolicyAction::Block,
+            priority: 200,
+            replacement_template: None,
+            enabled: true,
+            deterministic: Some(DeterministicRuleMetadata {
+                recognizer_id: "payment_card".to_string(),
+                rule: DeterministicRuleKind::Pattern {
+                    validator: DeterministicValidatorKind::Luhn,
+                    normalization: DeterministicNormalizationMode::Preserve,
+                    context: None,
+                },
+            }),
+        }];
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({"content": "card 4111 1111 1111 1112"});
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "deterministic.payment_card.pattern.pan"),
+            "deterministic luhn rule must reject invalid candidate"
+        );
     }
 }
