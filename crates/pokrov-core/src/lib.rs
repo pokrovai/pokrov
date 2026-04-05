@@ -186,7 +186,10 @@ impl SanitizationEngine {
         let decision = EvaluateDecision {
             final_action,
             rule_hits_total: hits.len() as u32,
-            deterministic_candidates_total: hits.len() as u32,
+            deterministic_candidates_total: hits
+                .iter()
+                .filter(|hit| hit.rule_id.starts_with("deterministic."))
+                .count() as u32,
             suppressed_candidates_total: suppressed_candidates_total(&resolved_spans),
             hits_by_category,
             hits_by_family: family_counts(&hits, resolved_spans.len() as u32),

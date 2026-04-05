@@ -4,8 +4,9 @@ use serde_json::json;
 
 use crate::{
     types::{
-        CategoryActions, CustomRule, DetectionCategory, EvaluateRequest, EvaluationMode,
-        EvaluatorConfig, PathClass, PolicyAction, PolicyProfile,
+        CategoryActions, CustomRule, DetectionCategory, DeterministicNormalizationMode,
+        DeterministicRuleKind, DeterministicRuleMetadata, DeterministicValidatorKind,
+        EvaluateRequest, EvaluationMode, EvaluatorConfig, PathClass, PolicyAction, PolicyProfile,
     },
     SanitizationEngine,
 };
@@ -353,4 +354,55 @@ fn executed_recognizer_families_exclude_custom_when_not_compiled() {
         .expect("evaluation should pass");
 
     assert_eq!(result.executed.recognizer_families_executed, vec!["builtin".to_string()]);
+}
+
+#[test]
+fn deterministic_candidates_total_counts_only_deterministic_hits() {
+    let engine = engine_with_single_profile(PolicyProfile {
+        profile_id: "strict".to_string(),
+        mode_default: EvaluationMode::Enforce,
+        category_actions: CategoryActions {
+            secrets: PolicyAction::Block,
+            pii: PolicyAction::Redact,
+            corporate_markers: PolicyAction::Mask,
+            custom: PolicyAction::Redact,
+        },
+        mask_visible_suffix: 4,
+        custom_rules_enabled: true,
+        custom_rules: vec![CustomRule {
+            rule_id: "deterministic.payment_card.pattern.pan".to_string(),
+            category: DetectionCategory::Secrets,
+            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            action: PolicyAction::Block,
+            priority: 600,
+            replacement_template: None,
+            enabled: true,
+            deterministic: Some(DeterministicRuleMetadata {
+                recognizer_id: "payment_card".to_string(),
+                allowlist_exact: Vec::new(),
+                rule: DeterministicRuleKind::Pattern {
+                    validator: DeterministicValidatorKind::None,
+                    normalization: DeterministicNormalizationMode::Preserve,
+                    context: None,
+                },
+            }),
+        }],
+    });
+
+    let result = engine
+        .evaluate(EvaluateRequest {
+            request_id: "r-deterministic-count".to_string(),
+            profile_id: "strict".to_string(),
+            mode: EvaluationMode::Enforce,
+            payload: json!({"content": "token sk-test-12345678 card 4111 1111 1111 1111"}),
+            path_class: PathClass::Direct,
+            effective_language: "en".to_string(),
+            entity_scope_filters: Vec::new(),
+            recognizer_family_filters: Vec::new(),
+            allowlist_additions: Vec::new(),
+        })
+        .expect("evaluation should pass");
+
+    assert!(result.decision.rule_hits_total > result.decision.deterministic_candidates_total);
+    assert_eq!(result.decision.deterministic_candidates_total, 1);
 }
