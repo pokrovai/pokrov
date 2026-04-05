@@ -17,10 +17,10 @@
 
 **Purpose**: Align feature documentation, fixtures, and execution scaffolding before shared code changes.
 
-- [ ] T001 Finalize structured JSON behavior scope and acceptance mappings in `specs/014-structured-json-processing/spec.md`
-- [ ] T002 [P] Freeze traversal/precedence/safety rules in `specs/014-structured-json-processing/contracts/structured-json-processing-contract.md`
-- [ ] T003 [P] Confirm entity and invariant mapping for stories in `specs/014-structured-json-processing/data-model.md`
-- [ ] T004 Prepare feature verification workflow and evidence checklist in `specs/014-structured-json-processing/quickstart.md`
+- [X] T001 Finalize structured JSON behavior scope and acceptance mappings in `specs/014-structured-json-processing/spec.md`
+- [X] T002 [P] Freeze traversal/precedence/safety rules in `specs/014-structured-json-processing/contracts/structured-json-processing-contract.md`
+- [X] T003 [P] Confirm entity and invariant mapping for stories in `specs/014-structured-json-processing/data-model.md`
+- [X] T004 Prepare feature verification workflow and evidence checklist in `specs/014-structured-json-processing/quickstart.md`
 
 ---
 
@@ -30,15 +30,15 @@
 
 **CRITICAL**: No user story work begins before this phase completes.
 
-- [ ] T005 Add shared structured traversal context types in `crates/pokrov-core/src/types/foundation/mod.rs`
-- [ ] T006 [P] Add path-safe path-class and structured summary boundary types in `crates/pokrov-core/src/types/foundation/boundaries.rs`
-- [ ] T007 [P] Add structured transform contract extensions for leaf-level accounting in `crates/pokrov-core/src/types/foundation/transform.rs`
-- [ ] T008 Export structured processing foundation contracts in `crates/pokrov-core/src/types.rs`
-- [ ] T009 Add structured path binding configuration model (pointer/alias/subtree/precedence) in `crates/pokrov-config/src/model/sanitization.rs`
-- [ ] T010 [P] Add size and failure policy config fields (`<=1MB` SLA mode, `>1MB` best-effort, high-risk fail-closed) in `crates/pokrov-config/src/model/sanitization.rs`
-- [ ] T011 Enforce validation rules for path-binding precedence and structured policy semantics in `crates/pokrov-config/src/validate.rs`
-- [ ] T012 [P] Add config validation regression coverage for structured bindings and size/failure policy in `crates/pokrov-config/src/validate_tests.rs`
-- [ ] T013 Add structured analyzer fixture builders for nested payload cases in `tests/common/sanitization_analyzer_contract_test_support.rs`
+- [X] T005 Add shared structured traversal context types in `crates/pokrov-core/src/types/foundation/mod.rs`
+- [X] T006 [P] Add path-safe path-class and structured summary boundary types in `crates/pokrov-core/src/types/foundation/boundaries.rs`
+- [X] T007 [P] Add structured transform contract extensions for leaf-level accounting in `crates/pokrov-core/src/types/foundation/transform.rs`
+- [X] T008 Export structured processing foundation contracts in `crates/pokrov-core/src/types.rs`
+- [X] T009 Add structured path binding configuration model (pointer/alias/subtree/precedence) in `crates/pokrov-config/src/model/sanitization.rs`
+- [X] T010 [P] Add size and failure policy config fields (`<=1MB` SLA mode, `>1MB` best-effort, high-risk fail-closed) in `crates/pokrov-config/src/model/sanitization.rs`
+- [X] T011 Enforce validation rules for path-binding precedence and structured policy semantics in `crates/pokrov-config/src/validate.rs`
+- [X] T012 [P] Add config validation regression coverage for structured bindings and size/failure policy in `crates/pokrov-config/src/validate_tests.rs`
+- [X] T013 Add structured analyzer fixture builders for nested payload cases in `tests/common/sanitization_analyzer_contract_test_support.rs`
 
 **Checkpoint**: Foundation complete; all stories can proceed.
 
@@ -52,19 +52,19 @@
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Add contract tests for deterministic traversal and string-leaf-only detection in `tests/contract/sanitization_foundation_contract.rs`
-- [ ] T015 [P] [US1] Add integration tests for nested traversal happy path and mixed leaf types in `tests/integration/sanitization_transform_flow.rs`
-- [ ] T016 [P] [US1] Add security tests ensuring non-string values and raw payload fragments are never leaked during structured detection in `tests/security/sanitization_metadata_leakage.rs`
-- [ ] T017 [P] [US1] Add unit tests for traversal order and empty-string handling in `crates/pokrov-core/src/traversal/mod.rs`
+- [X] T014 [P] [US1] Add contract tests for deterministic traversal and string-leaf-only detection in `tests/contract/sanitization_foundation_contract.rs`
+- [X] T015 [P] [US1] Add integration tests for nested traversal happy path and mixed leaf types in `tests/integration/sanitization_transform_flow.rs`
+- [X] T016 [P] [US1] Add security tests ensuring non-string values and raw payload fragments are never leaked during structured detection in `tests/security/sanitization_metadata_leakage.rs`
+- [X] T017 [P] [US1] Add unit tests for traversal order and empty-string handling in `crates/pokrov-core/src/traversal/mod.rs`
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Implement deterministic structured traversal over objects/arrays with stable leaf visitation in `crates/pokrov-core/src/traversal/mod.rs`
-- [ ] T019 [P] [US1] Implement per-leaf string detection entrypoint and context propagation in `crates/pokrov-core/src/detection/mod.rs`
-- [ ] T020 [P] [US1] Ensure transform pipeline mutates only string leaves and preserves JSON shape in `crates/pokrov-core/src/transform/mod.rs`
-- [ ] T021 [US1] Wire structured traversal + detection flow into analyzer orchestration in `crates/pokrov-core/src/lib.rs`
-- [ ] T022 [US1] Integrate structured detection path into LLM proxy request flow in `crates/pokrov-proxy-llm/src/handler/mod.rs`
-- [ ] T023 [P] [US1] Integrate structured detection path into MCP mediation flow in `crates/pokrov-proxy-mcp/src/handler.rs`
+- [X] T018 [US1] Implement deterministic structured traversal over objects/arrays with stable leaf visitation in `crates/pokrov-core/src/traversal/mod.rs`
+- [X] T019 [P] [US1] Implement per-leaf string detection entrypoint and context propagation in `crates/pokrov-core/src/detection/mod.rs`
+- [X] T020 [P] [US1] Ensure transform pipeline mutates only string leaves and preserves JSON shape in `crates/pokrov-core/src/transform/mod.rs`
+- [X] T021 [US1] Wire structured traversal + detection flow into analyzer orchestration in `crates/pokrov-core/src/lib.rs`
+- [X] T022 [US1] Integrate structured detection path into LLM proxy request flow in `crates/pokrov-proxy-llm/src/handler/mod.rs`
+- [X] T023 [P] [US1] Integrate structured detection path into MCP mediation flow in `crates/pokrov-proxy-mcp/src/handler.rs`
 
 **Checkpoint**: US1 is independently functional and verifiable.
 
@@ -78,19 +78,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T024 [P] [US2] Add contract tests for pointer/alias/subtree precedence order enforcement in `tests/contract/sanitization_evaluate_contract.rs`
-- [ ] T025 [P] [US2] Add integration tests for path-specific overrides and conflicting rule resolution in `tests/integration/sanitization_evaluate_flow.rs`
-- [ ] T026 [P] [US2] Add integration test for payload-size mode split (`<=1MB` SLA mode, `>1MB` best-effort) in `tests/integration/llm_proxy_body_limit_path.rs`
-- [ ] T027 [P] [US2] Add security test for fail-closed behavior on high-risk structured processing errors in `tests/security/sanitization_foundation_stage_ownership.rs`
-- [ ] T028 [P] [US2] Add unit tests for precedence resolver and rule conflict handling in `crates/pokrov-core/src/policy/mod.rs`
+- [X] T024 [P] [US2] Add contract tests for pointer/alias/subtree precedence order enforcement in `tests/contract/sanitization_evaluate_contract.rs`
+- [X] T025 [P] [US2] Add integration tests for path-specific overrides and conflicting rule resolution in `tests/integration/sanitization_evaluate_flow.rs`
+- [X] T026 [P] [US2] Add integration test for payload-size mode split (`<=1MB` SLA mode, `>1MB` best-effort) in `tests/integration/llm_proxy_body_limit_path.rs`
+- [X] T027 [P] [US2] Add security test for fail-closed behavior on high-risk structured processing errors in `tests/security/sanitization_foundation_stage_ownership.rs`
+- [X] T028 [P] [US2] Add unit tests for precedence resolver and rule conflict handling in `crates/pokrov-core/src/policy/mod.rs`
 
 ### Implementation for User Story 2
 
-- [ ] T029 [US2] Implement path-aware recognizer include/exclude binding resolution in `crates/pokrov-core/src/policy/mod.rs`
-- [ ] T030 [P] [US2] Implement deterministic precedence engine (pointer -> alias -> subtree -> profile -> global) in `crates/pokrov-core/src/policy/mod.rs`
-- [ ] T031 [P] [US2] Implement size-policy execution mode handling and SLA classification in `crates/pokrov-core/src/lib.rs`
-- [ ] T032 [US2] Implement high-risk structured processing fail-closed decision path in `crates/pokrov-core/src/policy/mod.rs`
-- [ ] T033 [US2] Propagate resolved path policy context into transform operator selection in `crates/pokrov-core/src/transform/mod.rs`
+- [X] T029 [US2] Implement path-aware recognizer include/exclude binding resolution in `crates/pokrov-core/src/policy/mod.rs`
+- [X] T030 [P] [US2] Implement deterministic precedence engine (pointer -> alias -> subtree -> profile -> global) in `crates/pokrov-core/src/policy/mod.rs`
+- [X] T031 [P] [US2] Implement size-policy execution mode handling and SLA classification in `crates/pokrov-core/src/lib.rs`
+- [X] T032 [US2] Implement high-risk structured processing fail-closed decision path in `crates/pokrov-core/src/policy/mod.rs`
+- [X] T033 [US2] Propagate resolved path policy context into transform operator selection in `crates/pokrov-core/src/transform/mod.rs`
 
 **Checkpoint**: US2 is independently functional and verifiable.
 
@@ -104,20 +104,20 @@
 
 ### Tests for User Story 3
 
-- [ ] T034 [P] [US3] Add contract tests to forbid exact JSON pointer and raw values in structured explain/audit outputs in `tests/contract/sanitization_foundation_contract.rs`
-- [ ] T035 [P] [US3] Add integration tests for structured summary generation across allow/mask/redact/block outcomes in `tests/integration/sanitization_audit_explain_flow.rs`
-- [ ] T036 [P] [US3] Add security tests for metadata-only summary leakage prevention in `tests/security/sanitization_foundation_metadata_leakage.rs`
-- [ ] T037 [P] [US3] Add performance test for structured mode overhead budget on `<=1MB` payloads in `tests/performance/sanitization_evaluate_latency.rs`
-- [ ] T038 [P] [US3] Add unit tests for path-safe category aggregation and summary determinism in `crates/pokrov-core/src/audit/mod.rs`
+- [X] T034 [P] [US3] Add contract tests to forbid exact JSON pointer and raw values in structured explain/audit outputs in `tests/contract/sanitization_foundation_contract.rs`
+- [X] T035 [P] [US3] Add integration tests for structured summary generation across allow/mask/redact/block outcomes in `tests/integration/sanitization_audit_explain_flow.rs`
+- [X] T036 [P] [US3] Add security tests for metadata-only summary leakage prevention in `tests/security/sanitization_foundation_metadata_leakage.rs`
+- [X] T037 [P] [US3] Add performance test for structured mode overhead budget on `<=1MB` payloads in `tests/performance/sanitization_evaluate_latency.rs`
+- [X] T038 [P] [US3] Add unit tests for path-safe category aggregation and summary determinism in `crates/pokrov-core/src/audit/mod.rs`
 
 ### Implementation for User Story 3
 
-- [ ] T039 [US3] Implement structured explain summary builder with path-safe categories only in `crates/pokrov-core/src/dry_run/mod.rs`
-- [ ] T040 [US3] Implement structured audit summary builder with metadata-only counters and safe path classes in `crates/pokrov-core/src/audit/mod.rs`
-- [ ] T041 [P] [US3] Enforce exact-pointer stripping/redaction from explain/audit serialization in `crates/pokrov-core/src/types/foundation/boundaries.rs`
-- [ ] T042 [US3] Wire structured summary outputs into shared analyzer result contracts in `crates/pokrov-core/src/lib.rs`
-- [ ] T043 [P] [US3] Consume structured safe summaries in LLM proxy audit integration in `crates/pokrov-proxy-llm/src/audit.rs`
-- [ ] T044 [P] [US3] Consume structured safe summaries in MCP proxy audit integration in `crates/pokrov-proxy-mcp/src/audit.rs`
+- [X] T039 [US3] Implement structured explain summary builder with path-safe categories only in `crates/pokrov-core/src/dry_run/mod.rs`
+- [X] T040 [US3] Implement structured audit summary builder with metadata-only counters and safe path classes in `crates/pokrov-core/src/audit/mod.rs`
+- [X] T041 [P] [US3] Enforce exact-pointer stripping/redaction from explain/audit serialization in `crates/pokrov-core/src/types/foundation/boundaries.rs`
+- [X] T042 [US3] Wire structured summary outputs into shared analyzer result contracts in `crates/pokrov-core/src/lib.rs`
+- [X] T043 [P] [US3] Consume structured safe summaries in LLM proxy audit integration in `crates/pokrov-proxy-llm/src/audit.rs`
+- [X] T044 [P] [US3] Consume structured safe summaries in MCP proxy audit integration in `crates/pokrov-proxy-mcp/src/audit.rs`
 
 **Checkpoint**: US3 is independently functional and verifiable.
 
@@ -127,10 +127,16 @@
 
 **Purpose**: Finalize docs, evidence, and full verification across all stories.
 
-- [ ] T045 [P] Update structured processing operational guidance and examples in `docs/superpowers/specs/presidio-rework/05-structured-json-processing.md`
-- [ ] T046 [P] Update structured processing backlog traceability after implementation planning in `docs/superpowers/plans/presidio-rework/05-structured-json-processing-backlog.md`
-- [ ] T047 [P] Add final acceptance evidence checklist for SC-001..SC-007 in `specs/014-structured-json-processing/spec.md`
-- [ ] T048 Run `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features` and record outcomes in `specs/014-structured-json-processing/tasks.md`
+- [X] T045 [P] Update structured processing operational guidance and examples in `docs/superpowers/specs/presidio-rework/05-structured-json-processing.md`
+- [X] T046 [P] Update structured processing backlog traceability after implementation planning in `docs/superpowers/plans/presidio-rework/05-structured-json-processing-backlog.md`
+- [X] T047 [P] Add final acceptance evidence checklist for SC-001..SC-007 in `specs/014-structured-json-processing/spec.md`
+- [X] T048 Run `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --all-features` and record outcomes in `specs/014-structured-json-processing/tasks.md`
+
+### T048 Verification Evidence (2026-04-05)
+
+- `cargo test` -> PASS (contract/integration/performance/security suites passed)
+- `cargo fmt --check` -> PASS
+- `cargo clippy --all-targets --all-features` -> PASS
 
 ---
 
