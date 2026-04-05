@@ -205,9 +205,9 @@ Run:
 - Modify: `tests/contract/sanitization_open_dataset_pipeline_contract.rs`
 
 - [x] Implement `swift_bic` validation-backed detection.
-- [ ] Implement `medical_record_number_contextual` and `license_plate_contextual` with strict context.
+- [x] Implement `medical_record_number_contextual` and `license_plate_contextual` with strict context.
 - [x] Add unit and contract verification for positives and negatives.
-- [ ] Update dataset-backed report coverage accordingly.
+- [x] Update dataset-backed report coverage accordingly.
 
 ## Chunk 5: Finish And Evidence
 
@@ -219,9 +219,9 @@ Run:
 - Modify: `docs/verification/014-dataset-detector-gap-report.md`
 - Modify: `docs/verification/015-v1-developer-detector-backlog.md`
 
-- [ ] Ensure `supported_dataset_label_mapping()` only expresses taxonomy normalization.
-- [ ] Ensure `replay_assertable_dataset_labels()` reflects real runtime coverage only.
-- [ ] Re-render the gap report and confirm no section overstates support.
+- [x] Ensure `supported_dataset_label_mapping()` only expresses taxonomy normalization.
+- [x] Ensure `replay_assertable_dataset_labels()` reflects real runtime coverage only.
+- [x] Re-render the gap report and confirm no section overstates support.
 - [ ] Record residual gaps that still require remote NER rather than deterministic growth.
 
 Run:
