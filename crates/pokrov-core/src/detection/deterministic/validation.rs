@@ -12,8 +12,10 @@ pub fn validate_candidate(kind: ValidatorKind, candidate: &str) -> bool {
 }
 
 fn luhn_valid(candidate: &str) -> bool {
+    // v1 deterministic PAN validation accepts only ASCII digits to keep matching deterministic
+    // across providers and avoid locale-sensitive Unicode numeral handling.
     let digits = candidate.chars().filter(|ch| ch.is_ascii_digit()).collect::<Vec<_>>();
-    if digits.len() < 12 {
+    if digits.len() < 13 {
         return false;
     }
 
@@ -40,6 +42,12 @@ mod tests {
     #[test]
     fn luhn_rejects_invalid_candidate() {
         assert!(!validate_candidate(ValidatorKind::Luhn, "4111 1111 1111 1112"));
+    }
+
+    #[test]
+    fn luhn_rejects_candidates_shorter_than_pan_floor() {
+        assert!(!validate_candidate(ValidatorKind::Luhn, "79927398713"));
+        assert!(!validate_candidate(ValidatorKind::Luhn, "799273987130"));
     }
 
     #[test]

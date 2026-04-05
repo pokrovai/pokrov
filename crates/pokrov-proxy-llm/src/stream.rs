@@ -264,6 +264,7 @@ mod tests {
                 custom: PolicyAction::Redact,
             },
             mask_visible_suffix: 4,
+            max_hits_per_request: 4096,
             custom_rules: Vec::new(),
             custom_rules_enabled: false,
         };

@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::types::{DetectionCategory, DetectionHit, PolicyAction, ResolvedSpan};
 
-pub fn resolve_overlaps(mut hits: Vec<DetectionHit>) -> Vec<ResolvedSpan> {
-    hits.sort_by(|left, right| {
+pub fn resolve_overlaps(hits: &[DetectionHit]) -> Vec<ResolvedSpan> {
+    let mut ordered_hits = hits.iter().collect::<Vec<_>>();
+    ordered_hits.sort_by(|left, right| {
         left.json_pointer
             .cmp(&right.json_pointer)
             .then_with(|| left.start.cmp(&right.start))
@@ -14,7 +15,7 @@ pub fn resolve_overlaps(mut hits: Vec<DetectionHit>) -> Vec<ResolvedSpan> {
 
     let mut resolved: Vec<ResolvedSpan> = Vec::new();
 
-    for hit in hits {
+    for hit in ordered_hits {
         match resolved.last_mut() {
             None => resolved.push(to_span(hit, Vec::new())),
             Some(last) if last.json_pointer != hit.json_pointer || hit.start >= last.end => {
@@ -37,18 +38,18 @@ pub fn resolve_overlaps(mut hits: Vec<DetectionHit>) -> Vec<ResolvedSpan> {
                     let start = last.start.min(hit.start);
                     let end = last.end.max(hit.end);
                     *last = ResolvedSpan {
-                        json_pointer: hit.json_pointer,
+                        json_pointer: hit.json_pointer.clone(),
                         start,
                         end,
-                        winning_rule_id: hit.rule_id,
+                        winning_rule_id: hit.rule_id.clone(),
                         category: hit.category,
                         effective_action: hit.action,
                         priority: hit.priority,
-                        replacement_template: hit.replacement_template,
+                        replacement_template: hit.replacement_template.clone(),
                         suppressed_rule_ids: suppressed,
                     };
                 } else {
-                    last.suppressed_rule_ids.push(hit.rule_id);
+                    last.suppressed_rule_ids.push(hit.rule_id.clone());
                     last.start = last.start.min(hit.start);
                     last.end = last.end.max(hit.end);
                 }
@@ -86,16 +87,16 @@ pub fn category_to_key(category: DetectionCategory) -> &'static str {
     }
 }
 
-fn to_span(hit: DetectionHit, suppressed_rule_ids: Vec<String>) -> ResolvedSpan {
+fn to_span(hit: &DetectionHit, suppressed_rule_ids: Vec<String>) -> ResolvedSpan {
     ResolvedSpan {
-        json_pointer: hit.json_pointer,
+        json_pointer: hit.json_pointer.clone(),
         start: hit.start,
         end: hit.end,
-        winning_rule_id: hit.rule_id,
+        winning_rule_id: hit.rule_id.clone(),
         category: hit.category,
         effective_action: hit.action,
         priority: hit.priority,
-        replacement_template: hit.replacement_template,
+        replacement_template: hit.replacement_template.clone(),
         suppressed_rule_ids,
     }
 }
@@ -145,7 +146,7 @@ mod tests {
             },
         ];
 
-        let resolved = resolve_overlaps(hits);
+        let resolved = resolve_overlaps(&hits);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].winning_rule_id, "rule-b");
         assert_eq!(resolved[0].effective_action, PolicyAction::Block);
@@ -176,9 +177,39 @@ mod tests {
             },
         ];
 
-        let resolved = resolve_overlaps(hits);
+        let resolved = resolve_overlaps(&hits);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].winning_rule_id, "deterministic.recognizer_a.pattern.p1");
+    }
+
+    #[test]
+    fn overlap_tiebreak_prefers_lexicographically_smaller_rule_id() {
+        let hits = vec![
+            DetectionHit {
+                rule_id: "deterministic.payment_card.pattern.pan".to_string(),
+                category: DetectionCategory::Secrets,
+                json_pointer: "/payload".to_string(),
+                start: 0,
+                end: 8,
+                action: PolicyAction::Block,
+                priority: 100,
+                replacement_template: None,
+            },
+            DetectionHit {
+                rule_id: "builtin.pii.card_number".to_string(),
+                category: DetectionCategory::Pii,
+                json_pointer: "/payload".to_string(),
+                start: 0,
+                end: 8,
+                action: PolicyAction::Block,
+                priority: 100,
+                replacement_template: None,
+            },
+        ];
+
+        let resolved = resolve_overlaps(&hits);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].winning_rule_id, "builtin.pii.card_number");
     }
 
     #[test]

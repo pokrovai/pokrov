@@ -89,8 +89,20 @@ pub struct DeterministicContextPolicy {
     pub positive_terms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub negative_terms: Vec<String>,
+    #[serde(default = "default_context_score_boost")]
+    pub score_boost: i16,
+    #[serde(default = "default_context_score_penalty")]
+    pub score_penalty: i16,
     pub window: u8,
     pub suppress_on_negative: bool,
+}
+
+const fn default_context_score_boost() -> i16 {
+    10
+}
+
+const fn default_context_score_penalty() -> i16 {
+    10
 }
 
 /// Deterministic rule kind derived from profile recognizer configuration.
@@ -157,8 +169,14 @@ pub struct PolicyProfile {
     pub mode_default: EvaluationMode,
     pub category_actions: CategoryActions,
     pub mask_visible_suffix: u8,
+    #[serde(default = "default_max_hits_per_request")]
+    pub max_hits_per_request: u32,
     pub custom_rules: Vec<CustomRule>,
     pub custom_rules_enabled: bool,
+}
+
+const fn default_max_hits_per_request() -> u32 {
+    4096
 }
 
 /// Top-level evaluator configuration shared with runtime bootstrap.
