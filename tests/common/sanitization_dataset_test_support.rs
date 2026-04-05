@@ -126,6 +126,7 @@ pub fn replay_assertable_dataset_labels() -> BTreeSet<&'static str> {
         "CREDITCARDNUMBER",
         "EMAIL",
         "IPV4",
+        "STREET",
         "credit_card_number",
         "credit_debit_card",
         "email",

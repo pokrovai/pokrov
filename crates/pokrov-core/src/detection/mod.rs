@@ -166,6 +166,38 @@ mod tests {
     }
 
     #[test]
+    fn detects_domain_candidates_with_context_terms() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Service domain api.internal-example.com is used as an endpoint"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.pii.domain"),
+            "domain should be detected by builtin domain rule when lexical context is explicit"
+        );
+    }
+
+    #[test]
+    fn rejects_domain_candidates_without_context_terms() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "internal-example.com"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "builtin.pii.domain"),
+            "domain rule should require lexical context before matching"
+        );
+    }
+
+    #[test]
     fn detects_ipv4_candidates() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
@@ -305,6 +337,38 @@ mod tests {
             hits.iter().filter(|hit| hit.rule_id == "builtin.pii.name_field").count() >= 3,
             "first, last, and middle name fields should each be detected by field-gated name rule"
         );
+    }
+
+    #[test]
+    fn detects_extended_person_name_fields_in_structured_json() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "tool_args": {
+                "full_name": "Ivan Petrov",
+                "author": "Maksim Fedorov",
+                "committer": "Daria Ivanova",
+                "contact_name": "Elena Smirnova",
+                "user": {
+                    "name": "Pavel Sokolov"
+                },
+                "user.name": "Nikolay Voronov"
+            }
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+        let pointers = hits
+            .iter()
+            .filter(|hit| hit.rule_id == "builtin.pii.name_field")
+            .map(|hit| hit.json_pointer.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert!(pointers.contains("/tool_args/full_name"));
+        assert!(pointers.contains("/tool_args/author"));
+        assert!(pointers.contains("/tool_args/committer"));
+        assert!(pointers.contains("/tool_args/contact_name"));
+        assert!(pointers.contains("/tool_args/user/name"));
+        assert!(pointers.contains("/tool_args/user.name"));
     }
 
     #[test]
@@ -482,6 +546,22 @@ mod tests {
     }
 
     #[test]
+    fn detects_compact_directional_street_patterns() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Commute to clinic at S Broadway 61915 for the on-call shift"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.pii.en_address_like_high_risk"),
+            "directional street with trailing building number should be detected"
+        );
+    }
+
+    #[test]
     fn rejects_non_address_numeric_noise() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
@@ -505,6 +585,22 @@ mod tests {
         let hits = detect_payload(&payload, &profile, &custom, &[]);
 
         assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.identity_context_name"));
+    }
+
+    #[test]
+    fn detects_identity_context_i_am_and_contact_phrases() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "I am Ivan Petrov, contact: Daria Ivanova for approvals"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.pii.identity_context_name"),
+            "identity context rule should detect i am/contact phrases"
+        );
     }
 
     #[test]
@@ -556,6 +652,20 @@ mod tests {
                 name: "identity_name_with_context_phrase",
                 payload: json!({
                     "content": "signed by Ivan Petrov"
+                }),
+                expected_rule: Some("builtin.pii.identity_context_name"),
+            },
+            Case {
+                name: "identity_name_with_i_am_phrase",
+                payload: json!({
+                    "content": "I am Ivan Petrov"
+                }),
+                expected_rule: Some("builtin.pii.identity_context_name"),
+            },
+            Case {
+                name: "identity_name_with_contact_phrase",
+                payload: json!({
+                    "content": "contact: Daria Ivanova"
                 }),
                 expected_rule: Some("builtin.pii.identity_context_name"),
             },

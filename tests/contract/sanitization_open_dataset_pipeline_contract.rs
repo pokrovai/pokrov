@@ -550,6 +550,45 @@ fn open_dataset_nvidia_row_match_expected_street_address_redaction() {
 
 #[test]
 #[ignore = "local cached open snapshots only"]
+fn open_dataset_ai4privacy_row_match_expected_street_redaction() {
+    let snapshot = read_open_snapshot("open_ai4privacy_pii_masking_200k.json");
+    let engine = analyzer_contract_engine();
+
+    let redact_row = row_by_idx(&snapshot, 12);
+    let redact_text = row_text(redact_row);
+    let redact_annotations = replay_assertable_annotations(redact_row);
+    assert!(
+        redact_annotations.iter().any(|annotation| annotation.label == "STREET"),
+        "ai4privacy street row should expose STREET annotation"
+    );
+    let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
+
+    let mut redact_request = analyzer_contract_request("ai4privacy-row-12-street", EvaluationMode::Enforce);
+    redact_request.payload = serde_json::json!({
+        "messages": [
+            {
+                "role": "user",
+                "content": redact_text,
+            }
+        ]
+    });
+    let redact_result = engine
+        .evaluate(redact_request)
+        .expect("ai4privacy street row should evaluate");
+    assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
+    let actual_text = redact_result.transform.sanitized_payload
+        .as_ref()
+        .and_then(|payload| payload.pointer("/messages/0/content"))
+        .and_then(Value::as_str)
+        .expect("ai4privacy street row should preserve sanitized text");
+    assert_eq!(actual_text, expected_text, "ai4privacy row 12 street sanitized text mismatch");
+    for annotation in &redact_annotations {
+        assert!(!actual_text.contains(annotation.value.as_str()));
+    }
+}
+
+#[test]
+#[ignore = "local cached open snapshots only"]
 fn dataset_detector_gap_report_is_up_to_date_for_cached_snapshots() {
     let report_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DATASET_DETECTOR_GAP_REPORT_PATH);
     let current = fs::read_to_string(&report_path)
