@@ -24,6 +24,8 @@ pub mod sanitization_deterministic_test_support;
 mod sanitization_entity_pack_contract;
 #[path = "contract/sanitization_evaluate_contract.rs"]
 mod sanitization_evaluate_contract;
+#[path = "contract/sanitization_evaluation_lab_contract.rs"]
+mod sanitization_evaluation_lab_contract;
 #[path = "contract/sanitization_foundation_contract.rs"]
 mod sanitization_foundation_contract;
 #[path = "common/sanitization_foundation_test_support.rs"]
