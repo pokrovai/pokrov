@@ -114,7 +114,8 @@ mod tests {
         ];
 
         for sample in samples {
-            let expected = ((serde_json::to_vec(&sample).expect("payload should serialize").len() / 4) as u32)
+            let expected = ((serde_json::to_vec(&sample).expect("payload should serialize").len()
+                / 4) as u32)
                 .max(1);
             assert_eq!(estimate_json_token_units(&sample), expected);
         }

@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use super::llm_proxy_test_support::{
-    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
 };
 
 #[tokio::test]
@@ -99,18 +99,9 @@ llm:
         .expect("stream request should complete");
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(
-        response
-            .headers()
-            .get("x-request-id")
-            .and_then(|value| value.to_str().ok())
-            .is_some()
-    );
+    assert!(response.headers().get("x-request-id").and_then(|value| value.to_str().ok()).is_some());
     assert_eq!(
-        response
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok()),
+        response.headers().get("content-type").and_then(|value| value.to_str().ok()),
         Some("text/event-stream")
     );
     let body = response.text().await.expect("stream response should be readable");

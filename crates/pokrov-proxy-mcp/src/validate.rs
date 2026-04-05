@@ -17,10 +17,7 @@ pub fn validate_tool_arguments(
     policy: Option<&McpToolPolicy>,
 ) -> Result<ToolValidationResult, McpProxyError> {
     if !arguments.is_object() {
-        return Err(McpProxyError::invalid_request(
-            request_id,
-            "arguments must be a JSON object",
-        ));
+        return Err(McpProxyError::invalid_request(request_id, "arguments must be a JSON object"));
     }
 
     let Some(policy) = policy else {
@@ -106,7 +103,6 @@ fn validate_schema(schema: &Value, arguments: &Value) -> Vec<ValidationViolation
                 }
             }
         }
-
     }
 
     if disallow_additional {
@@ -254,9 +250,8 @@ fn collect_disallowed_paths(
 ) {
     match value {
         Value::String(candidate_path) => {
-            let is_path_key = current_key
-                .map(|key| key == "path" || key.ends_with("_path"))
-                .unwrap_or(false);
+            let is_path_key =
+                current_key.map(|key| key == "path" || key.ends_with("_path")).unwrap_or(false);
 
             if is_path_key && !path_matches_allowed_prefixes(candidate_path, allowed_prefixes) {
                 violations.push(violation(
@@ -310,12 +305,7 @@ fn normalized_path_segments(path: &str) -> Option<Vec<String>> {
         return None;
     }
 
-    if path
-        .as_bytes()
-        .get(1)
-        .copied()
-        .map(|byte| byte == b':')
-        .unwrap_or(false)
+    if path.as_bytes().get(1).copied().map(|byte| byte == b':').unwrap_or(false)
         && path
             .as_bytes()
             .first()
@@ -371,12 +361,12 @@ fn json_depth(value: &Value, current_depth: u8) -> u8 {
     }
 }
 
-fn violation(code: impl Into<String>, path: impl Into<String>, message: impl Into<String>) -> ValidationViolation {
-    ValidationViolation {
-        code: code.into(),
-        path: path.into(),
-        message: message.into(),
-    }
+fn violation(
+    code: impl Into<String>,
+    path: impl Into<String>,
+    message: impl Into<String>,
+) -> ValidationViolation {
+    ValidationViolation { code: code.into(), path: path.into(), message: message.into() }
 }
 
 #[cfg(test)]
@@ -517,20 +507,12 @@ mod tests {
             "items": vec!["12345"; 128],
         });
 
-        let error = validate_tool_arguments(
-            "req-5",
-            "repo-tools",
-            "read_file",
-            &payload,
-            Some(&policy),
-        )
-        .expect_err("validation must fail when strings exceed configured max length");
+        let error =
+            validate_tool_arguments("req-5", "repo-tools", "read_file", &payload, Some(&policy))
+                .expect_err("validation must fail when strings exceed configured max length");
 
         assert_eq!(error.code(), McpErrorCode::ArgumentValidationFailed);
-        assert_eq!(
-            error.details().and_then(|details| details.violation_count),
-            Some(64)
-        );
+        assert_eq!(error.details().and_then(|details| details.violation_count), Some(64));
     }
 
     #[test]

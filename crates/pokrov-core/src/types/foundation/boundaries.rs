@@ -257,14 +257,8 @@ mod tests {
     fn stage_boundaries_preserve_policy_and_mutation_ownership() {
         let boundaries = foundation_stage_boundaries();
 
-        assert_eq!(
-            boundaries.iter().filter(|boundary| boundary.owns_policy_decision).count(),
-            1
-        );
-        assert_eq!(
-            boundaries.iter().filter(|boundary| boundary.may_mutate_payload).count(),
-            1
-        );
+        assert_eq!(boundaries.iter().filter(|boundary| boundary.owns_policy_decision).count(), 1);
+        assert_eq!(boundaries.iter().filter(|boundary| boundary.may_mutate_payload).count(), 1);
         assert!(foundation_extension_points()
             .iter()
             .all(|extension_point| !extension_point.policy_ownership_allowed));

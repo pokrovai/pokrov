@@ -16,10 +16,8 @@ pub struct UpstreamClient {
 
 impl UpstreamClient {
     pub fn new() -> Result<Self, LLMProxyError> {
-        let client = reqwest::Client::builder()
-            .pool_max_idle_per_host(16)
-            .build()
-            .map_err(|error| {
+        let client =
+            reqwest::Client::builder().pool_max_idle_per_host(16).build().map_err(|error| {
                 LLMProxyError::upstream_unavailable(
                     "system",
                     None,
@@ -62,14 +60,12 @@ impl UpstreamClient {
                             )
                         })?;
 
-                        return Ok(UpstreamJsonResponse {
-                            status: to_status_code(status),
-                            body,
-                        });
+                        return Ok(UpstreamJsonResponse { status: to_status_code(status), body });
                     }
 
                     if should_retry_status(response.status()) && attempt < route.retry_budget {
-                        let delay = compute_retry_delay(response.status(), response.headers(), attempt);
+                        let delay =
+                            compute_retry_delay(response.status(), response.headers(), attempt);
                         if !delay.is_zero() {
                             sleep(delay).await;
                         }
@@ -127,14 +123,12 @@ impl UpstreamClient {
                 Ok(response) => {
                     if response.status().is_success() {
                         let status = to_status_code(response.status());
-                        return Ok(UpstreamStreamResponse {
-                            status,
-                            body: response,
-                        });
+                        return Ok(UpstreamStreamResponse { status, body: response });
                     }
 
                     if should_retry_status(response.status()) && attempt < route.retry_budget {
-                        let delay = compute_retry_delay(response.status(), response.headers(), attempt);
+                        let delay =
+                            compute_retry_delay(response.status(), response.headers(), attempt);
                         if !delay.is_zero() {
                             sleep(delay).await;
                         }
@@ -174,8 +168,7 @@ fn build_endpoint(base_url: &str, upstream_path: &str) -> String {
 }
 
 fn should_retry_status(status: reqwest::StatusCode) -> bool {
-    matches!(status, reqwest::StatusCode::TOO_MANY_REQUESTS)
-        || status.is_server_error()
+    matches!(status, reqwest::StatusCode::TOO_MANY_REQUESTS) || status.is_server_error()
 }
 
 fn compute_retry_delay(

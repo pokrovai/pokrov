@@ -1,6 +1,5 @@
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -88,10 +87,7 @@ impl ReleaseEvidence {
     ) -> Self {
         let failed_gates = collect_failed_gates(&performance, &security, &operational);
         let gate_status = if failed_gates.is_empty() { GateStatus::Pass } else { GateStatus::Fail };
-        let remediation = failed_gates
-            .iter()
-            .map(|gate| remediation_for_gate(gate))
-            .collect();
+        let remediation = failed_gates.iter().map(|gate| remediation_for_gate(gate)).collect();
 
         Self {
             release_id,
@@ -162,10 +158,12 @@ fn collect_failed_gates(
 
 fn remediation_for_gate(gate: &str) -> String {
     match gate {
-        "performance" => "Re-run performance verification and update latency/throughput baselines."
-            .to_string(),
+        "performance" => {
+            "Re-run performance verification and update latency/throughput baselines.".to_string()
+        }
         "security.invalid_auth" => {
-            "Fix unauthorized request handling and verify metadata-only error responses.".to_string()
+            "Fix unauthorized request handling and verify metadata-only error responses."
+                .to_string()
         }
         "security.rate_limit_abuse" => {
             "Harden rate-limit enforcement and re-run abuse scenario checks.".to_string()
@@ -176,8 +174,9 @@ fn remediation_for_gate(gate: &str) -> String {
         "security.secret_handling" => {
             "Move secrets to env/file refs and re-validate deployment handling.".to_string()
         }
-        "security" => "Re-run all security verification suites and update evidence artifacts."
-            .to_string(),
+        "security" => {
+            "Re-run all security verification suites and update evidence artifacts.".to_string()
+        }
         "operational.readiness_behavior" => {
             "Fix readiness transitions and validate degraded/draining behavior.".to_string()
         }
@@ -229,7 +228,9 @@ fn rustc_version() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{GateStatus, OperationalEvidence, PerformanceEvidence, ReleaseEvidence, SecurityEvidence};
+    use super::{
+        GateStatus, OperationalEvidence, PerformanceEvidence, ReleaseEvidence, SecurityEvidence,
+    };
 
     #[test]
     fn aggregate_gate_status_is_pass_only_when_all_sections_pass() {
@@ -313,10 +314,7 @@ mod tests {
         );
         assert_eq!(evidence.remediation.len(), evidence.failed_gates.len());
         assert!(
-            evidence
-                .remediation
-                .iter()
-                .all(|item| !item.trim().is_empty()),
+            evidence.remediation.iter().all(|item| !item.trim().is_empty()),
             "each failed gate must have remediation guidance"
         );
     }

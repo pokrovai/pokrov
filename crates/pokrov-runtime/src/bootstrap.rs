@@ -1,24 +1,17 @@
 use std::{
-    convert::Infallible,
-    error::Error,
-    fmt,
-    future::IntoFuture,
-    io::BufReader,
-    net::SocketAddr,
-    path::PathBuf,
-    sync::Arc,
-    time::Duration,
+    convert::Infallible, error::Error, fmt, future::IntoFuture, io::BufReader, net::SocketAddr,
+    path::PathBuf, sync::Arc, time::Duration,
 };
 
 use axum::http::Request;
 use axum::response::Response;
-use pokrov_api::app::{
-    build_router, AppState, AuthState, LlmProxyState, McpProxyState, RateLimitState, ResolvedApiKeyBinding,
-    SanitizationState, VerifiedClientCertIdentity,
-};
-use pokrov_api::middleware::rate_limit::RateLimiter;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use pokrov_api::app::{
+    build_router, AppState, AuthState, LlmProxyState, McpProxyState, RateLimitState,
+    ResolvedApiKeyBinding, SanitizationState, VerifiedClientCertIdentity,
+};
+use pokrov_api::middleware::rate_limit::RateLimiter;
 use pokrov_config::{
     error::ConfigError,
     loader::load_runtime_config,
@@ -37,6 +30,7 @@ use rustls::{
     RootCertStore, ServerConfig,
 };
 use serde::Serialize;
+use time::OffsetDateTime;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{oneshot, watch},
@@ -44,7 +38,6 @@ use tokio::{
 };
 use tokio_rustls::{server::TlsStream, TlsAcceptor};
 use tower::ServiceExt;
-use time::OffsetDateTime;
 use tracing::{error, info, warn};
 use x509_parser::prelude::parse_x509_certificate;
 
@@ -84,7 +77,9 @@ impl fmt::Display for BootstrapError {
         match self {
             Self::InvalidArguments(message) => write!(f, "invalid arguments: {message}"),
             Self::Config(error) => write!(f, "{error}"),
-            Self::Sanitization(error) => write!(f, "failed to initialize sanitization engine: {error}"),
+            Self::Sanitization(error) => {
+                write!(f, "failed to initialize sanitization engine: {error}")
+            }
             Self::LlmProxy(message) => write!(f, "failed to initialize llm proxy: {message}"),
             Self::McpProxy(message) => write!(f, "failed to initialize mcp proxy: {message}"),
             Self::Security(message) => write!(f, "security bootstrap failed: {message}"),
@@ -105,9 +100,10 @@ impl Error for BootstrapError {
             Self::Bind(error) => Some(error),
             Self::Serve(error) => Some(error),
             Self::Join(error) => Some(error),
-            Self::InvalidArguments(_) | Self::LlmProxy(_) | Self::McpProxy(_) | Self::Security(_) => {
-                None
-            }
+            Self::InvalidArguments(_)
+            | Self::LlmProxy(_)
+            | Self::McpProxy(_)
+            | Self::Security(_) => None,
         }
     }
 }
@@ -153,9 +149,7 @@ pub fn parse_args(args: &[String]) -> Result<BootstrapArgs, BootstrapError> {
                 evidence_artifacts.push(PathBuf::from(path));
             }
             _ => {
-                return Err(BootstrapError::InvalidArguments(format!(
-                    "unknown argument: {arg}"
-                )));
+                return Err(BootstrapError::InvalidArguments(format!("unknown argument: {arg}")));
             }
         }
     }
@@ -166,12 +160,7 @@ pub fn parse_args(args: &[String]) -> Result<BootstrapArgs, BootstrapError> {
         ));
     }
 
-    Ok(BootstrapArgs {
-        config_path,
-        release_evidence_output,
-        release_id,
-        evidence_artifacts,
-    })
+    Ok(BootstrapArgs { config_path, release_evidence_output, release_id, evidence_artifacts })
 }
 
 pub async fn run(args: BootstrapArgs) -> Result<(), BootstrapError> {
@@ -193,7 +182,9 @@ pub async fn run(args: BootstrapArgs) -> Result<(), BootstrapError> {
     let lifecycle = Arc::new(RuntimeLifecycle::new());
     let metrics = Arc::new(RuntimeMetricsRegistry::default());
 
-    run_with_listener(config, listener, lifecycle, metrics, async { wait_for_shutdown_signal().await })
+    run_with_listener(config, listener, lifecycle, metrics, async {
+        wait_for_shutdown_signal().await
+    })
     .await
 }
 
@@ -208,10 +199,8 @@ fn generate_release_evidence(args: BootstrapArgs) -> Result<(), BootstrapError> 
     let mut artifacts =
         collect_artifact_checksums(&args.evidence_artifacts).map_err(BootstrapError::EvidenceIo)?;
     if artifacts.is_empty() {
-        artifacts.push(ArtifactChecksum {
-            path: "placeholder".to_string(),
-            sha256: "0".repeat(64),
-        });
+        artifacts
+            .push(ArtifactChecksum { path: "placeholder".to_string(), sha256: "0".repeat(64) });
     }
 
     let evidence = ReleaseEvidence::build(
@@ -244,7 +233,8 @@ fn generate_release_evidence(args: BootstrapArgs) -> Result<(), BootstrapError> 
         artifacts,
         vec![
             "Evidence file was generated before verification steps were provided".to_string(),
-            "Populate performance/security/operational sections from validated test outputs".to_string(),
+            "Populate performance/security/operational sections from validated test outputs"
+                .to_string(),
         ],
     );
 
@@ -315,7 +305,8 @@ where
 
     let evaluator = if config.sanitization.enabled {
         Some(Arc::new(
-            SanitizationEngine::new(config.evaluator_config()).map_err(BootstrapError::Sanitization)?,
+            SanitizationEngine::new(config.evaluator_config())
+                .map_err(BootstrapError::Sanitization)?,
         ))
     } else {
         None
@@ -325,36 +316,21 @@ where
     let policy_loaded = !config.sanitization.enabled || evaluator.is_some();
     let auth_loaded = !config.identity.resolution_order.is_empty();
     lifecycle.set_config_loaded(policy_loaded && auth_loaded).await;
-    lifecycle
-        .set_llm_routes_loaded(!is_llm_enabled(&config))
-        .await;
-    lifecycle
-        .set_mcp_routes_loaded(!is_mcp_enabled(&config))
-        .await;
+    lifecycle.set_llm_routes_loaded(!is_llm_enabled(&config)).await;
+    lifecycle.set_mcp_routes_loaded(!is_mcp_enabled(&config)).await;
 
     let llm_handler = build_llm_handler(&config, evaluator.clone(), metrics.clone())?;
     let llm_enabled = is_llm_enabled(&config);
-    let llm_routes_loaded = llm_handler
-        .as_ref()
-        .map(LLMProxyHandler::routes_loaded)
-        .unwrap_or(false);
-    lifecycle
-        .set_llm_routes_loaded(!llm_enabled || llm_routes_loaded)
-        .await;
+    let llm_routes_loaded =
+        llm_handler.as_ref().map(LLMProxyHandler::routes_loaded).unwrap_or(false);
+    lifecycle.set_llm_routes_loaded(!llm_enabled || llm_routes_loaded).await;
     let mcp_handler = build_mcp_handler(&config, evaluator.clone(), metrics.clone())?;
     let mcp_enabled = is_mcp_enabled(&config);
-    let mcp_routes_loaded = mcp_handler
-        .as_ref()
-        .map(McpProxyHandler::routes_loaded)
-        .unwrap_or(false);
-    lifecycle
-        .set_mcp_routes_loaded(!mcp_enabled || mcp_routes_loaded)
-        .await;
-    let model_catalog_payload = llm_handler
-        .as_ref()
-        .map(build_model_catalog_payload)
-        .transpose()?
-        .map(Arc::new);
+    let mcp_routes_loaded =
+        mcp_handler.as_ref().map(McpProxyHandler::routes_loaded).unwrap_or(false);
+    lifecycle.set_mcp_routes_loaded(!mcp_enabled || mcp_routes_loaded).await;
+    let model_catalog_payload =
+        llm_handler.as_ref().map(build_model_catalog_payload).transpose()?.map(Arc::new);
 
     let app_state = AppState {
         lifecycle: lifecycle.clone(),
@@ -394,7 +370,11 @@ where
             internal_mtls_identity_header: config.auth.internal_mtls.identity_header.clone(),
             internal_mtls_require_header: config.auth.internal_mtls.require_header,
             mesh_identity_header: config.auth.mesh.identity_header.clone(),
-            mesh_required_spiffe_trust_domain: config.auth.mesh.required_spiffe_trust_domain.clone(),
+            mesh_required_spiffe_trust_domain: config
+                .auth
+                .mesh
+                .required_spiffe_trust_domain
+                .clone(),
             mesh_require_header: config.auth.mesh.require_header,
             identity_resolution_order: Arc::new(config.identity.resolution_order.clone()),
             identity_profile_bindings: Arc::new(config.identity.profile_bindings.clone()),
@@ -477,7 +457,9 @@ where
     serve_result
 }
 
-fn resolve_api_key_bindings(config: &RuntimeConfig) -> Result<Vec<ResolvedApiKeyBinding>, BootstrapError> {
+fn resolve_api_key_bindings(
+    config: &RuntimeConfig,
+) -> Result<Vec<ResolvedApiKeyBinding>, BootstrapError> {
     let mut bindings = Vec::new();
     let mut unresolved_bindings = 0usize;
 
@@ -488,9 +470,9 @@ fn resolve_api_key_bindings(config: &RuntimeConfig) -> Result<Vec<ResolvedApiKey
 
         let secret = match secret_ref {
             SecretRef::Env(ref name) => std::env::var(name).ok(),
-            SecretRef::File(ref path) => std::fs::read_to_string(path)
-                .ok()
-                .map(|content| content.trim().to_string()),
+            SecretRef::File(ref path) => {
+                std::fs::read_to_string(path).ok().map(|content| content.trim().to_string())
+            }
         };
 
         let Some(secret) = secret else {
@@ -504,10 +486,7 @@ fn resolve_api_key_bindings(config: &RuntimeConfig) -> Result<Vec<ResolvedApiKey
             continue;
         };
 
-        bindings.push(ResolvedApiKeyBinding {
-            key: secret,
-            profile: binding.profile.clone(),
-        });
+        bindings.push(ResolvedApiKeyBinding { key: secret, profile: binding.profile.clone() });
     }
 
     if config.security.fail_on_unresolved_api_keys && unresolved_bindings > 0 {
@@ -634,9 +613,7 @@ async fn handle_tls_connection(
                 request.headers_mut().remove(&header_name);
             }
             if let Some(subject) = verified_subject.clone() {
-                request
-                    .extensions_mut()
-                    .insert(VerifiedClientCertIdentity { subject });
+                request.extensions_mut().insert(VerifiedClientCertIdentity { subject });
             }
 
             let request = request.map(axum::body::Body::new);
@@ -665,10 +642,14 @@ fn build_tls_acceptor(config: &RuntimeConfig) -> Result<TlsAcceptor, BootstrapEr
     install_rustls_crypto_provider_once();
 
     let cert_path = config.server.tls.cert_file.as_deref().ok_or_else(|| {
-        BootstrapError::Security("server.tls.cert_file must be configured when tls is enabled".to_string())
+        BootstrapError::Security(
+            "server.tls.cert_file must be configured when tls is enabled".to_string(),
+        )
     })?;
     let key_path = config.server.tls.key_file.as_deref().ok_or_else(|| {
-        BootstrapError::Security("server.tls.key_file must be configured when tls is enabled".to_string())
+        BootstrapError::Security(
+            "server.tls.key_file must be configured when tls is enabled".to_string(),
+        )
     })?;
     let cert_chain = load_cert_chain(cert_path)?;
     let private_key = load_private_key(key_path)?;
@@ -681,18 +662,22 @@ fn build_tls_acceptor(config: &RuntimeConfig) -> Result<TlsAcceptor, BootstrapEr
             )
         })?;
         let client_roots = load_root_store(client_ca_path)?;
-        let verifier = WebPkiClientVerifier::builder(client_roots)
-            .build()
-            .map_err(|error| BootstrapError::Security(format!("invalid mTLS verifier config: {error}")))?;
+        let verifier = WebPkiClientVerifier::builder(client_roots).build().map_err(|error| {
+            BootstrapError::Security(format!("invalid mTLS verifier config: {error}"))
+        })?;
         ServerConfig::builder()
             .with_client_cert_verifier(verifier)
             .with_single_cert(cert_chain, private_key)
-            .map_err(|error| BootstrapError::Security(format!("invalid tls cert/key pair: {error}")))?
+            .map_err(|error| {
+                BootstrapError::Security(format!("invalid tls cert/key pair: {error}"))
+            })?
     } else {
         ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(cert_chain, private_key)
-            .map_err(|error| BootstrapError::Security(format!("invalid tls cert/key pair: {error}")))?
+            .map_err(|error| {
+                BootstrapError::Security(format!("invalid tls cert/key pair: {error}"))
+            })?
     };
 
     Ok(TlsAcceptor::from(Arc::new(server_config)))
@@ -721,9 +706,9 @@ fn load_cert_chain(path: &str) -> Result<Vec<CertificateDer<'static>>, Bootstrap
 fn load_private_key(path: &str) -> Result<PrivateKeyDer<'static>, BootstrapError> {
     let file = std::fs::File::open(path).map_err(BootstrapError::Bind)?;
     let mut reader = BufReader::new(file);
-    rustls_pemfile::private_key(&mut reader)
-        .map_err(BootstrapError::Bind)?
-        .ok_or_else(|| BootstrapError::Security(format!("tls private key is missing in file: {path}")))
+    rustls_pemfile::private_key(&mut reader).map_err(BootstrapError::Bind)?.ok_or_else(|| {
+        BootstrapError::Security(format!("tls private key is missing in file: {path}"))
+    })
 }
 
 fn load_root_store(path: &str) -> Result<Arc<RootCertStore>, BootstrapError> {
@@ -770,17 +755,12 @@ fn build_llm_handler(
         return Ok(None);
     };
 
-    let resolved_provider_keys = resolve_llm_provider_keys(
-        llm_config,
-        config.security.fail_on_unresolved_provider_keys,
-    )?;
+    let resolved_provider_keys =
+        resolve_llm_provider_keys(llm_config, config.security.fail_on_unresolved_provider_keys)?;
     let routes = ProviderRouteTable::from_config(llm_config, &resolved_provider_keys)
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
-    let metadata_mode = config
-        .response_envelope
-        .pokrov_metadata
-        .mode;
+    let metadata_mode = config.response_envelope.pokrov_metadata.mode;
     let handler = LLMProxyHandler::new(evaluator, metrics, routes, metadata_mode)
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
@@ -812,10 +792,7 @@ fn build_model_catalog_payload(handler: &LLMProxyHandler) -> Result<Vec<u8>, Boo
             owned_by: "pokrov",
         })
         .collect::<Vec<_>>();
-    let payload = PrebuiltModelsPayload {
-        object: "list",
-        data,
-    };
+    let payload = PrebuiltModelsPayload { object: "list", data };
     serde_json::to_vec(&payload).map_err(|error| BootstrapError::LlmProxy(error.to_string()))
 }
 
@@ -848,9 +825,9 @@ fn resolve_llm_provider_keys(
 
         let secret = match secret_ref {
             SecretRef::Env(ref name) => std::env::var(name).ok(),
-            SecretRef::File(ref path) => std::fs::read_to_string(path)
-                .ok()
-                .map(|content| content.trim().to_string()),
+            SecretRef::File(ref path) => {
+                std::fs::read_to_string(path).ok().map(|content| content.trim().to_string())
+            }
         };
 
         let Some(secret) = secret else {
@@ -949,11 +926,7 @@ mod tests {
 
     #[test]
     fn parse_args_rejects_unknown_argument() {
-        let args = vec![
-            "--config".to_string(),
-            "config.yaml".to_string(),
-            "--unknown".to_string(),
-        ];
+        let args = vec!["--config".to_string(), "config.yaml".to_string(), "--unknown".to_string()];
 
         let error = parse_args(&args).expect_err("unknown argument must fail parsing");
         assert!(error.to_string().contains("unknown argument: --unknown"));

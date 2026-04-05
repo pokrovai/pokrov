@@ -53,10 +53,8 @@ llm:
         .await
         .expect("unauthorized request should complete");
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
-    let unauthorized_body = unauthorized
-        .text()
-        .await
-        .expect("unauthorized body should be readable");
+    let unauthorized_body =
+        unauthorized.text().await.expect("unauthorized body should be readable");
     assert!(unauthorized_body.contains("request_id"));
     assert!(!unauthorized_body.contains("Authorization"));
 
@@ -65,10 +63,7 @@ llm:
         .send()
         .await
         .expect("ready probe should respond");
-    assert!(matches!(
-        ready.status(),
-        StatusCode::OK | StatusCode::SERVICE_UNAVAILABLE
-    ));
+    assert!(matches!(ready.status(), StatusCode::OK | StatusCode::SERVICE_UNAVAILABLE));
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
 }

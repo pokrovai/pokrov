@@ -14,12 +14,13 @@ use crate::app::{
 };
 use crate::auth::{
     fingerprint_gateway_auth_subject, parse_gateway_credential, parse_header_token_by_name,
-    parse_identity_from_headers, parse_spiffe_identity_from_mesh_header, resolve_identity_from_sources,
+    parse_identity_from_headers, parse_spiffe_identity_from_mesh_header,
+    resolve_identity_from_sources,
 };
 use crate::middleware::request_id::normalize_or_generate_request_id;
 
-pub mod request_id;
 pub mod rate_limit;
+pub mod request_id;
 
 const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
@@ -56,7 +57,8 @@ pub async fn active_requests_middleware(
         pokrov_config::UpstreamAuthMode::Passthrough => "passthrough",
     };
     let verified_client_cert = request.extensions().get::<VerifiedClientCertIdentity>();
-    let gateway_auth = resolve_gateway_auth_context(&state, request.headers(), verified_client_cert);
+    let gateway_auth =
+        resolve_gateway_auth_context(&state, request.headers(), verified_client_cert);
     let client_identity = resolve_client_identity(&state, request.headers(), &gateway_auth);
     let policy_profile = resolve_policy_profile(
         &state,
@@ -120,9 +122,7 @@ pub async fn active_requests_middleware(
 
     state.lifecycle.on_request_finished();
     state.metrics.on_request_finished();
-    state
-        .metrics
-        .on_request_outcome(route, path_class, status_code, decision);
+    state.metrics.on_request_outcome(route, path_class, status_code, decision);
     state.metrics.on_request_duration_seconds(
         route,
         path_class,
@@ -130,14 +130,18 @@ pub async fn active_requests_middleware(
         started.elapsed().as_secs_f64(),
     );
     if status_code == 429 {
-        state
-            .metrics
-            .on_blocked_request(route, "rate_limit", policy_profile.as_deref().unwrap_or("custom"));
+        state.metrics.on_blocked_request(
+            route,
+            "rate_limit",
+            policy_profile.as_deref().unwrap_or("custom"),
+        );
     }
     if status_code == 403 {
-        state
-            .metrics
-            .on_blocked_request(route, "policy", policy_profile.as_deref().unwrap_or("custom"));
+        state.metrics.on_blocked_request(
+            route,
+            "policy",
+            policy_profile.as_deref().unwrap_or("custom"),
+        );
     }
     tracing::info!(
         component = "runtime",
@@ -209,13 +213,11 @@ fn resolve_gateway_auth_context(
                 }
             }
         }
-        pokrov_config::GatewayAuthMode::InternalMtls => {
-            resolve_internal_mtls_auth_context(
-                headers,
-                state.auth.internal_mtls_identity_header.as_str(),
-                verified_client_cert,
-            )
-        }
+        pokrov_config::GatewayAuthMode::InternalMtls => resolve_internal_mtls_auth_context(
+            headers,
+            state.auth.internal_mtls_identity_header.as_str(),
+            verified_client_cert,
+        ),
         pokrov_config::GatewayAuthMode::MeshMtls => {
             let raw = parse_header_token_by_name(headers, &state.auth.mesh_identity_header);
             let subject = raw.and_then(parse_spiffe_identity_from_mesh_header);
@@ -321,18 +323,15 @@ fn resolve_internal_mtls_auth_context(
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, HeaderValue};
     use crate::app::VerifiedClientCertIdentity;
+    use axum::http::{HeaderMap, HeaderValue};
 
     use super::{resolve_internal_mtls_auth_context, validate_mesh_spiffe_identity};
 
     #[test]
     fn internal_mtls_rejects_spoofed_header_without_verified_identity() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-pokrov-client-cert-subject",
-            HeaderValue::from_static("CN=spoofed"),
-        );
+        headers.insert("x-pokrov-client-cert-subject", HeaderValue::from_static("CN=spoofed"));
 
         let auth =
             resolve_internal_mtls_auth_context(&headers, "x-pokrov-client-cert-subject", None);
@@ -343,9 +342,7 @@ mod tests {
     #[test]
     fn internal_mtls_accepts_verified_transport_identity() {
         let headers = HeaderMap::new();
-        let verified = VerifiedClientCertIdentity {
-            subject: "CN=runtime-verified".to_string(),
-        };
+        let verified = VerifiedClientCertIdentity { subject: "CN=runtime-verified".to_string() };
 
         let auth = resolve_internal_mtls_auth_context(
             &headers,

@@ -3,16 +3,16 @@ use axum::{
     http::HeaderMap,
     Json,
 };
+use pokrov_config::GatewayAuthMode;
 use pokrov_core::types::{
     AuditSummary, DegradedSummary, EvaluateError, EvaluateRequest, EvaluationMode, ExecutedSummary,
     ExplainSummary, PathClass, PolicyAction,
 };
-use pokrov_config::GatewayAuthMode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
 use crate::app::{GatewayAuthContext, GatewayAuthMechanism};
+use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
 
 /// HTTP payload for the sanitization evaluate route.
 #[derive(Debug, Clone, Deserialize)]
@@ -73,11 +73,9 @@ pub async fn handle_evaluate(
         return Err(ApiError::gateway_unauthorized(request_id.clone()));
     }
 
-    let evaluator = state
-        .sanitization
-        .evaluator
-        .as_ref()
-        .ok_or_else(|| ApiError::invalid_profile(request_id.clone(), "sanitization is not configured"))?;
+    let evaluator = state.sanitization.evaluator.as_ref().ok_or_else(|| {
+        ApiError::invalid_profile(request_id.clone(), "sanitization is not configured")
+    })?;
 
     let result = evaluator
         .evaluate(EvaluateRequest {
@@ -86,9 +84,7 @@ pub async fn handle_evaluate(
             mode: body.mode,
             payload: body.payload,
             path_class: body.path_class,
-            effective_language: body
-                .effective_language
-                .unwrap_or_else(|| "en".to_string()),
+            effective_language: body.effective_language.unwrap_or_else(|| "en".to_string()),
             entity_scope_filters: Vec::new(),
             recognizer_family_filters: Vec::new(),
             allowlist_additions: Vec::new(),

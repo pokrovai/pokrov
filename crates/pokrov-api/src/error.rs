@@ -54,12 +54,7 @@ impl ApiError {
         request_id: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "unsupported_request_subset",
-            request_id,
-            message,
-        )
+        Self::new(StatusCode::BAD_REQUEST, "unsupported_request_subset", request_id, message)
     }
 
     pub fn unauthorized(request_id: impl Into<String>, message: impl Into<String>) -> Self {
@@ -112,30 +107,15 @@ impl ApiError {
     }
 
     pub fn payload_too_large(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "invalid_request",
-            request_id,
-            message,
-        )
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, "invalid_request", request_id, message)
     }
 
     pub fn invalid_profile(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "invalid_profile",
-            request_id,
-            message,
-        )
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid_profile", request_id, message)
     }
 
     pub fn internal(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal_error",
-            request_id,
-            message,
-        )
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", request_id, message)
     }
 
     pub fn rate_limit_exceeded(request_id: impl Into<String>, decision: RateLimitDecision) -> Self {
@@ -150,12 +130,7 @@ impl ApiError {
     }
 
     pub fn runtime_not_ready(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "runtime_not_ready",
-            request_id,
-            message,
-        )
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, "runtime_not_ready", request_id, message)
     }
 
     pub fn from_llm_proxy(error: LLMProxyError) -> Self {
@@ -181,9 +156,7 @@ impl ApiError {
 
     pub fn from_llm_proxy_for_responses(error: LLMProxyError) -> Self {
         let mut mapped = Self::from_llm_proxy(error);
-        if mapped.code == "invalid_request"
-            && mapped.message.contains("minimal responses subset")
-        {
+        if mapped.code == "invalid_request" && mapped.message.contains("minimal responses subset") {
             mapped.code = "unsupported_request_subset";
         }
         mapped
@@ -208,9 +181,7 @@ impl ApiError {
             error.message(),
         );
         mapped.allowed = Some(false);
-        mapped.details = error
-            .details()
-            .and_then(|details| serde_json::to_value(details).ok());
+        mapped.details = error.details().and_then(|details| serde_json::to_value(details).ok());
         mapped
     }
 
@@ -222,26 +193,18 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let mut payload = serde_json::Map::from_iter([
-            (
-                "request_id".to_string(),
-                serde_json::Value::String(self.request_id),
-            ),
-        ]);
+        let mut payload = serde_json::Map::from_iter([(
+            "request_id".to_string(),
+            serde_json::Value::String(self.request_id),
+        )]);
 
         if let Some(allowed) = self.allowed {
             payload.insert("allowed".to_string(), serde_json::Value::Bool(allowed));
         }
 
         let mut error = serde_json::Map::from_iter([
-            (
-                "code".to_string(),
-                serde_json::Value::String(self.code.to_string()),
-            ),
-            (
-                "message".to_string(),
-                serde_json::Value::String(self.message),
-            ),
+            ("code".to_string(), serde_json::Value::String(self.code.to_string())),
+            ("message".to_string(), serde_json::Value::String(self.message)),
         ]);
 
         if let Some(details) = self.details {
@@ -264,10 +227,7 @@ impl IntoResponse for ApiError {
                 "retry_after_ms".to_string(),
                 serde_json::Value::Number(rate_limit.retry_after_ms.into()),
             );
-            payload.insert(
-                "limit".to_string(),
-                serde_json::Value::Number(rate_limit.limit.into()),
-            );
+            payload.insert("limit".to_string(), serde_json::Value::Number(rate_limit.limit.into()));
             payload.insert(
                 "remaining".to_string(),
                 serde_json::Value::Number(rate_limit.remaining.into()),
@@ -315,7 +275,7 @@ mod tests {
 
     use crate::app::{RateLimitDecision, RateLimitReason};
 
-    use super::{ApiError, RETRY_AFTER, X_RATE_LIMIT_RESET, retry_after_header_seconds};
+    use super::{retry_after_header_seconds, ApiError, RETRY_AFTER, X_RATE_LIMIT_RESET};
 
     #[test]
     fn retry_after_seconds_uses_ceiling_rounding() {
@@ -338,14 +298,9 @@ mod tests {
         };
 
         let response = ApiError::rate_limit_exceeded("request-1", decision).into_response();
-        let header = response
-            .headers()
-            .get(RETRY_AFTER)
-            .and_then(|value| value.to_str().ok());
-        let reset_header = response
-            .headers()
-            .get(X_RATE_LIMIT_RESET)
-            .and_then(|value| value.to_str().ok());
+        let header = response.headers().get(RETRY_AFTER).and_then(|value| value.to_str().ok());
+        let reset_header =
+            response.headers().get(X_RATE_LIMIT_RESET).and_then(|value| value.to_str().ok());
 
         assert_eq!(header, Some("2"));
         assert_eq!(reset_header, Some("1700000000"));

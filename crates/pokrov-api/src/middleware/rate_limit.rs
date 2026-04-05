@@ -40,11 +40,7 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(default_profile: String, profiles: BTreeMap<String, RateLimitProfile>) -> Self {
-        Self {
-            default_profile,
-            profiles,
-            windows: Mutex::new(HashMap::new()),
-        }
+        Self { default_profile, profiles, windows: Mutex::new(HashMap::new()) }
     }
 
     pub async fn evaluate(
@@ -53,14 +49,8 @@ impl RateLimiter {
         profile_id: &str,
         token_units: u32,
     ) -> RateLimitDecision {
-        self.evaluate_at(
-            identity_key,
-            profile_id,
-            token_units,
-            Instant::now(),
-            SystemTime::now(),
-        )
-        .await
+        self.evaluate_at(identity_key, profile_id, token_units, Instant::now(), SystemTime::now())
+            .await
     }
 
     async fn evaluate_at(
@@ -71,10 +61,8 @@ impl RateLimiter {
         now_monotonic: Instant,
         now_wall_clock: SystemTime,
     ) -> RateLimitDecision {
-        let profile = self
-            .profiles
-            .get(profile_id)
-            .or_else(|| self.profiles.get(&self.default_profile));
+        let profile =
+            self.profiles.get(profile_id).or_else(|| self.profiles.get(&self.default_profile));
 
         let Some(profile) = profile else {
             return RateLimitDecision {
@@ -176,9 +164,8 @@ fn inspect_bucket(
     now_monotonic: Instant,
     now_wall_clock: SystemTime,
 ) -> BucketResult {
-    let window = windows
-        .entry(key.clone())
-        .or_insert_with(|| RateLimitWindowState::new(now_monotonic));
+    let window =
+        windows.entry(key.clone()).or_insert_with(|| RateLimitWindowState::new(now_monotonic));
     window.reset_if_stale(now_monotonic, WINDOW_DURATION);
 
     let used = window.consumed;
@@ -212,15 +199,11 @@ fn consume_bucket(
 }
 
 fn effective_limit(base_limit: u32, burst_multiplier: f32) -> u32 {
-    ((base_limit as f64) * (burst_multiplier as f64))
-        .round()
-        .max(1.0) as u32
+    ((base_limit as f64) * (burst_multiplier as f64)).round().max(1.0) as u32
 }
 
 fn unix_ms(now: SystemTime) -> u64 {
-    now.duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
+    now.duration_since(UNIX_EPOCH).map(|duration| duration.as_millis() as u64).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -238,24 +221,15 @@ mod tests {
         let now = Instant::now();
         let wall = UNIX_EPOCH + Duration::from_secs(1);
 
-        let first = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
+        let first = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
         assert!(first.allowed);
 
-        let second = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
+        let second = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
         assert!(second.allowed);
 
-        let third = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
+        let third = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
         assert!(!third.allowed);
-        assert_eq!(
-            third.reason,
-            crate::app::RateLimitReason::RequestBudgetExhausted
-        );
+        assert_eq!(third.reason, crate::app::RateLimitReason::RequestBudgetExhausted);
         assert!(third.retry_after_ms > 0);
     }
 
@@ -265,18 +239,11 @@ mod tests {
         let now = Instant::now();
         let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(5);
 
-        let _ = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
-        let second = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
+        let _ = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
+        let second = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
 
         assert!(second.allowed);
-        assert_eq!(
-            second.reason,
-            crate::app::RateLimitReason::RequestBudgetExhausted
-        );
+        assert_eq!(second.reason, crate::app::RateLimitReason::RequestBudgetExhausted);
     }
 
     #[tokio::test]
@@ -284,12 +251,8 @@ mod tests {
         let limiter = limiter_with_profile(1, 100, RateLimitEnforcementMode::Enforce);
         let now = Instant::now();
         let wall = UNIX_EPOCH + Duration::from_secs(10);
-        let _ = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
-        let blocked = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
+        let _ = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
+        let blocked = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
         assert!(!blocked.allowed);
 
         let allowed = limiter
@@ -310,19 +273,12 @@ mod tests {
         let now = Instant::now();
         let wall = UNIX_EPOCH + Duration::from_secs(20);
 
-        let first = limiter
-            .evaluate_at("k1", "strict", 3, now, wall)
-            .await;
+        let first = limiter.evaluate_at("k1", "strict", 3, now, wall).await;
         assert!(first.allowed);
 
-        let second = limiter
-            .evaluate_at("k1", "strict", 1, now, wall)
-            .await;
+        let second = limiter.evaluate_at("k1", "strict", 1, now, wall).await;
         assert!(!second.allowed);
-        assert_eq!(
-            second.reason,
-            crate::app::RateLimitReason::TokenBudgetExhausted
-        );
+        assert_eq!(second.reason, crate::app::RateLimitReason::TokenBudgetExhausted);
 
         let windows = limiter.windows.lock().await;
         let request_window = windows

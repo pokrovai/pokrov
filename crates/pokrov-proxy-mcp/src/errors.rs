@@ -30,15 +30,9 @@ impl McpErrorCode {
 #[derive(Debug, thiserror::Error)]
 pub enum McpProxyError {
     #[error("invalid request: {message}")]
-    InvalidRequest {
-        request_id: String,
-        message: String,
-    },
+    InvalidRequest { request_id: String, message: String },
     #[error("unauthorized: {message}")]
-    Unauthorized {
-        request_id: String,
-        message: String,
-    },
+    Unauthorized { request_id: String, message: String },
     #[error("tool call blocked by policy")]
     ToolCallBlocked {
         request_id: String,
@@ -55,10 +49,7 @@ pub enum McpProxyError {
         violation_count: u32,
     },
     #[error("unsupported MCP transport variant")]
-    UnsupportedVariant {
-        request_id: String,
-        message: String,
-    },
+    UnsupportedVariant { request_id: String, message: String },
     #[error("upstream request failed: {message}")]
     UpstreamError {
         request_id: String,
@@ -79,17 +70,11 @@ pub enum McpProxyError {
 
 impl McpProxyError {
     pub fn invalid_request(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::InvalidRequest {
-            request_id: request_id.into(),
-            message: message.into(),
-        }
+        Self::InvalidRequest { request_id: request_id.into(), message: message.into() }
     }
 
     pub fn unauthorized(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::Unauthorized {
-            request_id: request_id.into(),
-            message: message.into(),
-        }
+        Self::Unauthorized { request_id: request_id.into(), message: message.into() }
     }
 
     pub fn tool_call_blocked(
@@ -123,10 +108,7 @@ impl McpProxyError {
     }
 
     pub fn unsupported_variant(request_id: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::UnsupportedVariant {
-            request_id: request_id.into(),
-            message: message.into(),
-        }
+        Self::UnsupportedVariant { request_id: request_id.into(), message: message.into() }
     }
 
     pub fn upstream_error(
@@ -233,9 +215,7 @@ impl McpProxyError {
             | Self::Unauthorized { message, .. }
             | Self::UnsupportedVariant { message, .. } => message.clone(),
             Self::ToolCallBlocked { .. } => "Tool call blocked by policy".to_string(),
-            Self::ArgumentValidationFailed { .. } => {
-                "Tool arguments failed validation".to_string()
-            }
+            Self::ArgumentValidationFailed { .. } => "Tool arguments failed validation".to_string(),
             Self::UpstreamError { .. } => "upstream request failed".to_string(),
             Self::UpstreamUnavailable { .. } => "upstream MCP server is unavailable".to_string(),
         }
@@ -243,29 +223,22 @@ impl McpProxyError {
 
     pub fn details(&self) -> Option<McpErrorDetails> {
         match self {
-            Self::ToolCallBlocked {
-                server,
-                tool,
-                reason,
-                violation_count,
-                ..
-            } => Some(McpErrorDetails {
-                server: Some(server.clone()),
-                tool: Some(tool.clone()),
-                reason: Some(reason.clone()),
-                violation_count: Some(*violation_count),
-            }),
-            Self::ArgumentValidationFailed {
-                server,
-                tool,
-                violation_count,
-                ..
-            } => Some(McpErrorDetails {
-                server: Some(server.clone()),
-                tool: Some(tool.clone()),
-                reason: Some("argument_invalid".to_string()),
-                violation_count: Some(*violation_count),
-            }),
+            Self::ToolCallBlocked { server, tool, reason, violation_count, .. } => {
+                Some(McpErrorDetails {
+                    server: Some(server.clone()),
+                    tool: Some(tool.clone()),
+                    reason: Some(reason.clone()),
+                    violation_count: Some(*violation_count),
+                })
+            }
+            Self::ArgumentValidationFailed { server, tool, violation_count, .. } => {
+                Some(McpErrorDetails {
+                    server: Some(server.clone()),
+                    tool: Some(tool.clone()),
+                    reason: Some("argument_invalid".to_string()),
+                    violation_count: Some(*violation_count),
+                })
+            }
             Self::UpstreamError { server, tool, .. }
             | Self::UpstreamUnavailable { server, tool, .. } => Some(McpErrorDetails {
                 server: Some(server.clone()),
@@ -281,12 +254,8 @@ impl McpProxyError {
 
     pub const fn upstream_status(&self) -> Option<u16> {
         match self {
-            Self::UpstreamError {
-                upstream_status, ..
-            }
-            | Self::UpstreamUnavailable {
-                upstream_status, ..
-            } => *upstream_status,
+            Self::UpstreamError { upstream_status, .. }
+            | Self::UpstreamUnavailable { upstream_status, .. } => *upstream_status,
             _ => None,
         }
     }

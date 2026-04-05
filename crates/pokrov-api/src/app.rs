@@ -10,20 +10,20 @@ use axum::{
     Router,
 };
 use pokrov_config::{
-    model::ResponseMetadataMode,
-    rate_limit::RateLimitEnforcementMode, GatewayAuthMode, IdentitySource, UpstreamAuthMode,
+    model::ResponseMetadataMode, rate_limit::RateLimitEnforcementMode, GatewayAuthMode,
+    IdentitySource, UpstreamAuthMode,
 };
 use pokrov_core::SanitizationEngine;
-use pokrov_metrics::registry::RuntimeMetricsRegistry;
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
+use pokrov_metrics::registry::RuntimeMetricsRegistry;
 use pokrov_proxy_llm::handler::LLMProxyHandler;
 use pokrov_proxy_mcp::handler::McpProxyHandler;
 
 use crate::{
-    handlers::{chat_completions, evaluate, health, mcp_tool_call, metrics, models, ready, responses},
-    middleware::{
-        active_requests_middleware, rate_limit::RateLimiter, request_id_middleware,
+    handlers::{
+        chat_completions, evaluate, health, mcp_tool_call, metrics, models, ready, responses,
     },
+    middleware::{active_requests_middleware, rate_limit::RateLimiter, request_id_middleware},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -60,11 +60,7 @@ pub struct SanitizationState {
 
 impl Default for SanitizationState {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            evaluator: None,
-            api_key_bindings: Arc::new(Vec::new()),
-        }
+        Self { enabled: true, evaluator: None, api_key_bindings: Arc::new(Vec::new()) }
     }
 }
 
@@ -129,10 +125,7 @@ pub struct RateLimitWindowState {
 
 impl RateLimitWindowState {
     pub fn new(window_started_at: Instant) -> Self {
-        Self {
-            window_started_at,
-            consumed: 0,
-        }
+        Self { window_started_at, consumed: 0 }
     }
 
     pub fn reset_if_stale(&mut self, now: Instant, window: Duration) {
@@ -151,10 +144,7 @@ pub struct RateLimitState {
 
 impl Default for RateLimitState {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            limiter: None,
-        }
+        Self { enabled: false, limiter: None }
     }
 }
 

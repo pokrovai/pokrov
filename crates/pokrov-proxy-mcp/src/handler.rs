@@ -129,7 +129,8 @@ impl McpProxyHandler {
             }
         }
 
-        let profile_id = resolve_profile_id(request.metadata.profile.as_deref(), api_key_profile).to_string();
+        let profile_id =
+            resolve_profile_id(request.metadata.profile.as_deref(), api_key_profile).to_string();
         let resolved = resolve_tool_call(&self.config, &request_id, &request, &profile_id)?;
 
         validate_tool_arguments(
@@ -143,10 +144,8 @@ impl McpProxyHandler {
         let mut upstream_context = resolved.upstream.clone();
         upstream_context.upstream_bearer_token = upstream_credential.map(str::to_string);
 
-        let mut result = self
-            .upstream
-            .execute_tool_call(&upstream_context, &request.arguments)
-            .await?;
+        let mut result =
+            self.upstream.execute_tool_call(&upstream_context, &request.arguments).await?;
 
         let sanitization = self.sanitize_output(
             &request_id,
@@ -235,8 +234,7 @@ impl McpProxyHandler {
             })?;
 
         self.metrics.on_rule_hits(evaluation.decision.rule_hits_total);
-        self.metrics
-            .on_payload_transformed(evaluation.transform.transformed_fields_count);
+        self.metrics.on_payload_transformed(evaluation.transform.transformed_fields_count);
         if evaluation.transform.blocked {
             self.metrics.on_evaluation_blocked();
         }
@@ -293,12 +291,12 @@ fn resolve_profile_id<'a>(requested: Option<&'a str>, fallback: &'a str) -> &'a 
     requested.unwrap_or(fallback)
 }
 
-fn validate_request_shape(request_id: &str, request: &McpToolCallRequest) -> Result<(), McpProxyError> {
+fn validate_request_shape(
+    request_id: &str,
+    request: &McpToolCallRequest,
+) -> Result<(), McpProxyError> {
     if request.server.trim().is_empty() {
-        return Err(McpProxyError::invalid_request(
-            request_id,
-            "server must not be empty",
-        ));
+        return Err(McpProxyError::invalid_request(request_id, "server must not be empty"));
     }
 
     if request.tool.trim().is_empty() {
@@ -306,10 +304,7 @@ fn validate_request_shape(request_id: &str, request: &McpToolCallRequest) -> Res
     }
 
     if !request.arguments.is_object() {
-        return Err(McpProxyError::invalid_request(
-            request_id,
-            "arguments must be a JSON object",
-        ));
+        return Err(McpProxyError::invalid_request(request_id, "arguments must be a JSON object"));
     }
 
     Ok(())
@@ -420,12 +415,8 @@ mod tests {
         })
         .expect("evaluator should build");
 
-        McpProxyHandler::new(
-            Some(Arc::new(evaluator)),
-            Arc::new(NoopRuntimeMetricsHooks),
-            config,
-        )
-        .expect("handler should build")
+        McpProxyHandler::new(Some(Arc::new(evaluator)), Arc::new(NoopRuntimeMetricsHooks), config)
+            .expect("handler should build")
     }
 
     #[test]
@@ -445,14 +436,7 @@ mod tests {
         };
 
         let result = handler
-            .sanitize_output(
-                "req-1",
-                "strict",
-                "repo-tools",
-                "read_file",
-                true,
-                &envelope,
-            )
+            .sanitize_output("req-1", "strict", "repo-tools", "read_file", true, &envelope)
             .expect("sanitization should succeed");
 
         let object = result.safe_output.as_object().expect("sanitized output must be object");
@@ -464,7 +448,8 @@ mod tests {
         assert_eq!(meta["active"], serde_json::json!(true));
         assert_eq!(items.len(), 3);
 
-        let serialized = serde_json::to_string(&result.safe_output).expect("payload should serialize");
+        let serialized =
+            serde_json::to_string(&result.safe_output).expect("payload should serialize");
         assert!(!serialized.contains("sk-test-abcdef12"));
         assert!(!serialized.contains("sk-test-zzzz9999"));
     }

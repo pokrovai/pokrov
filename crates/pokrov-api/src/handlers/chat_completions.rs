@@ -5,15 +5,15 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use pokrov_proxy_llm::normalize::estimate_token_units;
 use pokrov_proxy_llm::audit::{LLMAuthStageAuditEvent, LLMRateLimitAuditEvent};
+use pokrov_proxy_llm::normalize::estimate_token_units;
 use pokrov_proxy_llm::types::LLMProxyBody;
 use serde_json::Value;
 
-use super::request_context::{
-    RequestContextHooks, UpstreamCredentialRequirement, resolve_request_context,
-};
 use super::rate_limit::evaluate_and_record_rate_limit;
+use super::request_context::{
+    resolve_request_context, RequestContextHooks, UpstreamCredentialRequirement,
+};
 use crate::{
     app::{AppState, GatewayAuthContext},
     error::ApiError,
@@ -28,11 +28,9 @@ pub async fn handle_chat_completions(
     body: Result<Json<Value>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let metadata_mode = state.llm.response_metadata_mode;
-    let payload = body
-        .map(|Json(body)| body)
-        .map_err(|rejection| {
-            map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
-        })?;
+    let payload = body.map(|Json(body)| body).map_err(|rejection| {
+        map_json_rejection(request_id.clone(), rejection).with_response_metadata_mode(metadata_mode)
+    })?;
 
     let context = resolve_request_context(
         &state,
@@ -71,10 +69,8 @@ pub async fn handle_chat_completions(
             .emit();
         }
         if !decision.allowed {
-            return Err(
-                ApiError::rate_limit_exceeded(request_id, decision)
-                    .with_response_metadata_mode(metadata_mode),
-            );
+            return Err(ApiError::rate_limit_exceeded(request_id, decision)
+                .with_response_metadata_mode(metadata_mode));
         }
     }
 
@@ -114,18 +110,15 @@ pub async fn handle_chat_completions(
             // For SSE, request correlation is provided by the x-request-id response header.
             let mut sse_response = Response::new(Body::from(body));
             *sse_response.status_mut() = response.status;
-            sse_response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("text/event-stream"),
-            );
-            sse_response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("no-cache"),
-            );
-            sse_response.headers_mut().insert(
-                header::CONNECTION,
-                HeaderValue::from_static("keep-alive"),
-            );
+            sse_response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            sse_response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            sse_response
+                .headers_mut()
+                .insert(header::CONNECTION, HeaderValue::from_static("keep-alive"));
 
             Ok(sse_response)
         }
@@ -133,25 +126,27 @@ pub async fn handle_chat_completions(
             // For SSE, request correlation is provided by the x-request-id response header.
             let mut sse_response = Response::new(Body::from_stream(stream));
             *sse_response.status_mut() = response.status;
-            sse_response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static("text/event-stream"),
-            );
-            sse_response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("no-cache"),
-            );
-            sse_response.headers_mut().insert(
-                header::CONNECTION,
-                HeaderValue::from_static("keep-alive"),
-            );
+            sse_response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            sse_response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            sse_response
+                .headers_mut()
+                .insert(header::CONNECTION, HeaderValue::from_static("keep-alive"));
 
             Ok(sse_response)
         }
     }
 }
 
-fn on_auth_stage(state: &AppState, mode: &'static str, stage: &'static str, decision: &'static str) {
+fn on_auth_stage(
+    state: &AppState,
+    mode: &'static str,
+    stage: &'static str,
+    decision: &'static str,
+) {
     state.metrics.on_auth_decision(mode, stage, decision);
 }
 

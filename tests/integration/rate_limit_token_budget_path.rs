@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use reqwest::StatusCode;
 
-use crate::mcp_test_support::{start_mock_mcp_server, write_key_file, write_runtime_config, MockMcpMode};
+use crate::mcp_test_support::{
+    start_mock_mcp_server, write_key_file, write_runtime_config, MockMcpMode,
+};
 
 #[tokio::test]
 async fn blocks_mcp_request_when_token_budget_is_exhausted() {

@@ -288,22 +288,18 @@ fn foundation_trace_plan_changes_when_mask_suffix_changes() {
     };
     let engine_suffix_2 = engine_with_mask_suffix(2);
     let engine_suffix_4 = engine_with_mask_suffix(4);
-    let result_suffix_2 = engine_suffix_2
-        .evaluate(request.clone())
-        .expect("evaluation with suffix 2 should pass");
-    let result_suffix_4 = engine_suffix_4
-        .evaluate(request.clone())
-        .expect("evaluation with suffix 4 should pass");
+    let result_suffix_2 =
+        engine_suffix_2.evaluate(request.clone()).expect("evaluation with suffix 2 should pass");
+    let result_suffix_4 =
+        engine_suffix_4.evaluate(request.clone()).expect("evaluation with suffix 4 should pass");
     let trace_suffix_2 = engine_suffix_2
         .trace_foundation_flow(request.clone())
         .expect("trace with suffix 2 should build");
-    let trace_suffix_4 = engine_suffix_4
-        .trace_foundation_flow(request)
-        .expect("trace with suffix 4 should build");
+    let trace_suffix_4 =
+        engine_suffix_4.trace_foundation_flow(request).expect("trace with suffix 4 should build");
 
     assert_ne!(
-        result_suffix_2.transform.sanitized_payload,
-        result_suffix_4.transform.sanitized_payload,
+        result_suffix_2.transform.sanitized_payload, result_suffix_4.transform.sanitized_payload,
         "different mask suffixes must change runtime output"
     );
     assert_ne!(

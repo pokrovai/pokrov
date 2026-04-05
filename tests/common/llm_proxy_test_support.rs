@@ -10,14 +10,17 @@ use std::{
 use axum::{
     body::Body,
     extract::State,
-    http::{StatusCode, header, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     routing::post,
     Json, Router,
 };
 use serde_json::Value;
 use tempfile::NamedTempFile;
-use tokio::{net::TcpListener, sync::{Mutex, oneshot}};
+use tokio::{
+    net::TcpListener,
+    sync::{oneshot, Mutex},
+};
 
 #[derive(Clone)]
 struct MockState {
@@ -46,23 +49,11 @@ impl MockProviderHandle {
     }
 
     pub async fn captured_requests(&self) -> Vec<Value> {
-        self
-            .requests
-            .lock()
-            .await
-            .iter()
-            .map(|request| request.body.clone())
-            .collect()
+        self.requests.lock().await.iter().map(|request| request.body.clone()).collect()
     }
 
     pub async fn captured_authorization_headers(&self) -> Vec<Option<String>> {
-        self
-            .requests
-            .lock()
-            .await
-            .iter()
-            .map(|request| request.authorization.clone())
-            .collect()
+        self.requests.lock().await.iter().map(|request| request.authorization.clone()).collect()
     }
 
     pub async fn shutdown(mut self) {
@@ -76,22 +67,14 @@ impl MockProviderHandle {
 pub async fn start_mock_provider(mode: MockProviderMode) -> MockProviderHandle {
     let requests = Arc::new(Mutex::new(Vec::<CapturedChatRequest>::new()));
     let hits = Arc::new(AtomicUsize::new(0));
-    let state = MockState {
-        mode,
-        requests: requests.clone(),
-        hits: hits.clone(),
-    };
+    let state = MockState { mode, requests: requests.clone(), hits: hits.clone() };
 
-    let app = Router::new()
-        .route("/v1/chat/completions", post(mock_chat_completions))
-        .with_state(state);
+    let app =
+        Router::new().route("/v1/chat/completions", post(mock_chat_completions)).with_state(state);
 
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("mock provider listener should bind");
-    let addr = listener
-        .local_addr()
-        .expect("mock provider listener should expose local addr");
+    let listener =
+        TcpListener::bind("127.0.0.1:0").await.expect("mock provider listener should bind");
+    let addr = listener.local_addr().expect("mock provider listener should expose local addr");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let task = tokio::spawn(async move {
@@ -125,11 +108,10 @@ async fn mock_chat_completions(
     });
 
     match state.mode {
-        MockProviderMode::Json { status, ref body } => (
-            StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
-            Json(body.clone()),
-        )
-            .into_response(),
+        MockProviderMode::Json { status, ref body } => {
+            (StatusCode::from_u16(status).unwrap_or(StatusCode::OK), Json(body.clone()))
+                .into_response()
+        }
         MockProviderMode::Sse { status, ref body } => {
             let mut response = axum::response::Response::new(Body::from(body.clone()));
             *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
@@ -150,16 +132,12 @@ struct CapturedChatRequest {
 
 pub fn write_key_file(value: &str) -> PathBuf {
     let mut file = NamedTempFile::new().expect("key file should be created");
-    file.write_all(value.as_bytes())
-        .expect("key file should be written");
+    file.write_all(value.as_bytes()).expect("key file should be written");
     file.into_temp_path().keep().expect("key file path should persist")
 }
 
 pub fn write_runtime_config(content: &str) -> PathBuf {
     let mut file = NamedTempFile::new().expect("config file should be created");
-    file.write_all(content.as_bytes())
-        .expect("config file should be written");
-    file.into_temp_path()
-        .keep()
-        .expect("config file path should persist")
+    file.write_all(content.as_bytes()).expect("config file should be written");
+    file.into_temp_path().keep().expect("config file path should persist")
 }

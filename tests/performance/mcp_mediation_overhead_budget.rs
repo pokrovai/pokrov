@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use reqwest::StatusCode;
 
 use super::mcp_test_support::{
-    MockMcpMode, start_mock_mcp_server, write_key_file, write_runtime_config,
+    start_mock_mcp_server, write_key_file, write_runtime_config, MockMcpMode,
 };
 
 #[tokio::test]

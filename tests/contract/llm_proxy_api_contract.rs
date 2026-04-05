@@ -57,8 +57,10 @@ fn llm_contract_exposes_policy_blocked_error_response() {
 
 #[test]
 fn hardening_contract_declares_predictable_rate_limit_error_shape_for_chat_path() {
-    let raw = std::fs::read_to_string(hardening_contract_path()).expect("hardening contract should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("hardening contract should parse");
+    let raw = std::fs::read_to_string(hardening_contract_path())
+        .expect("hardening contract should exist");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("hardening contract should parse");
 
     let response = &api["paths"]["/v1/chat/completions"]["post"]["responses"]["429"];
     assert!(response.is_mapping(), "429 response must be declared for chat completions");
@@ -88,13 +90,16 @@ fn byok_contract_declares_gateway_and_upstream_auth_errors_for_chat_path() {
 
 #[test]
 fn proxy_ux_contract_declares_models_discovery_endpoint() {
-    let raw = std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
+    let raw =
+        std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
 
     let operation = &api["paths"]["/v1/models"]["get"];
     assert!(operation.is_mapping(), "/v1/models endpoint must exist");
     assert_eq!(
-        operation["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["object"]["const"]
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["properties"]
+            ["object"]["const"]
             .as_str(),
         Some("list")
     );
@@ -102,10 +107,13 @@ fn proxy_ux_contract_declares_models_discovery_endpoint() {
 
 #[test]
 fn proxy_ux_contract_declares_metadata_mode_behavior_for_success_responses() {
-    let raw = std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
+    let raw =
+        std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
 
-    let description = api["components"]["schemas"]["ChatSuccessResponse"]["properties"]["pokrov"]["description"]
+    let description = api["components"]["schemas"]["ChatSuccessResponse"]["properties"]["pokrov"]
+        ["description"]
         .as_str()
         .unwrap_or_default();
     assert!(

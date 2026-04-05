@@ -1,7 +1,7 @@
 pub mod error;
 pub mod loader;
-pub mod model_key;
 pub mod model;
+pub mod model_key;
 pub mod rate_limit;
 pub mod validate;
 

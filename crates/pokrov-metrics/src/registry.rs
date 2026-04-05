@@ -149,9 +149,7 @@ impl RuntimeMetricsRegistry {
         let mut buffer = Vec::new();
         let metric_families = self.prometheus_registry.gather();
         let encoder = TextEncoder::new();
-        encoder
-            .encode(&metric_families, &mut buffer)
-            .map_err(|error| format!("{error}"))?;
+        encoder.encode(&metric_families, &mut buffer).map_err(|error| format!("{error}"))?;
         String::from_utf8(buffer).map_err(|error| error.to_string())
     }
 
@@ -175,7 +173,9 @@ impl RuntimeMetricsRegistry {
             llm_upstream_2xx_total: self.llm_upstream_2xx_total.load(Ordering::Relaxed),
             llm_upstream_4xx_total: self.llm_upstream_4xx_total.load(Ordering::Relaxed),
             llm_upstream_5xx_total: self.llm_upstream_5xx_total.load(Ordering::Relaxed),
-            llm_request_duration_ms_total: self.llm_request_duration_ms_total.load(Ordering::Relaxed),
+            llm_request_duration_ms_total: self
+                .llm_request_duration_ms_total
+                .load(Ordering::Relaxed),
             mcp_tool_calls_total: self.mcp_tool_calls_total.load(Ordering::Relaxed),
             mcp_tool_calls_blocked_total: self.mcp_tool_calls_blocked_total.load(Ordering::Relaxed),
             mcp_tool_call_duration_ms_total: self
@@ -273,8 +273,7 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
     }
 
     fn on_llm_request_duration_ms(&self, duration_ms: u64) {
-        self.llm_request_duration_ms_total
-            .fetch_add(duration_ms, Ordering::Relaxed);
+        self.llm_request_duration_ms_total.fetch_add(duration_ms, Ordering::Relaxed);
     }
 
     fn on_model_resolution(&self) {
@@ -294,13 +293,11 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
     }
 
     fn on_mcp_tool_call_blocked(&self) {
-        self.mcp_tool_calls_blocked_total
-            .fetch_add(1, Ordering::Relaxed);
+        self.mcp_tool_calls_blocked_total.fetch_add(1, Ordering::Relaxed);
     }
 
     fn on_mcp_tool_call_duration_ms(&self, duration_ms: u64) {
-        self.mcp_tool_call_duration_ms_total
-            .fetch_add(duration_ms, Ordering::Relaxed);
+        self.mcp_tool_call_duration_ms_total.fetch_add(duration_ms, Ordering::Relaxed);
     }
 
     fn on_request_outcome(&self, route: &str, path_class: &str, status: u16, decision: &str) {
@@ -369,7 +366,13 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
         self.on_upstream_error("/v1/responses", provider, error_class);
     }
 
-    fn on_request_duration_seconds(&self, route: &str, path_class: &str, decision: &str, seconds: f64) {
+    fn on_request_duration_seconds(
+        &self,
+        route: &str,
+        path_class: &str,
+        decision: &str,
+        seconds: f64,
+    ) {
         self.request_duration_seconds
             .with_label_values(&[
                 constrain_route(route),
@@ -554,9 +557,8 @@ mod tests {
     fn can_force_metrics_render_failure_for_degraded_readiness_checks() {
         let registry = RuntimeMetricsRegistry::default();
         registry.set_force_render_failure(true);
-        let error = registry
-            .render_prometheus()
-            .expect_err("forced flag should make rendering fail");
+        let error =
+            registry.render_prometheus().expect_err("forced flag should make rendering fail");
         assert!(error.contains("forced metrics rendering failure"));
     }
 }

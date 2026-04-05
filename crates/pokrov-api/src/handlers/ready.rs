@@ -23,7 +23,8 @@ pub async fn handle_ready(
     let active_requests = state.lifecycle.active_requests() as u64;
 
     let runtime_ready = matches!(runtime_state, RuntimeStateView::Ready);
-    let all_ready = runtime_ready && config_ok && auth_ok && policy_ok && llm_ok && mcp_ok && metrics_ok;
+    let all_ready =
+        runtime_ready && config_ok && auth_ok && policy_ok && llm_ok && mcp_ok && metrics_ok;
 
     let (status, runtime, code) = match runtime_state {
         RuntimeStateView::Ready if all_ready => ("ready", "ok", StatusCode::OK),

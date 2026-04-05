@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use crate::llm_proxy_test_support::{
-    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
 };
 
 #[tokio::test]

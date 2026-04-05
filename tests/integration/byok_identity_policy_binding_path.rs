@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use crate::llm_proxy_test_support::{
-    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
 };
 use crate::mcp_test_support::{start_mock_mcp_server, MockMcpMode};
 
@@ -138,7 +138,8 @@ mcp:
         .await
         .expect("mcp request should complete");
     assert_eq!(mcp_response_a.status(), StatusCode::OK);
-    let mcp_body_a: serde_json::Value = mcp_response_a.json().await.expect("mcp json body expected");
+    let mcp_body_a: serde_json::Value =
+        mcp_response_a.json().await.expect("mcp json body expected");
     assert_eq!(mcp_body_a["pokrov"]["profile"], "minimal");
 
     let mcp_response_b = client
@@ -155,7 +156,8 @@ mcp:
         .await
         .expect("mcp request should complete");
     assert_eq!(mcp_response_b.status(), StatusCode::OK);
-    let mcp_body_b: serde_json::Value = mcp_response_b.json().await.expect("mcp json body expected");
+    let mcp_body_b: serde_json::Value =
+        mcp_response_b.json().await.expect("mcp json body expected");
     assert_eq!(mcp_body_b["pokrov"]["profile"], "strict");
 
     handle.shutdown().await.expect("shutdown should succeed");

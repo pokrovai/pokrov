@@ -18,10 +18,7 @@ fn llm_contract_requires_pokrov_metadata_fields() {
         .collect::<Vec<_>>();
 
     for field in ["profile", "sanitized_input", "sanitized_output", "action", "rule_hits"] {
-        assert!(
-            required.contains(&field),
-            "required metadata field '{field}' must be declared"
-        );
+        assert!(required.contains(&field), "required metadata field '{field}' must be declared");
     }
 }
 

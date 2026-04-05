@@ -3,7 +3,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 
 use super::llm_proxy_test_support::{
-    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
 };
 
 #[tokio::test]
@@ -116,7 +116,8 @@ llm:
 async fn llm_proxy_stream_block_short_circuits_before_upstream_call() {
     let provider = start_mock_provider(MockProviderMode::Sse {
         status: 200,
-        body: "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n".to_string(),
+        body: "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+            .to_string(),
     })
     .await;
 

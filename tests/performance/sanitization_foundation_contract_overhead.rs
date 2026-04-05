@@ -13,7 +13,10 @@ fn foundation_trace_overhead_stays_within_local_budget() {
     for idx in 0..32 {
         let started = Instant::now();
         let trace = engine
-            .trace_foundation_flow(foundation_request(&format!("foundation-perf-{idx}"), request.mode))
+            .trace_foundation_flow(foundation_request(
+                &format!("foundation-perf-{idx}"),
+                request.mode,
+            ))
             .expect("foundation trace should build");
         samples.push(started.elapsed().as_millis() as u64);
         assert_eq!(trace.transform_plan.final_action, trace.transform_result.final_action);

@@ -9,11 +9,12 @@ use reqwest::StatusCode;
 use tempfile::NamedTempFile;
 
 use crate::llm_proxy_test_support::{
-    MockProviderMode, start_mock_provider, write_key_file, write_runtime_config,
+    start_mock_provider, write_key_file, write_runtime_config, MockProviderMode,
 };
 
 #[tokio::test]
-async fn internal_mtls_gateway_allows_request_after_real_tls_handshake_and_client_cert_validation() {
+async fn internal_mtls_gateway_allows_request_after_real_tls_handshake_and_client_cert_validation()
+{
     let provider = start_mock_provider(MockProviderMode::Json {
         status: 200,
         body: serde_json::json!({
@@ -90,7 +91,8 @@ llm:
     let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
         .expect("runtime should start");
-    let client_identity_pem = format!("{}\n{}", generated.client_cert_pem, generated.client_key_pem);
+    let client_identity_pem =
+        format!("{}\n{}", generated.client_cert_pem, generated.client_key_pem);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
         .add_root_certificate(
@@ -141,31 +143,21 @@ struct GeneratedCertificates {
 fn generate_test_certificates() -> GeneratedCertificates {
     let mut ca_params = CertificateParams::default();
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    ca_params
-        .distinguished_name
-        .push(DnType::CommonName, "pokrov-test-ca");
+    ca_params.distinguished_name.push(DnType::CommonName, "pokrov-test-ca");
     let ca_key = KeyPair::generate().expect("ca key should generate");
-    let ca_cert = ca_params
-        .self_signed(&ca_key)
-        .expect("ca certificate should generate");
+    let ca_cert = ca_params.self_signed(&ca_key).expect("ca certificate should generate");
 
     let mut server_params = CertificateParams::new(vec!["localhost".to_string()])
         .expect("server certificate params should build");
-    server_params
-        .subject_alt_names
-        .push(SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)));
-    server_params
-        .distinguished_name
-        .push(DnType::CommonName, "localhost");
+    server_params.subject_alt_names.push(SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+    server_params.distinguished_name.push(DnType::CommonName, "localhost");
     let server_key = KeyPair::generate().expect("server key should generate");
     let server_cert = server_params
         .signed_by(&server_key, &ca_cert, &ca_key)
         .expect("server certificate should sign");
 
     let mut client_params = CertificateParams::new(vec![]).expect("client params should build");
-    client_params
-        .distinguished_name
-        .push(DnType::CommonName, "pokrov-test-client");
+    client_params.distinguished_name.push(DnType::CommonName, "pokrov-test-client");
     let client_key = KeyPair::generate().expect("client key should generate");
     let client_cert = client_params
         .signed_by(&client_key, &ca_cert, &ca_key)
@@ -182,9 +174,6 @@ fn generate_test_certificates() -> GeneratedCertificates {
 
 fn write_temp_file(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp file should be created");
-    file.write_all(content.as_bytes())
-        .expect("temp file should be written");
-    file.into_temp_path()
-        .keep()
-        .expect("temp file path should persist")
+    file.write_all(content.as_bytes()).expect("temp file should be written");
+    file.into_temp_path().keep().expect("temp file path should persist")
 }

@@ -11,7 +11,9 @@ use serde_json::Value;
 use crate::{
     audit::LLMAuditEvent,
     errors::LLMProxyError,
-    normalize::{estimate_token_units, normalize_request, normalize_responses_payload, resolve_profile_id},
+    normalize::{
+        estimate_token_units, normalize_request, normalize_responses_payload, resolve_profile_id,
+    },
     routing::{select_upstream_credential, ProviderRouteTable},
     types::{
         LLMProxyBody, LLMProxyResponse, RouteResolution, UpstreamCredentialOrigin,
@@ -128,8 +130,7 @@ impl LLMProxyHandler {
             sanitized_input = input_eval.transform.transformed_fields_count > 0;
 
             self.metrics.on_rule_hits(input_eval.decision.rule_hits_total);
-            self.metrics
-                .on_payload_transformed(input_eval.transform.transformed_fields_count);
+            self.metrics.on_payload_transformed(input_eval.transform.transformed_fields_count);
             if input_eval.transform.blocked {
                 self.metrics.on_evaluation_blocked();
             }
@@ -197,13 +198,15 @@ impl LLMProxyHandler {
             resolution_status = "resolved",
         );
         override_payload_model(&mut sanitized_payload, &route.canonical_model);
-        let selected_credential = select_upstream_credential(auth_mode, &route, upstream_credential)
-            .ok_or_else(|| {
-                LLMProxyError::invalid_request(
-                    request_id.clone(),
-                    "upstream credential is required in passthrough mode",
-                )
-            })?;
+        let selected_credential =
+            select_upstream_credential(auth_mode, &route, upstream_credential).ok_or_else(
+                || {
+                    LLMProxyError::invalid_request(
+                        request_id.clone(),
+                        "upstream credential is required in passthrough mode",
+                    )
+                },
+            )?;
 
         if envelope.stream {
             return self
@@ -285,7 +288,12 @@ impl LLMProxyHandler {
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
-            .execute_json(&request_id, &route, &sanitized_payload, Some(upstream_credential.as_str()))
+            .execute_json(
+                &request_id,
+                &route,
+                &sanitized_payload,
+                Some(upstream_credential.as_str()),
+            )
             .await;
 
         let UpstreamJsonResponse { status, mut body } = match upstream {
@@ -393,11 +401,7 @@ impl LLMProxyHandler {
             credential_origin,
         });
 
-        Ok(LLMProxyResponse {
-            request_id,
-            status,
-            body: LLMProxyBody::Json(body),
-        })
+        Ok(LLMProxyResponse { request_id, status, body: LLMProxyBody::Json(body) })
     }
 
     fn emit_error_event(
@@ -466,8 +470,5 @@ fn override_payload_model(payload: &mut Value, canonical_model: &str) {
     let Some(object) = payload.as_object_mut() else {
         return;
     };
-    object.insert(
-        "model".to_string(),
-        Value::String(canonical_model.to_string()),
-    );
+    object.insert("model".to_string(), Value::String(canonical_model.to_string()));
 }

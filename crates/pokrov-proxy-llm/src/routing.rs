@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use pokrov_config::{
     model::{LlmConfig, LlmProviderConfig, LlmRouteConfig},
-    normalize_model_key,
-    UpstreamAuthMode,
+    normalize_model_key, UpstreamAuthMode,
 };
 
 use crate::{
@@ -71,7 +70,9 @@ impl ProviderRouteTable {
 
         Ok(Self {
             default_profile_id: config.defaults.profile_id.clone(),
-            stream_sanitization_max_buffer_bytes: config.defaults.stream_sanitization_max_buffer_bytes,
+            stream_sanitization_max_buffer_bytes: config
+                .defaults
+                .stream_sanitization_max_buffer_bytes,
             providers,
             routes,
             catalog,
@@ -161,9 +162,8 @@ fn build_route_map(
             continue;
         }
 
-        let output_sanitization = route
-            .output_sanitization
-            .unwrap_or(config.defaults.output_sanitization);
+        let output_sanitization =
+            route.output_sanitization.unwrap_or(config.defaults.output_sanitization);
         let canonical_model = route.model.clone();
         let canonical_key = normalize_model_key(&canonical_model);
 
@@ -249,9 +249,7 @@ pub fn resolve_secret_ref(raw: &str) -> Option<String> {
     }
 
     if let Some(path) = raw.strip_prefix("file:") {
-        return std::fs::read_to_string(path.trim())
-            .ok()
-            .map(|value| value.trim().to_string());
+        return std::fs::read_to_string(path.trim()).ok().map(|value| value.trim().to_string());
     }
 
     None
@@ -304,9 +302,7 @@ mod tests {
                 id: "openai".to_string(),
                 base_url: "https://api.openai.com/v1".to_string(),
                 upstream_path: Some("/chat/completions".to_string()),
-                auth: LlmProviderAuthConfig {
-                    api_key: "env:OPENAI_API_KEY".to_string(),
-                },
+                auth: LlmProviderAuthConfig { api_key: "env:OPENAI_API_KEY".to_string() },
                 timeout_ms: 30000,
                 retry_budget: 1,
                 enabled: true,
@@ -333,9 +329,8 @@ mod tests {
         let table = ProviderRouteTable::from_config(&config, &keys)
             .expect("table should build from valid config");
 
-        let resolution = table
-            .resolve("req-1", "gpt-4o-mini")
-            .expect("configured model should resolve");
+        let resolution =
+            table.resolve("req-1", "gpt-4o-mini").expect("configured model should resolve");
 
         assert_eq!(resolution.provider_id, "openai");
         assert!(!resolution.resolved_via_alias);
@@ -352,9 +347,8 @@ mod tests {
         let table = ProviderRouteTable::from_config(&config, &keys)
             .expect("table should build from valid config");
 
-        let resolution = table
-            .resolve("req-1", "OPENAI/GPT-4O-MINI")
-            .expect("alias should resolve");
+        let resolution =
+            table.resolve("req-1", "OPENAI/GPT-4O-MINI").expect("alias should resolve");
 
         assert!(resolution.resolved_via_alias);
         assert_eq!(resolution.canonical_model, "gpt-4o-mini");
@@ -367,9 +361,7 @@ mod tests {
         let table = ProviderRouteTable::from_config(&config, &keys)
             .expect("table should build from valid config");
 
-        let error = table
-            .resolve("req-2", "unknown-model")
-            .expect_err("unknown model should fail");
+        let error = table.resolve("req-2", "unknown-model").expect_err("unknown model should fail");
 
         assert_eq!(error.code().as_str(), "model_not_routed");
     }
@@ -447,9 +439,7 @@ mod tests {
             stream_sanitization_max_buffer_bytes: 1024,
         };
 
-        assert!(
-            select_upstream_credential(UpstreamAuthMode::Passthrough, &route, None).is_none()
-        );
+        assert!(select_upstream_credential(UpstreamAuthMode::Passthrough, &route, None).is_none());
         assert!(
             select_upstream_credential(UpstreamAuthMode::Passthrough, &route, Some("  ")).is_none()
         );

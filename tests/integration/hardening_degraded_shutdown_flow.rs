@@ -33,18 +33,12 @@ security:
         .build()
         .expect("client should build");
 
-    let ready = client
-        .get(format!("{}/ready", base_url))
-        .send()
-        .await
-        .expect("ready should respond");
+    let ready =
+        client.get(format!("{}/ready", base_url)).send().await.expect("ready should respond");
     assert_eq!(ready.status(), StatusCode::OK);
 
     runtime.shutdown().await.expect("shutdown should succeed");
 
     let after_shutdown = client.get(format!("{}/health", base_url)).send().await;
-    assert!(
-        after_shutdown.is_err(),
-        "runtime should stop accepting requests after shutdown"
-    );
+    assert!(after_shutdown.is_err(), "runtime should stop accepting requests after shutdown");
 }

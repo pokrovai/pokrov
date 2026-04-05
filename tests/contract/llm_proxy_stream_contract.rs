@@ -50,11 +50,13 @@ fn llm_contract_declares_stream_response_content_type_and_headers() {
 
 #[test]
 fn proxy_ux_contract_lists_alias_conflict_error_code() {
-    let raw = std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
-    let api: serde_yaml::Value = serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
+    let raw =
+        std::fs::read_to_string(proxy_ux_contract_path()).expect("proxy ux contract should exist");
+    let api: serde_yaml::Value =
+        serde_yaml::from_str(&raw).expect("proxy ux contract should parse");
 
-    let error_code_values = api["components"]["schemas"]["ErrorResponse"]["properties"]["error"]["properties"]["code"]
-        ["enum"]
+    let error_code_values = api["components"]["schemas"]["ErrorResponse"]["properties"]["error"]
+        ["properties"]["code"]["enum"]
         .as_sequence()
         .expect("error code enum should be present")
         .iter()
