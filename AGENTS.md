@@ -218,6 +218,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-05
 - N/A for persistent storage; compile-visible shared contracts plus existing in-memory runtime metadata structures (009-architecture-foundation)
 - Rust stable 1.85+ + Existing workspace crates and dependencies, especially `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; current analyzer/foundation exports already live in `pokrov-core` (010-analyzer-core-contract)
 - N/A for persistent storage; in-memory analyzer request/result metadata and metadata-only audit summaries (010-analyzer-core-contract)
+- Rust stable 1.85+ in a workspace using edition 2021 + `pokrov-core`, `pokrov-config`, `serde`, `serde_json`, `serde_yaml`, `regex`, `thiserror`, existing tracing-compatible metadata contracts (011-deterministic-recognizers)
+- N/A for persistent storage; in-memory compiled profile state plus metadata-only explain and audit summaries (011-deterministic-recognizers)
 
 ## Project Structure
 
@@ -243,6 +245,7 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 011-deterministic-recognizers: Added Rust stable 1.85+ in a workspace using edition 2021 + `pokrov-core`, `pokrov-config`, `serde`, `serde_json`, `serde_yaml`, `regex`, `thiserror`, existing tracing-compatible metadata contracts
 - 010-analyzer-core-contract: Added Rust stable 1.85+ + Existing workspace crates and dependencies, especially `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; current analyzer/foundation exports already live in `pokrov-core`
 - 009-architecture-foundation: Added Rust stable 1.85+ + Rust workspace crates with existing `serde`, `serde_json`, `thiserror`, `tracing`-compatible types; no new external dependency required for the planning baseline
 
