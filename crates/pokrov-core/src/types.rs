@@ -7,10 +7,13 @@ pub mod foundation;
 
 pub use foundation::{
     foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
+    phase_one_en_ru_entity_pack, DefaultOperatorDirection, EntityLanguageRequirement,
+    EntityPackCoverageReport, EntityPackDefinition, EntityPackLanguage, EntityRiskClass,
     EvaluationArtifactBoundary, EvaluationArtifactClass, EvidenceClass, ExtensionPointContract,
     ExtensionPointKind, FoundationExecutionTrace, FoundationTransformResult, HitLocationKind,
-    NormalizedHit, PipelineStageBoundary, ResolvedHit, StageArtifact, StageId, SuppressionStatus,
-    TransformPlan, ValidationStatus,
+    NormalizedHit, PipelineStageBoundary, RecognizerFamily, ResolvedHit, RiskClassDirection,
+    StageArtifact, StageId, SupportedEntityDefinition, SuppressionStatus, TransformPlan,
+    UnsupportedEntityDefinition, ValidationStatus,
 };
 
 /// Supported policy actions applied after detection and overlap resolution.

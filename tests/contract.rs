@@ -20,6 +20,8 @@ mod runtime_config_contract;
 pub mod sanitization_analyzer_contract_test_support;
 #[path = "common/sanitization_deterministic_test_support.rs"]
 pub mod sanitization_deterministic_test_support;
+#[path = "contract/sanitization_entity_pack_contract.rs"]
+mod sanitization_entity_pack_contract;
 #[path = "contract/sanitization_evaluate_contract.rs"]
 mod sanitization_evaluate_contract;
 #[path = "contract/sanitization_foundation_contract.rs"]
