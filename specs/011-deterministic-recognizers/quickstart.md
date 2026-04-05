@@ -54,3 +54,10 @@ Collect evidence for:
 - plain-text and structured-field parity
 - metadata-only explain and audit outputs
 - performance budget preservation
+
+## 6. Deterministic recognizer evidence checklist
+
+- Record at least one startup success log proving `deterministic_recognizers` profile compilation.
+- Record one startup validation failure for an invalid deterministic regex.
+- Record one replay-equality run where `decision.replay_identity` is identical for repeated input.
+- Record one metadata-only proof that explain/audit/reason codes do not include raw matched fragments.

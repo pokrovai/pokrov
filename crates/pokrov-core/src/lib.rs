@@ -12,9 +12,10 @@ use policy::{category_hit_counts, resolve_overlaps, select_final_action};
 use transform::apply_transforms;
 
 use crate::types::{
-    DegradedSummary, EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult, EvaluatorConfig,
-    ExecutedSummary, FoundationExecutionTrace, FoundationTransformResult, NormalizedHit, PolicyProfile,
-    ResolvedHit, ResolvedLocationKind, ResolvedLocationRecord, ResolvedSpan, TransformPlan,
+    DegradedSummary, EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult,
+    EvaluatorConfig, ExecutedSummary, FoundationExecutionTrace, FoundationTransformResult,
+    NormalizedHit, PolicyProfile, ResolvedHit, ResolvedLocationKind, ResolvedLocationRecord,
+    ResolvedSpan, TransformPlan,
 };
 
 pub mod audit;
@@ -122,11 +123,7 @@ impl SanitizationEngine {
         Ok(FoundationExecutionTrace::from_contracts(
             &request,
             &result,
-            artifacts
-                .hits
-                .iter()
-                .map(NormalizedHit::from_detection_hit)
-                .collect::<Vec<_>>(),
+            artifacts.hits.iter().map(NormalizedHit::from_detection_hit).collect::<Vec<_>>(),
             resolved_hits,
             TransformPlan::from_decision(
                 request.mode,
@@ -138,7 +135,10 @@ impl SanitizationEngine {
         ))
     }
 
-    fn evaluate_internal(&self, request: &EvaluateRequest) -> Result<EvaluationArtifacts, EvaluateError> {
+    fn evaluate_internal(
+        &self,
+        request: &EvaluateRequest,
+    ) -> Result<EvaluationArtifacts, EvaluateError> {
         if request.request_id.trim().is_empty() {
             return Err(EvaluateError::InvalidInput("request_id must not be empty".to_string()));
         }
@@ -160,7 +160,12 @@ impl SanitizationEngine {
         };
 
         let started = Instant::now();
-        let hits = detect_payload(&request.payload, &compiled_profile.profile, &compiled_profile.custom_rules);
+        let hits = detect_payload(
+            &request.payload,
+            &compiled_profile.profile,
+            &compiled_profile.custom_rules,
+            &request.allowlist_additions,
+        );
         let resolved_spans = resolve_overlaps(hits.clone());
         let final_action = select_final_action(&resolved_spans);
         let hits_by_category = category_hit_counts(&hits);
@@ -170,7 +175,7 @@ impl SanitizationEngine {
             .map(|span| ResolvedLocationRecord {
                 location_kind: ResolvedLocationKind::JsonField,
                 json_pointer: Some(span.json_pointer.clone()),
-                logical_field_path: None,
+                logical_field_path: Some(logical_field_path(&span.json_pointer)),
                 category: span.category,
                 effective_action: span.effective_action,
                 start: Some(span.start),
@@ -181,8 +186,11 @@ impl SanitizationEngine {
         let decision = EvaluateDecision {
             final_action,
             rule_hits_total: hits.len() as u32,
+            deterministic_candidates_total: hits.len() as u32,
+            suppressed_candidates_total: suppressed_candidates_total(&resolved_spans),
             hits_by_category,
-            hits_by_family: family_counts(hits.len() as u32, resolved_spans.len() as u32),
+            hits_by_family: family_counts(&hits, resolved_spans.len() as u32),
+            reason_codes: decision_reason_codes(&resolved_spans),
             resolved_locations,
             replay_identity: replay_identity(&profile_id, request, &resolved_spans),
         };
@@ -204,7 +212,9 @@ impl SanitizationEngine {
                 "safe_explain".to_string(),
                 "audit_summary".to_string(),
             ],
-            recognizer_families_executed: recognizer_families_executed(&compiled_profile.custom_rules),
+            recognizer_families_executed: recognizer_families_executed(
+                &compiled_profile.custom_rules,
+            ),
             transform_applied: transform.transformed_fields_count > 0,
         };
         let degraded = DegradedSummary {
@@ -213,8 +223,14 @@ impl SanitizationEngine {
             fail_closed_applied: false,
             missing_execution_paths: Vec::new(),
         };
-        let explain =
-            build_explain_summary(&profile_id, request.mode, &decision, &resolved_spans, &executed, &degraded);
+        let explain = build_explain_summary(
+            &profile_id,
+            request.mode,
+            &decision,
+            &resolved_spans,
+            &executed,
+            &degraded,
+        );
         let audit = build_audit_summary(
             request,
             &profile_id,
@@ -242,7 +258,10 @@ impl SanitizationEngine {
 
 fn recognizer_families_executed(custom_rules: &[CompiledCustomRule]) -> Vec<String> {
     let mut families = vec!["builtin".to_string()];
-    if !custom_rules.is_empty() {
+    if custom_rules.iter().any(|rule| rule.rule_id.starts_with("deterministic.")) {
+        families.push("deterministic".to_string());
+    }
+    if custom_rules.iter().any(|rule| rule.rule_id.starts_with("custom.")) {
         families.push("custom".to_string());
     }
     families
@@ -275,13 +294,50 @@ fn replay_identity(
     format!("{:016x}", hasher.finish())
 }
 
-fn family_counts(rule_hits_total: u32, resolved_hits_total: u32) -> BTreeMap<String, u32> {
-    BTreeMap::from([
-        ("normalized_hit".to_string(), rule_hits_total),
+fn family_counts(
+    hits: &[crate::types::DetectionHit],
+    resolved_hits_total: u32,
+) -> BTreeMap<String, u32> {
+    let mut counts = BTreeMap::from([
+        ("normalized_hit".to_string(), hits.len() as u32),
         ("resolved_hit".to_string(), resolved_hits_total),
-    ])
+        ("builtin".to_string(), 0),
+        ("custom".to_string(), 0),
+        ("deterministic".to_string(), 0),
+    ]);
+
+    for hit in hits {
+        let key = if hit.rule_id.starts_with("deterministic.") {
+            "deterministic"
+        } else if hit.rule_id.starts_with("custom.") {
+            "custom"
+        } else {
+            "builtin"
+        };
+        if let Some(value) = counts.get_mut(key) {
+            *value += 1;
+        }
+    }
+
+    counts
 }
 
+fn decision_reason_codes(resolved_spans: &[crate::types::ResolvedSpan]) -> Vec<String> {
+    resolved_spans.iter().map(|span| format!("winner:{}", span.winning_rule_id)).collect()
+}
+
+fn suppressed_candidates_total(resolved_spans: &[crate::types::ResolvedSpan]) -> u32 {
+    resolved_spans.iter().map(|span| span.suppressed_rule_ids.len() as u32).sum()
+}
+
+fn logical_field_path(pointer: &str) -> String {
+    pointer
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+        .collect::<Vec<_>>()
+        .join(".")
+}
 
 #[cfg(test)]
 #[path = "lib/tests.rs"]

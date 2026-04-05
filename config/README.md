@@ -55,6 +55,14 @@ fail-fast startup when at least one LLM provider auth reference cannot be resolv
 - `action=replace` requires a `replacement` template.
 - Empty matches are rejected unless `allow_empty_matches=true`.
 
+### Deterministic Recognizer Constraints
+
+- `deterministic_recognizers[*].id` must be non-empty and unique inside a profile.
+- `deterministic_recognizers[*].patterns[*].id` must be unique inside a recognizer.
+- `deterministic_recognizers[*].patterns[*].expression` must compile as a regular expression.
+- `allowlist_exact` and `denylist_exact` entries must be non-empty exact-match values.
+- `context.window` must be greater than zero when context is configured.
+
 ## Local Run
 
 ```bash

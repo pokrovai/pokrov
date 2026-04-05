@@ -108,6 +108,11 @@ fn compare_winner(
     old_priority: u16,
     old_rule_id: &str,
 ) -> bool {
+    if new_rule_id.starts_with("deterministic.") || old_rule_id.starts_with("deterministic.") {
+        return new_priority > old_priority
+            || (new_priority == old_priority && new_rule_id < old_rule_id);
+    }
+
     new_action.strictness_rank() > old_action.strictness_rank()
         || (new_action == old_action
             && (new_priority > old_priority
@@ -149,6 +154,36 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].winning_rule_id, "rule-b");
         assert_eq!(resolved[0].effective_action, PolicyAction::Block);
+    }
+
+    #[test]
+    fn deterministic_overlap_prefers_higher_priority_then_stable_rule_id() {
+        let hits = vec![
+            DetectionHit {
+                rule_id: "deterministic.recognizer_b.pattern.p1".to_string(),
+                category: DetectionCategory::Secrets,
+                json_pointer: "/payload".to_string(),
+                start: 0,
+                end: 8,
+                action: PolicyAction::Mask,
+                priority: 200,
+                replacement_template: None,
+            },
+            DetectionHit {
+                rule_id: "deterministic.recognizer_a.pattern.p1".to_string(),
+                category: DetectionCategory::Secrets,
+                json_pointer: "/payload".to_string(),
+                start: 0,
+                end: 8,
+                action: PolicyAction::Block,
+                priority: 200,
+                replacement_template: None,
+            },
+        ];
+
+        let resolved = resolve_overlaps(hits);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].winning_rule_id, "deterministic.recognizer_a.pattern.p1");
     }
 
     #[test]

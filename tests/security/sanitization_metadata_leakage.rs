@@ -16,7 +16,7 @@ async fn evaluate_outputs_do_not_leak_raw_fragments_in_audit_and_explain() {
         .build()
         .expect("client should build");
 
-    let raw_fragment = "project andromeda user@example.com sk-test-rawsecret";
+    let raw_fragment = "project andromeda tenant-a user@example.com sk-test-rawsecret";
 
     let response = client
         .post(format!("{}/v1/sanitize/evaluate", handle.base_url()))
@@ -48,15 +48,17 @@ async fn evaluate_outputs_do_not_leak_raw_fragments_in_audit_and_explain() {
     assert!(!audit.contains("sk-test-rawsecret"));
     assert!(!executed.contains("user@example.com"));
     assert!(!degraded.contains("sk-test-rawsecret"));
+    assert!(!explain.contains("project andromeda"));
+    assert!(!audit.contains("project andromeda"));
+    assert!(!explain.contains("tenant-a"));
+    assert!(!audit.contains("tenant-a"));
 
     handle.shutdown().await.expect("shutdown should succeed");
 }
 
 fn write_config_with_file_key(token: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let mut key_file = NamedTempFile::new().expect("key file should be created");
-    key_file
-        .write_all(token.as_bytes())
-        .expect("key file should be written");
+    key_file.write_all(token.as_bytes()).expect("key file should be written");
     let key_path = key_file.into_temp_path().keep().expect("key path should persist");
 
     let key_path_display = key_path.display();

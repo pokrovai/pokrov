@@ -95,7 +95,8 @@ pub(crate) fn action_key(action: PolicyAction) -> &'static str {
 mod tests {
     use super::{FoundationTransformResult, TransformPlan};
     use crate::types::{
-        DetectionCategory, EvaluateDecision, EvaluationMode, PolicyAction, ResolvedSpan, TransformResult,
+        DetectionCategory, EvaluateDecision, EvaluationMode, PolicyAction, ResolvedSpan,
+        TransformResult,
     };
 
     #[test]
@@ -114,13 +115,17 @@ mod tests {
         let decision = EvaluateDecision {
             final_action: PolicyAction::Redact,
             rule_hits_total: 1,
+            deterministic_candidates_total: 1,
+            suppressed_candidates_total: 1,
             hits_by_category: std::collections::BTreeMap::from([("secrets".to_string(), 1)]),
             hits_by_family: std::collections::BTreeMap::new(),
+            reason_codes: vec!["winner:custom.card".to_string()],
             resolved_locations: Vec::new(),
             replay_identity: "sig".to_string(),
         };
 
-        let plan = TransformPlan::from_decision(EvaluationMode::Enforce, &resolved_spans, &decision, 4);
+        let plan =
+            TransformPlan::from_decision(EvaluationMode::Enforce, &resolved_spans, &decision, 4);
 
         assert_eq!(plan.final_action, PolicyAction::Redact);
         assert_eq!(plan.transform_order[0], "stable_span_order");
@@ -133,22 +138,30 @@ mod tests {
         let block_decision = EvaluateDecision {
             final_action: PolicyAction::Block,
             rule_hits_total: 1,
+            deterministic_candidates_total: 1,
+            suppressed_candidates_total: 0,
             hits_by_category: std::collections::BTreeMap::from([("secrets".to_string(), 1)]),
             hits_by_family: std::collections::BTreeMap::new(),
+            reason_codes: Vec::new(),
             resolved_locations: Vec::new(),
             replay_identity: "sig-block".to_string(),
         };
         let allow_decision = EvaluateDecision {
             final_action: PolicyAction::Allow,
             rule_hits_total: 0,
+            deterministic_candidates_total: 0,
+            suppressed_candidates_total: 0,
             hits_by_category: std::collections::BTreeMap::new(),
             hits_by_family: std::collections::BTreeMap::new(),
+            reason_codes: Vec::new(),
             resolved_locations: Vec::new(),
             replay_identity: "sig-allow".to_string(),
         };
 
-        let block_plan = TransformPlan::from_decision(EvaluationMode::Enforce, &no_hits, &block_decision, 4);
-        let allow_plan = TransformPlan::from_decision(EvaluationMode::Enforce, &no_hits, &allow_decision, 4);
+        let block_plan =
+            TransformPlan::from_decision(EvaluationMode::Enforce, &no_hits, &block_decision, 4);
+        let allow_plan =
+            TransformPlan::from_decision(EvaluationMode::Enforce, &no_hits, &allow_decision, 4);
 
         assert_eq!(block_plan.transform_order, vec!["policy_block".to_string()]);
         assert_eq!(allow_plan.transform_order, vec!["pass_through".to_string()]);
@@ -175,16 +188,24 @@ mod tests {
         let decision = EvaluateDecision {
             final_action: PolicyAction::Replace,
             rule_hits_total: 1,
+            deterministic_candidates_total: 1,
+            suppressed_candidates_total: 0,
             hits_by_category: std::collections::BTreeMap::from([("custom".to_string(), 1)]),
             hits_by_family: std::collections::BTreeMap::new(),
+            reason_codes: vec!["winner:custom.replace".to_string()],
             resolved_locations: Vec::new(),
             replay_identity: "sig".to_string(),
         };
 
-        let replace_plan = TransformPlan::from_decision(EvaluationMode::Enforce, &resolved_spans, &decision, 4);
+        let replace_plan =
+            TransformPlan::from_decision(EvaluationMode::Enforce, &resolved_spans, &decision, 4);
         let alternate_replace_spans = vec![replace_span_alt];
-        let alternate_replace_plan =
-            TransformPlan::from_decision(EvaluationMode::Enforce, &alternate_replace_spans, &decision, 4);
+        let alternate_replace_plan = TransformPlan::from_decision(
+            EvaluationMode::Enforce,
+            &alternate_replace_spans,
+            &decision,
+            4,
+        );
 
         assert_ne!(
             replace_plan, alternate_replace_plan,

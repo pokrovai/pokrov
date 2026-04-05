@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use pokrov_core::types::EvaluationMode;
+use std::path::PathBuf;
 
 use crate::sanitization_analyzer_contract_test_support::{
     analyzer_contract_engine, analyzer_contract_request,
@@ -73,4 +73,31 @@ fn analyzer_result_contract_exposes_all_required_top_level_sections() {
     assert!(serialized.get("audit").is_some());
     assert!(serialized.get("executed").is_some());
     assert!(serialized.get("degraded").is_some());
+}
+
+#[test]
+fn analyzer_contract_replay_identity_is_stable_for_same_input() {
+    let engine = analyzer_contract_engine();
+    let mut request = analyzer_contract_request("contract-replay-a", EvaluationMode::Enforce);
+    request.allowlist_additions = vec!["sk-test-12345678".to_string()];
+
+    let first = engine.evaluate(request.clone()).expect("first evaluation should succeed");
+    let second = engine.evaluate(request).expect("second evaluation should succeed");
+
+    assert_eq!(first.decision.replay_identity, second.decision.replay_identity);
+    assert_eq!(first.decision.hits_by_category, second.decision.hits_by_category);
+}
+
+#[test]
+fn analyzer_contract_exposes_deterministic_decision_metadata_fields() {
+    let engine = analyzer_contract_engine();
+    let result = engine
+        .evaluate(analyzer_contract_request(
+            "contract-deterministic-decision",
+            EvaluationMode::Enforce,
+        ))
+        .expect("evaluation should succeed");
+
+    assert!(result.decision.deterministic_candidates_total >= result.decision.rule_hits_total);
+    assert!(result.decision.reason_codes.iter().all(|code| !code.contains("user@example.com")));
 }

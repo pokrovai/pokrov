@@ -8,8 +8,9 @@ pub mod foundation;
 pub use foundation::{
     foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
     EvaluationArtifactBoundary, EvaluationArtifactClass, EvidenceClass, ExtensionPointContract,
-    ExtensionPointKind, FoundationExecutionTrace, FoundationTransformResult, HitLocationKind, NormalizedHit,
-    PipelineStageBoundary, ResolvedHit, StageArtifact, StageId, TransformPlan, ValidationStatus,
+    ExtensionPointKind, FoundationExecutionTrace, FoundationTransformResult, HitLocationKind,
+    NormalizedHit, PipelineStageBoundary, ResolvedHit, StageArtifact, StageId, SuppressionStatus,
+    TransformPlan, ValidationStatus,
 };
 
 /// Supported policy actions applied after detection and overlap resolution.
@@ -164,9 +165,13 @@ pub struct ResolvedSpan {
 pub struct EvaluateDecision {
     pub final_action: PolicyAction,
     pub rule_hits_total: u32,
+    pub deterministic_candidates_total: u32,
+    pub suppressed_candidates_total: u32,
     pub hits_by_category: BTreeMap<String, u32>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub hits_by_family: BTreeMap<String, u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reason_codes: Vec<String>,
     pub resolved_locations: Vec<ResolvedLocationRecord>,
     pub replay_identity: String,
 }

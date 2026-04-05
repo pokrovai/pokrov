@@ -120,15 +120,13 @@ llm:
 
     let loaded = pokrov_config::loader::load_runtime_config(&config_path);
     let error = loaded.expect_err("disabled provider binding must fail validation");
-    assert!(error
-        .to_string()
-        .contains("must reference an existing enabled provider"));
+    assert!(error.to_string().contains("must reference an existing enabled provider"));
 }
 
 #[test]
 fn byok_runtime_config_contract_declares_dual_auth_modes() {
-    let raw =
-        std::fs::read_to_string(byok_config_contract_path()).expect("byok config contract should exist");
+    let raw = std::fs::read_to_string(byok_config_contract_path())
+        .expect("byok config contract should exist");
     let contract: serde_yaml::Value =
         serde_yaml::from_str(&raw).expect("byok config contract should parse");
 
@@ -149,25 +147,78 @@ fn byok_runtime_config_contract_declares_dual_auth_modes() {
 
 #[test]
 fn byok_runtime_config_contract_declares_identity_requirements() {
-    let raw =
-        std::fs::read_to_string(byok_config_contract_path()).expect("byok config contract should exist");
+    let raw = std::fs::read_to_string(byok_config_contract_path())
+        .expect("byok config contract should exist");
     let contract: serde_yaml::Value =
         serde_yaml::from_str(&raw).expect("byok config contract should parse");
 
-    assert_eq!(
-        contract["runtime"]["identity"]["required_for_policy"].as_bool(),
-        Some(false)
+    assert_eq!(contract["runtime"]["identity"]["required_for_policy"].as_bool(), Some(false));
+    assert_eq!(contract["runtime"]["identity"]["required_for_rate_limit"].as_bool(), Some(false));
+}
+
+#[test]
+fn runtime_config_loader_accepts_deterministic_recognizer_profile() {
+    let config_path = write_temp_config(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 8080
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 500
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+sanitization:
+  enabled: true
+  default_profile: strict
+  profiles:
+    minimal:
+      mode_default: enforce
+      categories:
+        secrets: mask
+        pii: allow
+        corporate_markers: allow
+      mask_visible_suffix: 4
+    strict:
+      mode_default: enforce
+      categories:
+        secrets: block
+        pii: redact
+        corporate_markers: mask
+      mask_visible_suffix: 4
+      deterministic_recognizers:
+        - id: payment_card
+          category: secrets
+          action: block
+          family_priority: 600
+          enabled: true
+          patterns:
+            - id: pan
+              expression: "\\b(?:\\d[ -]*?){13,16}\\b"
+              base_score: 200
+              normalization: alnum_lowercase
+    custom:
+      mode_default: dry_run
+      categories:
+        secrets: redact
+        pii: mask
+        corporate_markers: mask
+      mask_visible_suffix: 4
+"#,
     );
-    assert_eq!(
-        contract["runtime"]["identity"]["required_for_rate_limit"].as_bool(),
-        Some(false)
-    );
+
+    let loaded = pokrov_config::loader::load_runtime_config(&config_path);
+    assert!(loaded.is_ok(), "deterministic recognizers should pass validation");
 }
 
 fn write_temp_config(content: &str) -> std::path::PathBuf {
     let mut file = NamedTempFile::new().expect("temp config should be created");
-    file.write_all(content.as_bytes())
-        .expect("temp config should be written");
+    file.write_all(content.as_bytes()).expect("temp config should be written");
     let path = file.into_temp_path().keep().expect("temp config path should persist");
     fs::canonicalize(path).expect("temp config canonicalization should succeed")
 }

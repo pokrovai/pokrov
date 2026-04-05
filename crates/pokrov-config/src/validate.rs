@@ -1,15 +1,19 @@
-use std::{collections::{HashMap, HashSet}, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use regex::Regex;
 
 use crate::{
     error::{ConfigError, ValidationIssue},
-    normalize_model_key,
     model::{
-        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, GatewayAuthMode, LlmConfig,
-        LlmProviderConfig, LlmRouteConfig, McpConfig, McpServerDefinition, RuntimeConfig,
-        SanitizationProfile, SecretRef, ToolArgumentConstraints,
+        ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, DeterministicRecognizerConfig,
+        GatewayAuthMode, LlmConfig, LlmProviderConfig, LlmRouteConfig, McpConfig,
+        McpServerDefinition, RuntimeConfig, SanitizationProfile, SecretRef,
+        ToolArgumentConstraints,
     },
+    normalize_model_key,
     rate_limit::RateLimitConfig,
 };
 
@@ -52,10 +56,8 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
 fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) {
     validate_gateway_mode(config, issues);
 
-    if matches!(
-        config.auth.upstream_auth_mode,
-        crate::model::UpstreamAuthMode::Passthrough
-    ) && matches!(config.auth.gateway_auth_mode, GatewayAuthMode::ApiKey)
+    if matches!(config.auth.upstream_auth_mode, crate::model::UpstreamAuthMode::Passthrough)
+        && matches!(config.auth.gateway_auth_mode, GatewayAuthMode::ApiKey)
         && config.security.api_keys.is_empty()
     {
         issues.push(ValidationIssue::new(
@@ -63,10 +65,8 @@ fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) 
             "passthrough_requires_api_key_gateway_auth: security.api_keys must define at least one gateway credential",
         ));
     }
-    if matches!(
-        config.auth.upstream_auth_mode,
-        crate::model::UpstreamAuthMode::Passthrough
-    ) && matches!(config.auth.gateway_auth_mode, GatewayAuthMode::MeshMtls)
+    if matches!(config.auth.upstream_auth_mode, crate::model::UpstreamAuthMode::Passthrough)
+        && matches!(config.auth.gateway_auth_mode, GatewayAuthMode::MeshMtls)
         && !config.auth.mesh.require_header
     {
         issues.push(ValidationIssue::new(
@@ -75,10 +75,7 @@ fn validate_identity(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) 
         ));
     }
     if config.auth.allow_single_bearer_passthrough
-        && !matches!(
-            config.auth.upstream_auth_mode,
-            crate::model::UpstreamAuthMode::Passthrough
-        )
+        && !matches!(config.auth.upstream_auth_mode, crate::model::UpstreamAuthMode::Passthrough)
     {
         issues.push(ValidationIssue::new(
             "auth.allow_single_bearer_passthrough",
@@ -157,15 +154,7 @@ fn validate_gateway_mode(config: &RuntimeConfig, issues: &mut Vec<ValidationIssu
                     "must be set when auth.gateway_auth_mode=internal_mtls",
                 ));
             }
-            if config
-                .server
-                .tls
-                .client_ca_file
-                .as_deref()
-                .unwrap_or("")
-                .trim()
-                .is_empty()
-            {
+            if config.server.tls.client_ca_file.as_deref().unwrap_or("").trim().is_empty() {
                 issues.push(ValidationIssue::new(
                     "server.tls.client_ca_file",
                     "must be set when auth.gateway_auth_mode=internal_mtls",
@@ -185,7 +174,8 @@ fn validate_gateway_mode(config: &RuntimeConfig, issues: &mut Vec<ValidationIssu
             }
         }
         GatewayAuthMode::MeshMtls => {
-            if config.auth.mesh.require_header && config.auth.mesh.identity_header.trim().is_empty() {
+            if config.auth.mesh.require_header && config.auth.mesh.identity_header.trim().is_empty()
+            {
                 issues.push(ValidationIssue::new(
                     "auth.mesh.identity_header",
                     "must not be empty when auth.mesh.require_header=true",
@@ -292,7 +282,11 @@ fn validate_sanitization(config: &RuntimeConfig, issues: &mut Vec<ValidationIssu
     validate_profile("custom", &config.sanitization.profiles.custom, issues);
 }
 
-fn validate_profile(profile_id: &str, profile: &SanitizationProfile, issues: &mut Vec<ValidationIssue>) {
+fn validate_profile(
+    profile_id: &str,
+    profile: &SanitizationProfile,
+    issues: &mut Vec<ValidationIssue>,
+) {
     if profile.mask_visible_suffix > 8 {
         issues.push(ValidationIssue::new(
             format!("sanitization.profiles.{profile_id}.mask_visible_suffix"),
@@ -313,9 +307,91 @@ fn validate_profile(profile_id: &str, profile: &SanitizationProfile, issues: &mu
             ));
         }
     }
+
+    validate_deterministic_recognizers(profile_id, &profile.deterministic_recognizers, issues);
 }
 
-fn validate_categories(profile_id: &str, categories: &CategoryActionsConfig, issues: &mut Vec<ValidationIssue>) {
+fn validate_deterministic_recognizers(
+    profile_id: &str,
+    recognizers: &[DeterministicRecognizerConfig],
+    issues: &mut Vec<ValidationIssue>,
+) {
+    let mut recognizer_ids = HashSet::new();
+
+    for (recognizer_idx, recognizer) in recognizers.iter().enumerate() {
+        let base_path = format!(
+            "sanitization.profiles.{profile_id}.deterministic_recognizers[{recognizer_idx}]"
+        );
+        if recognizer.id.trim().is_empty() {
+            issues.push(ValidationIssue::new(format!("{base_path}.id"), "must not be empty"));
+        } else if !recognizer_ids.insert(recognizer.id.clone()) {
+            issues.push(ValidationIssue::new(
+                format!("{base_path}.id"),
+                "must be unique within profile",
+            ));
+        }
+
+        let mut pattern_ids = HashSet::new();
+        for (pattern_idx, pattern) in recognizer.patterns.iter().enumerate() {
+            let pattern_path = format!("{base_path}.patterns[{pattern_idx}]");
+
+            if pattern.id.trim().is_empty() {
+                issues
+                    .push(ValidationIssue::new(format!("{pattern_path}.id"), "must not be empty"));
+            } else if !pattern_ids.insert(pattern.id.clone()) {
+                issues.push(ValidationIssue::new(
+                    format!("{pattern_path}.id"),
+                    "must be unique within recognizer",
+                ));
+            }
+
+            if pattern.expression.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    format!("{pattern_path}.expression"),
+                    "must not be empty",
+                ));
+            } else if let Err(error) = Regex::new(&pattern.expression) {
+                issues.push(ValidationIssue::new(
+                    format!("{pattern_path}.expression"),
+                    format!("must be a valid regular expression: {error}"),
+                ));
+            }
+        }
+
+        for (entry_idx, entry) in recognizer.allowlist_exact.iter().enumerate() {
+            if entry.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    format!("{base_path}.allowlist_exact[{entry_idx}]"),
+                    "must not be empty",
+                ));
+            }
+        }
+
+        for (entry_idx, entry) in recognizer.denylist_exact.iter().enumerate() {
+            if entry.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    format!("{base_path}.denylist_exact[{entry_idx}]"),
+                    "must not be empty",
+                ));
+            }
+        }
+
+        if let Some(context) = recognizer.context.as_ref() {
+            if context.window == 0 {
+                issues.push(ValidationIssue::new(
+                    format!("{base_path}.context.window"),
+                    "must be greater than zero",
+                ));
+            }
+        }
+    }
+}
+
+fn validate_categories(
+    profile_id: &str,
+    categories: &CategoryActionsConfig,
+    issues: &mut Vec<ValidationIssue>,
+) {
     for (category, action) in [
         ("secrets", Some(categories.secrets)),
         ("pii", Some(categories.pii)),
@@ -414,10 +490,7 @@ fn validate_llm(config: Option<&LlmConfig>, issues: &mut Vec<ValidationIssue>) {
         validate_llm_provider(idx, provider, issues);
 
         if !provider_ids.insert(provider.id.clone()) {
-            issues.push(ValidationIssue::new(
-                format!("llm.providers[{idx}].id"),
-                "must be unique",
-            ));
+            issues.push(ValidationIssue::new(format!("llm.providers[{idx}].id"), "must be unique"));
         }
 
         if provider.enabled {
@@ -476,10 +549,7 @@ fn validate_mcp(config: Option<&McpConfig>, issues: &mut Vec<ValidationIssue>) {
     };
 
     if config.servers.is_empty() {
-        issues.push(ValidationIssue::new(
-            "mcp.servers",
-            "must contain at least one server",
-        ));
+        issues.push(ValidationIssue::new("mcp.servers", "must contain at least one server"));
     }
 
     if !matches!(config.defaults.profile_id.as_str(), "minimal" | "strict" | "custom") {
@@ -503,10 +573,7 @@ fn validate_mcp(config: Option<&McpConfig>, issues: &mut Vec<ValidationIssue>) {
         validate_mcp_server(idx, server, issues);
 
         if !server_ids.insert(server.id.clone()) {
-            issues.push(ValidationIssue::new(
-                format!("{server_path}.id"),
-                "must be unique",
-            ));
+            issues.push(ValidationIssue::new(format!("{server_path}.id"), "must be unique"));
         }
 
         if server.enabled && !enabled_endpoints.insert(server.endpoint.clone()) {
@@ -518,7 +585,11 @@ fn validate_mcp(config: Option<&McpConfig>, issues: &mut Vec<ValidationIssue>) {
     }
 }
 
-fn validate_mcp_server(idx: usize, server: &McpServerDefinition, issues: &mut Vec<ValidationIssue>) {
+fn validate_mcp_server(
+    idx: usize,
+    server: &McpServerDefinition,
+    issues: &mut Vec<ValidationIssue>,
+) {
     let server_path = format!("mcp.servers[{idx}]");
 
     if server.id.len() < 2 || server.id.len() > 64 {
@@ -528,11 +599,7 @@ fn validate_mcp_server(idx: usize, server: &McpServerDefinition, issues: &mut Ve
         ));
     }
 
-    if !server
-        .id
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-    {
+    if !server.id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
         issues.push(ValidationIssue::new(
             format!("{server_path}.id"),
             "must match ^[a-zA-Z0-9_\\-]+$",
@@ -624,10 +691,8 @@ fn validate_mcp_constraints(
 ) {
     if let Some(max_depth) = constraints.max_depth {
         if max_depth == 0 || max_depth > 16 {
-            issues.push(ValidationIssue::new(
-                format!("{path}.max_depth"),
-                "must be in range 1..=16",
-            ));
+            issues
+                .push(ValidationIssue::new(format!("{path}.max_depth"), "must be in range 1..=16"));
         }
     }
 
@@ -640,8 +705,7 @@ fn validate_mcp_constraints(
         }
     }
 
-    let required: HashSet<&str> =
-        constraints.required_keys.iter().map(String::as_str).collect();
+    let required: HashSet<&str> = constraints.required_keys.iter().map(String::as_str).collect();
     for (idx, key) in constraints.forbidden_keys.iter().enumerate() {
         if required.contains(key.as_str()) {
             issues.push(ValidationIssue::new(
@@ -652,7 +716,11 @@ fn validate_mcp_constraints(
     }
 }
 
-fn validate_llm_provider(idx: usize, provider: &LlmProviderConfig, issues: &mut Vec<ValidationIssue>) {
+fn validate_llm_provider(
+    idx: usize,
+    provider: &LlmProviderConfig,
+    issues: &mut Vec<ValidationIssue>,
+) {
     let provider_path = format!("llm.providers[{idx}]");
 
     if provider.id.len() < 2 || provider.id.len() > 64 {
@@ -662,11 +730,7 @@ fn validate_llm_provider(idx: usize, provider: &LlmProviderConfig, issues: &mut 
         ));
     }
 
-    if !provider
-        .id
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-    {
+    if !provider.id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
         issues.push(ValidationIssue::new(
             format!("{provider_path}.id"),
             "must match ^[a-zA-Z0-9_\\-]+$",
@@ -799,12 +863,8 @@ fn is_valid_upstream_path(value: &str) -> bool {
         return false;
     }
 
-    !value
-        .split('/')
-        .skip(1)
-        .any(|segment| segment == "." || segment == "..")
+    !value.split('/').skip(1).any(|segment| segment == "." || segment == "..")
 }
-
 
 #[cfg(test)]
 #[path = "validate_tests.rs"]

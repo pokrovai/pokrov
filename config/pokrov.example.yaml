@@ -67,6 +67,28 @@ sanitization:
         pii: redact
         corporate_markers: mask
       mask_visible_suffix: 4
+      deterministic_recognizers:
+        - id: payment_card
+          category: secrets
+          action: block
+          family_priority: 600
+          enabled: true
+          patterns:
+            - id: pan
+              expression: "\\b(?:\\d[ -]*?){13,16}\\b"
+              base_score: 200
+              normalization: alnum_lowercase
+              validator:
+                kind: luhn
+          allowlist_exact:
+            - "4111 1111 1111 1111"
+          denylist_exact:
+            - "9999 0000 0000 0000"
+          context:
+            positive_terms: ["card", "payment", "cvv"]
+            negative_terms: ["example", "demo"]
+            window: 32
+            suppress_on_negative: false
     custom:
       mode_default: dry_run
       categories:

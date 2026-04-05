@@ -1,6 +1,7 @@
+use crate::sanitization_foundation_test_support::{foundation_engine, foundation_request};
 use pokrov_core::types::{
     foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
-    ExtensionPointKind, StageArtifact, StageId,
+    ExtensionPointKind, StageArtifact, StageId, ValidationStatus,
 };
 
 #[test]
@@ -26,13 +27,40 @@ fn foundation_contract_exports_extension_points_and_eval_boundaries() {
     let extension_points = foundation_extension_points();
     let artifact_boundaries = foundation_evaluation_boundaries();
 
-    assert!(extension_points.iter().any(|point| point.kind == ExtensionPointKind::NativeRecognizer));
-    assert!(extension_points.iter().any(|point| point.kind == ExtensionPointKind::RemoteRecognizer));
-    assert!(extension_points.iter().any(|point| point.kind == ExtensionPointKind::StructuredProcessor));
-    assert!(extension_points.iter().any(|point| point.kind == ExtensionPointKind::EvaluationRunner));
+    assert!(extension_points
+        .iter()
+        .any(|point| point.kind == ExtensionPointKind::NativeRecognizer));
+    assert!(extension_points
+        .iter()
+        .any(|point| point.kind == ExtensionPointKind::RemoteRecognizer));
+    assert!(extension_points
+        .iter()
+        .any(|point| point.kind == ExtensionPointKind::StructuredProcessor));
+    assert!(extension_points
+        .iter()
+        .any(|point| point.kind == ExtensionPointKind::EvaluationRunner));
     assert!(extension_points.iter().any(|point| point.kind == ExtensionPointKind::BaselineRunner));
 
     assert_eq!(artifact_boundaries.len(), 2);
     assert!(artifact_boundaries.iter().any(|boundary| boundary.commit_allowed));
     assert!(artifact_boundaries.iter().any(|boundary| !boundary.commit_allowed));
+}
+
+#[test]
+fn foundation_contract_exposes_validation_and_reason_metadata_without_raw_fragments() {
+    let trace = foundation_engine()
+        .trace_foundation_flow(foundation_request(
+            "foundation-validation-contract",
+            pokrov_core::types::EvaluationMode::Enforce,
+        ))
+        .expect("foundation trace should be built");
+
+    assert!(trace
+        .resolved_hits
+        .iter()
+        .all(|hit| hit.validation_status == ValidationStatus::Resolved));
+    assert!(trace
+        .resolved_hits
+        .iter()
+        .all(|hit| hit.reason_codes.iter().all(|code| !code.contains("sk-test"))));
 }

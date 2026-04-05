@@ -4,16 +4,21 @@ mod transform;
 
 pub use boundaries::{
     foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
-    EvaluationArtifactBoundary, EvaluationArtifactClass, ExtensionPointContract, ExtensionPointKind,
-    PipelineStageBoundary, StageArtifact, StageId,
+    EvaluationArtifactBoundary, EvaluationArtifactClass, ExtensionPointContract,
+    ExtensionPointKind, PipelineStageBoundary, StageArtifact, StageId,
 };
-pub use hit_families::{EvidenceClass, HitLocationKind, NormalizedHit, ResolvedHit, ValidationStatus};
-pub use transform::{FoundationTransformResult, TransformPlan};
+pub use hit_families::{
+    EvidenceClass, HitLocationKind, NormalizedHit, ResolvedHit, SuppressionStatus, ValidationStatus,
+};
 pub(crate) use transform::action_key;
+pub use transform::{FoundationTransformResult, TransformPlan};
 
 use serde::{Deserialize, Serialize};
 
-use super::{AuditSummary, DegradedSummary, EvaluateRequest, EvaluateResult, EvaluationMode, ExplainSummary, PathClass};
+use super::{
+    AuditSummary, DegradedSummary, EvaluateRequest, EvaluateResult, EvaluationMode, ExplainSummary,
+    PathClass,
+};
 
 /// Collects the shared contract families used by runtime and evaluation proofs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

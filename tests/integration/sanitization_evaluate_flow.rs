@@ -101,11 +101,67 @@ async fn evaluate_returns_structured_error_for_invalid_json_shape() {
     handle.shutdown().await.expect("shutdown should succeed");
 }
 
+#[tokio::test]
+async fn equivalent_plain_text_and_json_leaf_inputs_keep_same_hit_counts() {
+    let token = "sanitization-test-key";
+    let (config_path, _key_path) = write_config_with_file_key(token);
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .expect("client should build");
+
+    let direct_payload = serde_json::json!({
+        "profile_id": "strict",
+        "mode": "enforce",
+        "payload": {
+            "content": "card 4111 1111 1111 1111 token sk-test-abc12345"
+        }
+    });
+    let nested_payload = serde_json::json!({
+        "profile_id": "strict",
+        "mode": "enforce",
+        "payload": {
+            "wrapper": {
+                "content": "card 4111 1111 1111 1111 token sk-test-abc12345"
+            }
+        }
+    });
+
+    let direct = client
+        .post(format!("{}/v1/sanitize/evaluate", handle.base_url()))
+        .header("authorization", format!("Bearer {token}"))
+        .json(&direct_payload)
+        .send()
+        .await
+        .expect("direct request should succeed")
+        .json::<serde_json::Value>()
+        .await
+        .expect("direct response json expected");
+    let nested = client
+        .post(format!("{}/v1/sanitize/evaluate", handle.base_url()))
+        .header("authorization", format!("Bearer {token}"))
+        .json(&nested_payload)
+        .send()
+        .await
+        .expect("nested request should succeed")
+        .json::<serde_json::Value>()
+        .await
+        .expect("nested response json expected");
+
+    assert_eq!(direct["audit"]["rule_hits_total"], nested["audit"]["rule_hits_total"]);
+    assert_eq!(direct["explain"]["rule_hits_total"], nested["explain"]["rule_hits_total"]);
+    assert_eq!(direct["explain"]["reason_codes"], nested["explain"]["reason_codes"]);
+
+    handle.shutdown().await.expect("shutdown should succeed");
+}
+
 fn write_config_with_file_key(token: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let mut key_file = NamedTempFile::new().expect("key file should be created");
-    key_file
-        .write_all(token.as_bytes())
-        .expect("key file should be written");
+    key_file.write_all(token.as_bytes()).expect("key file should be written");
     let key_path = key_file.into_temp_path().keep().expect("key path should persist");
 
     let key_path_display = key_path.display();
