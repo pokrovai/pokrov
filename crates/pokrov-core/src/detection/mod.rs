@@ -78,6 +78,26 @@ mod tests {
     }
 
     #[test]
+    fn detects_standalone_sk_codex_api_key_tokens() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Use temporary key sk_codex_1234567890abcdef1234567890 for Codex test run"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.secrets.sk_api_key"),
+            "sk_codex key should be detected by dedicated sk-api-key rule"
+        );
+        assert!(
+            hits.iter().any(|hit| hit.category == DetectionCategory::Secrets),
+            "sk_codex key should produce a secret-category hit"
+        );
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
