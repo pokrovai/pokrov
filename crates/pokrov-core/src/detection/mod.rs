@@ -521,6 +521,78 @@ mod tests {
     }
 
     #[test]
+    fn table_driven_builtin_context_gated_rules() {
+        struct Case {
+            name: &'static str,
+            payload: serde_json::Value,
+            expected_rule: Option<&'static str>,
+        }
+
+        let cases = [
+            Case {
+                name: "phone_with_lexical_context",
+                payload: json!({
+                    "content": "call me at +79001234567"
+                }),
+                expected_rule: Some("builtin.pii.phone"),
+            },
+            Case {
+                name: "phone_without_context_in_free_text",
+                payload: json!({
+                    "content": "+79001234567"
+                }),
+                expected_rule: None,
+            },
+            Case {
+                name: "phone_in_structured_phone_field",
+                payload: json!({
+                    "tool_args": {
+                        "phone_number": "+79001234567"
+                    }
+                }),
+                expected_rule: Some("builtin.pii.phone_field"),
+            },
+            Case {
+                name: "identity_name_with_context_phrase",
+                payload: json!({
+                    "content": "signed by Ivan Petrov"
+                }),
+                expected_rule: Some("builtin.pii.identity_context_name"),
+            },
+            Case {
+                name: "identity_name_in_code_like_text",
+                payload: json!({
+                    "content": "author: main.rs"
+                }),
+                expected_rule: None,
+            },
+            Case {
+                name: "identity_name_without_context_phrase",
+                payload: json!({
+                    "content": "Ivan Petrov approved release"
+                }),
+                expected_rule: None,
+            },
+        ];
+
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+
+        for case in cases {
+            let hits = detect_payload(&case.payload, &profile, &custom, &[]);
+            let matched = case
+                .expected_rule
+                .is_some_and(|rule_id| hits.iter().any(|hit| hit.rule_id == rule_id));
+            assert_eq!(
+                matched,
+                case.expected_rule.is_some(),
+                "unexpected match result for case {}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
