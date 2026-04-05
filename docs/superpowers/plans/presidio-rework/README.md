@@ -10,6 +10,7 @@ Backlog decomposition starts with the foundation layer only and expands outward 
 
 ## Current Scope
 
+- `master-roadmap.md`
 - `00-architecture-foundation-backlog.md`
 - `01-analyzer-core-contract-backlog.md`
 - `02-deterministic-recognizers-backlog.md`
