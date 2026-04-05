@@ -32,7 +32,7 @@ fn luhn_valid(candidate: &str) -> bool {
         checksum += value;
         doubled = !doubled;
     }
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 #[cfg(test)]

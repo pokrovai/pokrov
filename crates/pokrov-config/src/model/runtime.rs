@@ -39,7 +39,7 @@ pub struct ServerConfig {
     pub tls: TlsServerConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TlsServerConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -51,18 +51,6 @@ pub struct TlsServerConfig {
     pub client_ca_file: Option<String>,
     #[serde(default)]
     pub require_client_cert: bool,
-}
-
-impl Default for TlsServerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            cert_file: None,
-            key_file: None,
-            client_ca_file: None,
-            require_client_cert: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

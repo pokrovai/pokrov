@@ -75,6 +75,7 @@ pub enum GateStatus {
 }
 
 impl ReleaseEvidence {
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         release_id: String,
         git_commit: String,
