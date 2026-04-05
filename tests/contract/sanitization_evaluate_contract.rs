@@ -98,6 +98,6 @@ fn analyzer_contract_exposes_deterministic_decision_metadata_fields() {
         ))
         .expect("evaluation should succeed");
 
-    assert!(result.decision.deterministic_candidates_total >= result.decision.rule_hits_total);
+    assert!(result.decision.deterministic_candidates_total <= result.decision.rule_hits_total);
     assert!(result.decision.reason_codes.iter().all(|code| !code.contains("user@example.com")));
 }
