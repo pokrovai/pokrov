@@ -150,6 +150,54 @@ mod tests {
     }
 
     #[test]
+    fn detects_url_candidates() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Report is available at https://financialreports.com/revenue/q2"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.pii.url"),
+            "url should be detected by builtin url rule"
+        );
+    }
+
+    #[test]
+    fn detects_ipv4_candidates() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "ingress source IP 215.114.180.213 exceeded threshold"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.pii.ipv4"),
+            "valid ipv4 should be detected by builtin ipv4 rule"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_ipv4_candidates() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "invalid diagnostic IP 999.114.180.213 should not be treated as real ipv4"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "builtin.pii.ipv4"),
+            "out-of-range ipv4 octets should not match builtin ipv4 rule"
+        );
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

@@ -90,9 +90,12 @@ pub fn replay_assertable_dataset_labels() -> BTreeSet<&'static str> {
     BTreeSet::from([
         "CREDITCARDNUMBER",
         "EMAIL",
+        "IPV4",
         "credit_card_number",
         "credit_debit_card",
         "email",
+        "ipv4",
+        "url",
     ])
 }
 

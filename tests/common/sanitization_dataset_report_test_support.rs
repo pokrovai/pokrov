@@ -213,7 +213,7 @@ Rationale:
 ## Current limitations
 
 - The current report is derived from cached open snapshots, not from full upstream datasets.
-- The current runtime assertion set intentionally covers only card and email behavior.
+- The current runtime assertion set intentionally covers card, email, IPv4, and URL behavior.
 {limitations}
 - `open_presidio_research_repo.json` is metadata-only and is not part of replay coverage.
 

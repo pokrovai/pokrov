@@ -45,9 +45,12 @@ These mapped labels already have stable runtime behavior and exact-output replay
 |---|---|---:|---|
 | `CREDITCARDNUMBER` | `card_like_number` | 2 | `open_ai4privacy_pii_masking_200k.json` |
 | `EMAIL` | `email` | 2 | `open_ai4privacy_pii_masking_200k.json` |
+| `IPV4` | `ip_address` | 3 | `open_ai4privacy_pii_masking_200k.json` |
 | `credit_card_number` | `card_like_number` | 2 | `open_gretel_pii_masking_en_v1.json` |
 | `credit_debit_card` | `card_like_number` | 1 | `open_nvidia_nemotron_pii.json` |
 | `email` | `email` | 11 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
+| `ipv4` | `ip_address` | 2 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
+| `url` | `url_or_domain` | 6 | `open_nvidia_nemotron_pii.json` |
 
 ## Current replay coverage
 
@@ -69,11 +72,8 @@ These labels are already mapped to Pokrov entities, but the current runtime does
 | Priority | Dataset label | Pokrov entity | Hits | Suggested replay row |
 |---:|---|---|---:|---|
 | 1 | `street_address` | `en_address_like_high_risk` | 10 | `open_nvidia_nemotron_pii.json` row `0` |
-| 2 | `url` | `url_or_domain` | 6 | `open_nvidia_nemotron_pii.json` row `2` |
-| 3 | `phone_number` | `phone_number` | 5 | `open_nvidia_nemotron_pii.json` row `3` |
-| 4 | `IPV4` | `ip_address` | 3 | `open_ai4privacy_pii_masking_200k.json` row `11` |
-| 5 | `STREET` | `en_address_like_high_risk` | 2 | `open_ai4privacy_pii_masking_200k.json` row `12` |
-| 6 | `ipv4` | `ip_address` | 2 | `open_nvidia_nemotron_pii.json` row `22` |
+| 2 | `phone_number` | `phone_number` | 5 | `open_nvidia_nemotron_pii.json` row `3` |
+| 3 | `STREET` | `en_address_like_high_risk` | 2 | `open_ai4privacy_pii_masking_200k.json` row `12` |
 
 ## Detector backlog from dataset analysis
 
@@ -192,7 +192,7 @@ Rationale:
 ## Current limitations
 
 - The current report is derived from cached open snapshots, not from full upstream datasets.
-- The current runtime assertion set intentionally covers only card and email behavior.
+- The current runtime assertion set intentionally covers card, email, IPv4, and URL behavior.
 - The report includes a dedicated detector-gap priority section for mapped labels that still lack current runtime recognizers or stable exact-output replay assertions.
 - `open_presidio_research_repo.json` is metadata-only and is not part of replay coverage.
 
