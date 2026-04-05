@@ -270,6 +270,24 @@ mod tests {
     }
 
     #[test]
+    fn detects_phone_numbers_in_phone_named_fields_without_lexical_context() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "tool_args": {
+                "phone_number": "+79001234567"
+            }
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.pii.phone_field"),
+            "phone-like structured keys should detect phone values without free-text context"
+        );
+    }
+
+    #[test]
     fn detects_person_name_fields_in_structured_json() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
