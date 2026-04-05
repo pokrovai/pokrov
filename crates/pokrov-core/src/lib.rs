@@ -12,10 +12,9 @@ use policy::{category_hit_counts, resolve_overlaps, select_final_action};
 use transform::apply_transforms;
 
 use crate::types::{
-    foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
-    EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult, EvaluatorConfig,
-    FoundationExecutionTrace, FoundationTransformResult, NormalizedHit, PolicyProfile, ResolvedHit,
-    ResolvedSpan, ResolvedSpanView, TransformPlan,
+    DegradedSummary, EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult, EvaluatorConfig,
+    ExecutedSummary, FoundationExecutionTrace, FoundationTransformResult, NormalizedHit, PolicyProfile,
+    ResolvedHit, ResolvedLocationKind, ResolvedLocationRecord, ResolvedSpan, TransformPlan,
 };
 
 pub mod audit;
@@ -42,7 +41,8 @@ struct EvaluationArtifacts {
     transform: crate::types::TransformResult,
     explain: crate::types::ExplainSummary,
     audit: crate::types::AuditSummary,
-    executed: bool,
+    executed: ExecutedSummary,
+    degraded: DegradedSummary,
 }
 
 /// Evaluates sanitization requests against the configured policy profiles.
@@ -59,7 +59,7 @@ impl SanitizationEngine {
 
         for (profile_id, profile) in config.profiles {
             if profile.mask_visible_suffix > 8 {
-                return Err(EvaluateError::InvalidProfileConfig(format!(
+                return Err(EvaluateError::InvalidProfile(format!(
                     "profile '{}' mask_visible_suffix must be <= 8",
                     profile_id
                 )));
@@ -70,7 +70,7 @@ impl SanitizationEngine {
         }
 
         if !profiles.contains_key(&config.default_profile) {
-            return Err(EvaluateError::InvalidProfileConfig(format!(
+            return Err(EvaluateError::InvalidProfile(format!(
                 "default profile '{}' is missing",
                 config.default_profile
             )));
@@ -92,6 +92,7 @@ impl SanitizationEngine {
             explain: artifacts.explain,
             audit: artifacts.audit,
             executed: artifacts.executed,
+            degraded: artifacts.degraded,
         })
     }
 
@@ -100,46 +101,52 @@ impl SanitizationEngine {
         &self,
         request: EvaluateRequest,
     ) -> Result<FoundationExecutionTrace, EvaluateError> {
-        let request_id = request.request_id.clone();
-        let mode = request.mode;
-        let path_class = request.path_class;
         let artifacts = self.evaluate_internal(&request)?;
         let resolved_hits = artifacts
             .resolved_spans
             .iter()
             .map(ResolvedHit::from_resolved_span)
             .collect::<Vec<_>>();
-
-        Ok(FoundationExecutionTrace {
-            request_id,
+        let result = EvaluateResult {
+            request_id: request.request_id.clone(),
             profile_id: artifacts.profile_id,
-            mode,
-            path_class,
-            stage_boundaries: foundation_stage_boundaries(),
-            extension_points: foundation_extension_points(),
-            normalized_hits: artifacts
+            mode: request.mode,
+            decision: artifacts.decision.clone(),
+            transform: artifacts.transform.clone(),
+            explain: artifacts.explain,
+            audit: artifacts.audit,
+            executed: artifacts.executed,
+            degraded: artifacts.degraded,
+        };
+
+        Ok(FoundationExecutionTrace::from_contracts(
+            &request,
+            &result,
+            artifacts
                 .hits
                 .iter()
                 .map(NormalizedHit::from_detection_hit)
                 .collect::<Vec<_>>(),
             resolved_hits,
-            transform_plan: TransformPlan::from_decision(
-                mode,
+            TransformPlan::from_decision(
+                request.mode,
                 &artifacts.resolved_spans,
-                &artifacts.decision,
+                &result.decision,
                 artifacts.mask_visible_suffix,
             ),
-            transform_result: FoundationTransformResult::from_transform_result(&artifacts.transform),
-            explain: artifacts.explain,
-            audit: artifacts.audit,
-            evaluation_boundaries: foundation_evaluation_boundaries(),
-            executed: artifacts.executed,
-        })
+            FoundationTransformResult::from_transform_result(&result.transform),
+        ))
     }
 
     fn evaluate_internal(&self, request: &EvaluateRequest) -> Result<EvaluationArtifacts, EvaluateError> {
         if request.request_id.trim().is_empty() {
-            return Err(EvaluateError::InvalidRequest("request_id must not be empty".to_string()));
+            return Err(EvaluateError::InvalidInput("request_id must not be empty".to_string()));
+        }
+
+        if request.effective_language.trim().is_empty() {
+            return Err(EvaluateError::InvalidInput(
+                "effective_language must not be empty".to_string(),
+            ));
         }
 
         let profile_id = if request.profile_id.trim().is_empty() {
@@ -158,13 +165,16 @@ impl SanitizationEngine {
         let final_action = select_final_action(&resolved_spans);
         let hits_by_category = category_hit_counts(&hits);
 
-        let resolved_span_views = resolved_spans
+        let resolved_locations = resolved_spans
             .iter()
-            .map(|span| ResolvedSpanView {
+            .map(|span| ResolvedLocationRecord {
+                location_kind: ResolvedLocationKind::JsonField,
+                json_pointer: Some(span.json_pointer.clone()),
+                logical_field_path: None,
                 category: span.category,
                 effective_action: span.effective_action,
-                start: span.start,
-                end: span.end,
+                start: Some(span.start),
+                end: Some(span.end),
             })
             .collect::<Vec<_>>();
 
@@ -172,8 +182,9 @@ impl SanitizationEngine {
             final_action,
             rule_hits_total: hits.len() as u32,
             hits_by_category,
-            resolved_spans: resolved_span_views,
-            deterministic_signature: deterministic_signature(&profile_id, &resolved_spans),
+            hits_by_family: family_counts(hits.len() as u32, resolved_spans.len() as u32),
+            resolved_locations,
+            replay_identity: replay_identity(&profile_id, request, &resolved_spans),
         };
 
         let transform = apply_transforms(
@@ -182,12 +193,35 @@ impl SanitizationEngine {
             decision.final_action,
             compiled_profile.profile.mask_visible_suffix,
         );
-        let explain = build_explain_summary(&profile_id, request.mode, &decision, &resolved_spans);
+        let executed = ExecutedSummary {
+            execution_enabled: is_execution_enabled(request.mode),
+            stages_completed: vec![
+                "input_normalization".to_string(),
+                "recognizer_execution".to_string(),
+                "analysis_and_suppression".to_string(),
+                "policy_resolution".to_string(),
+                "transformation".to_string(),
+                "safe_explain".to_string(),
+                "audit_summary".to_string(),
+            ],
+            recognizer_families_executed: recognizer_families_executed(&compiled_profile.custom_rules),
+            transform_applied: transform.transformed_fields_count > 0,
+        };
+        let degraded = DegradedSummary {
+            is_degraded: false,
+            reasons: Vec::new(),
+            fail_closed_applied: false,
+            missing_execution_paths: Vec::new(),
+        };
+        let explain =
+            build_explain_summary(&profile_id, request.mode, &decision, &resolved_spans, &executed, &degraded);
         let audit = build_audit_summary(
             request,
             &profile_id,
             &decision,
             &resolved_spans,
+            &executed,
+            &degraded,
             started.elapsed(),
         );
 
@@ -200,14 +234,33 @@ impl SanitizationEngine {
             transform,
             explain,
             audit,
-            executed: is_execution_enabled(request.mode),
+            executed,
+            degraded,
         })
     }
 }
 
-fn deterministic_signature(profile_id: &str, resolved_spans: &[crate::types::ResolvedSpan]) -> String {
+fn recognizer_families_executed(custom_rules: &[CompiledCustomRule]) -> Vec<String> {
+    let mut families = vec!["builtin".to_string()];
+    if !custom_rules.is_empty() {
+        families.push("custom".to_string());
+    }
+    families
+}
+
+fn replay_identity(
+    profile_id: &str,
+    request: &EvaluateRequest,
+    resolved_spans: &[crate::types::ResolvedSpan],
+) -> String {
     let mut hasher = DefaultHasher::new();
     profile_id.hash(&mut hasher);
+    request.mode.hash(&mut hasher);
+    request.path_class.hash(&mut hasher);
+    request.effective_language.hash(&mut hasher);
+    request.entity_scope_filters.hash(&mut hasher);
+    request.recognizer_family_filters.hash(&mut hasher);
+    request.allowlist_additions.hash(&mut hasher);
 
     for span in resolved_spans {
         span.json_pointer.hash(&mut hasher);
@@ -220,6 +273,13 @@ fn deterministic_signature(profile_id: &str, resolved_spans: &[crate::types::Res
     }
 
     format!("{:016x}", hasher.finish())
+}
+
+fn family_counts(rule_hits_total: u32, resolved_hits_total: u32) -> BTreeMap<String, u32> {
+    BTreeMap::from([
+        ("normalized_hit".to_string(), rule_hits_total),
+        ("resolved_hit".to_string(), resolved_hits_total),
+    ])
 }
 
 #[cfg(test)]
@@ -317,6 +377,10 @@ mod tests {
                 mode: EvaluationMode::Enforce,
                 payload: payload.clone(),
                 path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .expect("first evaluation should pass");
 
@@ -327,10 +391,14 @@ mod tests {
                 mode: EvaluationMode::Enforce,
                 payload,
                 path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .expect("second evaluation should pass");
 
-        assert_eq!(one.decision.deterministic_signature, two.decision.deterministic_signature);
+        assert_eq!(one.decision.replay_identity, two.decision.replay_identity);
         assert_eq!(one.decision.final_action, two.decision.final_action);
     }
 
@@ -345,6 +413,10 @@ mod tests {
                 mode: EvaluationMode::Enforce,
                 payload: json!({"content": "sk-test-abc12345"}),
                 path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .expect("evaluation should pass");
 
@@ -401,6 +473,10 @@ mod tests {
                 mode: EvaluationMode::Enforce,
                 payload: payload.clone(),
                 path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .expect("forward evaluation should pass");
         let two = engine_reversed
@@ -410,12 +486,16 @@ mod tests {
                 mode: EvaluationMode::Enforce,
                 payload,
                 path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .expect("reversed evaluation should pass");
 
         assert_eq!(one.decision.final_action, PolicyAction::Redact);
         assert_eq!(one.decision.final_action, two.decision.final_action);
-        assert_eq!(one.decision.deterministic_signature, two.decision.deterministic_signature);
+        assert_eq!(one.decision.replay_identity, two.decision.replay_identity);
         assert_eq!(one.transform.sanitized_payload, two.transform.sanitized_payload);
 
         let transformed_text = one
@@ -441,6 +521,10 @@ mod tests {
                 mode: EvaluationMode::Enforce,
                 payload: json!({"message": "hello from Project X, token sk-test-abc12345"}),
                 path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .expect("trace should build");
 
@@ -483,6 +567,10 @@ mod tests {
             mode: EvaluationMode::Enforce,
             payload: json!({"message": "token secret-123456"}),
             path_class: PathClass::Direct,
+            effective_language: "en".to_string(),
+            entity_scope_filters: Vec::new(),
+            recognizer_family_filters: Vec::new(),
+            allowlist_additions: Vec::new(),
         };
         let engine_suffix_2 = engine_with_mask_suffix(2);
         let engine_suffix_4 = engine_with_mask_suffix(4);
@@ -508,5 +596,48 @@ mod tests {
             trace_suffix_2.transform_plan, trace_suffix_4.transform_plan,
             "different mask suffixes must change the exported transform plan"
         );
+    }
+
+    #[test]
+    fn executed_recognizer_families_include_custom_when_enabled_rules_exist() {
+        let engine = engine();
+        let result = engine
+            .evaluate(EvaluateRequest {
+                request_id: "r-executed-custom".to_string(),
+                profile_id: "strict".to_string(),
+                mode: EvaluationMode::Enforce,
+                payload: json!({"content": "Project Andromeda"}),
+                path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
+            })
+            .expect("evaluation should pass");
+
+        assert_eq!(
+            result.executed.recognizer_families_executed,
+            vec!["builtin".to_string(), "custom".to_string()]
+        );
+    }
+
+    #[test]
+    fn executed_recognizer_families_exclude_custom_when_not_compiled() {
+        let engine = engine();
+        let result = engine
+            .evaluate(EvaluateRequest {
+                request_id: "r-executed-no-custom".to_string(),
+                profile_id: "minimal".to_string(),
+                mode: EvaluationMode::Enforce,
+                payload: json!({"content": "no sensitive data"}),
+                path_class: PathClass::Direct,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
+            })
+            .expect("evaluation should pass");
+
+        assert_eq!(result.executed.recognizer_families_executed, vec!["builtin".to_string()]);
     }
 }

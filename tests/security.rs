@@ -8,6 +8,8 @@ pub mod mcp_test_support;
 pub mod hardening_test_support;
 #[path = "common/sanitization_foundation_test_support.rs"]
 pub mod sanitization_foundation_test_support;
+#[path = "common/sanitization_analyzer_contract_test_support.rs"]
+pub mod sanitization_analyzer_contract_test_support;
 #[path = "security/llm_proxy_auth_validation.rs"]
 mod llm_proxy_auth_validation;
 #[path = "security/llm_proxy_metadata_leakage.rs"]

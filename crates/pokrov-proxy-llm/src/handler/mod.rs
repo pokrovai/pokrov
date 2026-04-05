@@ -111,6 +111,10 @@ impl LLMProxyHandler {
                     mode: EvaluationMode::Enforce,
                     payload: envelope.original_payload.clone(),
                     path_class: PathClass::Llm,
+                    effective_language: "en".to_string(),
+                    entity_scope_filters: Vec::new(),
+                    recognizer_family_filters: Vec::new(),
+                    allowlist_additions: Vec::new(),
                 })
                 .map_err(|error| {
                     LLMProxyError::invalid_request(
@@ -314,6 +318,10 @@ impl LLMProxyHandler {
                         mode: EvaluationMode::Enforce,
                         payload: body.clone(),
                         path_class: PathClass::Llm,
+                        effective_language: "en".to_string(),
+                        entity_scope_filters: Vec::new(),
+                        recognizer_family_filters: Vec::new(),
+                        allowlist_additions: Vec::new(),
                     })
                     .map_err(|error| {
                         LLMProxyError::invalid_request(

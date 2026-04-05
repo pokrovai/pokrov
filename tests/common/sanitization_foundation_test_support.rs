@@ -56,6 +56,10 @@ pub fn foundation_request(request_id: &str, mode: EvaluationMode) -> EvaluateReq
         mode,
         payload: foundation_payload(),
         path_class: PathClass::Direct,
+        effective_language: "en".to_string(),
+        entity_scope_filters: Vec::new(),
+        recognizer_family_filters: Vec::new(),
+        allowlist_additions: Vec::new(),
     }
 }
 

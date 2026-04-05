@@ -71,3 +71,9 @@ Downstream work must not:
 - move degradation details into payload-bearing sections;
 - expose raw payload fragments through explain, audit, executed, or degraded outputs;
 - add consumer-local request variants that bypass the shared analyzer request contract.
+
+## Implementation status note (2026-04-05)
+
+- Evaluate/LLM/MCP consumers are wired to the canonical core request contract fields.
+- Shared policy-block behavior remains successful analyzer output and is not mapped into analyzer failure paths.
+- Runtime/evaluation compatibility continues to use shared top-level result sections with metadata-only `executed` and `degraded` sections.

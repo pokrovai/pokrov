@@ -72,7 +72,7 @@ pub fn compile_custom_rules(profile: &PolicyProfile) -> Result<Vec<CompiledCusto
         .filter(|rule| rule.enabled)
         .map(|rule| {
             let matcher = Regex::new(&rule.pattern).map_err(|error| {
-                EvaluateError::InvalidProfileConfig(format!(
+                EvaluateError::InvalidProfile(format!(
                     "profile '{}' custom rule '{}' regex is invalid: {error}",
                     profile.profile_id, rule.rule_id
                 ))

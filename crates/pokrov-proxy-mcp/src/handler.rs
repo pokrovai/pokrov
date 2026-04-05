@@ -220,6 +220,10 @@ impl McpProxyHandler {
                 mode: EvaluationMode::Enforce,
                 payload: result.content.clone(),
                 path_class: PathClass::Mcp,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .map_err(|error| {
                 McpProxyError::upstream_error(

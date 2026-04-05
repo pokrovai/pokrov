@@ -89,3 +89,9 @@ cargo clippy --all-targets --all-features
 - One executable compatibility proof spanning a runtime-oriented consumer and an evaluation-oriented consumer.
 - Deterministic replay evidence for repeated identical inputs with the same effective language.
 - Metadata-safety evidence confirming no raw payload leakage outside the transform section.
+
+## Implementation alignment note (2026-04-05)
+
+- The shared core request contract includes mandatory `effective_language` and optional filter families.
+- The shared core result contract includes `decision`, `transform`, `explain`, `audit`, `executed`, and `degraded` as top-level sections.
+- Runtime/evaluation compatibility proofs rely on the same core result family without consumer-specific forks.
