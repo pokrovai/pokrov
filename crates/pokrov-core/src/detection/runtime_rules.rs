@@ -96,7 +96,7 @@ struct RuleMatchContext<'a> {
     field_gate: Option<&'a CompiledFieldGate>,
 }
 
-const BUILTIN_RULES: [BuiltinRuleSpec; 5] = [
+const BUILTIN_RULES: [BuiltinRuleSpec; 6] = [
     BuiltinRuleSpec {
         rule_id: "builtin.secrets.openai_key",
         category: DetectionCategory::Secrets,
@@ -112,6 +112,16 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 5] = [
         category: DetectionCategory::Secrets,
         priority: 450,
         pattern: r"(?i)api[_-]?key\s*[:=]\s*[a-z0-9_\-]{8,}",
+        validator: DeterministicValidatorKind::None,
+        normalization: DeterministicNormalizationMode::Preserve,
+        context: None,
+        field_gate: None,
+    },
+    BuiltinRuleSpec {
+        rule_id: "builtin.secrets.bearer_token",
+        category: DetectionCategory::Secrets,
+        priority: 470,
+        pattern: r"(?i)\bbearer\s+(?:gh[pousr]_[a-z0-9]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Za-z0-9._\-]{24,})\b",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
         context: None,

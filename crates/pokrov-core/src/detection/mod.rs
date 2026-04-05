@@ -58,6 +58,26 @@ mod tests {
     }
 
     #[test]
+    fn detects_high_confidence_bearer_style_secret_tokens() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Authorization: Bearer ghp_1234567890abcdef1234567890abcdef1234"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.secrets.bearer_token"),
+            "bearer token should be detected as a secret family hit"
+        );
+        assert!(
+            hits.iter().any(|hit| hit.category == DetectionCategory::Secrets),
+            "bearer token should produce a secret-category hit"
+        );
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

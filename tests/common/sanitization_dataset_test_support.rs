@@ -53,6 +53,7 @@ pub fn starter_expected_sanitized_payloads() -> BTreeMap<&'static str, Option<Va
                 ]
             })),
         ),
+        ("starter-text-block-bearer-001", None),
         ("starter-json-block-pan-001", None),
         (
             "starter-json-allow-001",
