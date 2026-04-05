@@ -210,7 +210,7 @@ Auto-generated from all feature plans. Last updated: 2026-04-05
 - Rust stable 1.85+ + axum, tokio, tower, tower-http, tracing, tracing-subscriber, serde, serde_json, serde_yaml, prometheus, uuid, reqwest, bytes, futures-util, thiserror (005-hardening-release)
 - In-memory rate-limit/runtime state + metadata-only audit/log sinks; file-based release evidence artifacts (005-hardening-release)
 - Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror (006-byok-passthrough-auth)
-- In-memory runtime state для identity bindings/rate-limit counters + metadata-only audit/log sinks (006-byok-passthrough-auth)
+- In-memory runtime state for identity bindings/rate-limit counters + metadata-only audit/log sinks (006-byok-passthrough-auth)
 - Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror, bytes, futures-util (007-codex-agent-compat)
 - In-memory request/runtime state + metadata-only audit/log sinks (007-codex-agent-compat)
 - In-memory routing/runtime state + metadata-only audit/log sinks (008-proxy-ux-solution)
@@ -222,6 +222,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-05
 - N/A for persistent storage; in-memory compiled profile state plus metadata-only explain and audit summaries (011-deterministic-recognizers)
 - Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required (012-operator-semantics)
 - N/A for persistent storage; in-memory transform plans/results and metadata-only audit summaries (012-operator-semantics)
+- Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required (013-safe-explainability-audit)
+- N/A for persistent storage; in-memory analyzer outputs plus metadata-only audit/log sinks with 30-day operational retention policy (013-safe-explainability-audit)
 
 ## Project Structure
 
@@ -247,9 +249,9 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 013-safe-explainability-audit: Added Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required
 - 012-operator-semantics: Added Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required
 - 011-deterministic-recognizers: Added Rust stable 1.85+ in a workspace using edition 2021 + `pokrov-core`, `pokrov-config`, `serde`, `serde_json`, `serde_yaml`, `regex`, `thiserror`, existing tracing-compatible metadata contracts
-- 010-analyzer-core-contract: Added Rust stable 1.85+ + Existing workspace crates and dependencies, especially `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; current analyzer/foundation exports already live in `pokrov-core`
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

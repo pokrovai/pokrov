@@ -1,7 +1,7 @@
 # Implementation Plan: Operator Semantics Freeze
 
 **Branch**: `012-operator-semantics` | **Date**: 2026-04-05 | **Specification**: [spec.md](./spec.md)  
-**Input**: Feature specification from `/specs/012-operator-semantics/spec.md`
+**Input**: Feature specification from `specs/012-operator-semantics/spec.md`
 
 ## Summary
 

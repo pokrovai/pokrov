@@ -1,6 +1,6 @@
 # Tasks: LLM Proxy
 
-**Input**: Design artifacts from `/specs/003-llm-proxy/`
+**Input**: Design artifacts from `specs/003-llm-proxy/`
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`
 
 **Tests**: Test tasks are mandatory for this feature because `spec.md` explicitly requires unit, integration, performance, and security coverage.

@@ -1,6 +1,6 @@
 # Tasks: Safe Explainability and Audit
 
-**Input**: Design artifacts from `/specs/013-safe-explainability-audit/`  
+**Input**: Design artifacts from `specs/013-safe-explainability-audit/`  
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/safe-explainability-audit-contract.md`
 
 **Tests**: Test tasks are mandatory for this feature because it changes proxy/policy/security/ops behavior and explicitly requires unit, integration, performance, and security coverage.
