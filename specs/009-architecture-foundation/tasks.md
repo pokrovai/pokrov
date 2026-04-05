@@ -17,9 +17,9 @@
 
 **Purpose**: Prepare feature-specific verification files and test harness entry points before shared-contract changes land.
 
-- [ ] T001 Create foundation verification note scaffold in `docs/verification/009-architecture-foundation.md`
-- [ ] T002 [P] Create shared test support helpers for foundation scenarios in `tests/common/sanitization_foundation_test_support.rs`
-- [ ] T003 [P] Wire foundation-specific suites into `tests/contract.rs`, `tests/integration.rs`, `tests/security.rs`, and `tests/performance.rs`
+- [X] T001 Create foundation verification note scaffold in `docs/verification/009-architecture-foundation.md`
+- [X] T002 [P] Create shared test support helpers for foundation scenarios in `tests/common/sanitization_foundation_test_support.rs`
+- [X] T003 [P] Wire foundation-specific suites into `tests/contract.rs`, `tests/integration.rs`, `tests/security.rs`, and `tests/performance.rs`
 
 ---
 
@@ -29,12 +29,12 @@
 
 **CRITICAL**: No user story work starts before this phase is complete.
 
-- [ ] T004 Define the foundation module layout and exports in `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/types.rs`
-- [ ] T005 [P] Create stage-boundary and extension-point scaffolding in `crates/pokrov-core/src/types/foundation.rs`
-- [ ] T006 [P] Create `NormalizedHit`, `ResolvedHit`, and `TransformPlan` scaffolding in `crates/pokrov-core/src/types/foundation.rs`
-- [ ] T007 [P] Extend `ExplainSummary`, `AuditSummary`, and related safe placeholder fields in `crates/pokrov-core/src/types.rs`
-- [ ] T008 [P] Update metadata-only explain and audit builders for foundation-safe fields in `crates/pokrov-core/src/audit/mod.rs`
-- [ ] T009 Document foundational verification checkpoints in `docs/verification/009-architecture-foundation.md`
+- [X] T004 Define the foundation module layout and exports in `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/types.rs`
+- [X] T005 [P] Create stage-boundary and extension-point scaffolding in `crates/pokrov-core/src/types/foundation.rs`
+- [X] T006 [P] Create `NormalizedHit`, `ResolvedHit`, and `TransformPlan` scaffolding in `crates/pokrov-core/src/types/foundation.rs`
+- [X] T007 [P] Extend `ExplainSummary`, `AuditSummary`, and related safe placeholder fields in `crates/pokrov-core/src/types.rs`
+- [X] T008 [P] Update metadata-only explain and audit builders for foundation-safe fields in `crates/pokrov-core/src/audit/mod.rs`
+- [X] T009 Document foundational verification checkpoints in `docs/verification/009-architecture-foundation.md`
 
 **Checkpoint**: Shared contract scaffolding is available and downstream story work can proceed without redefining core contract families.
 
@@ -48,17 +48,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add unit tests for stage ownership and forbidden-responsibility invariants in `crates/pokrov-core/src/types/foundation.rs`
-- [ ] T011 [P] [US1] Add contract coverage for foundation symbol exports in `tests/contract/sanitization_foundation_contract.rs`
-- [ ] T012 [P] [US1] Add integration coverage for the stage-boundary walkthrough in `tests/integration/sanitization_foundation_stage_boundaries.rs`
-- [ ] T013 [P] [US1] Add security coverage for policy-ownership separation in `tests/security/sanitization_foundation_stage_ownership.rs`
+- [X] T010 [P] [US1] Add unit tests for stage ownership and forbidden-responsibility invariants in `crates/pokrov-core/src/types/foundation.rs`
+- [X] T011 [P] [US1] Add contract coverage for foundation symbol exports in `tests/contract/sanitization_foundation_contract.rs`
+- [X] T012 [P] [US1] Add integration coverage for the stage-boundary walkthrough in `tests/integration/sanitization_foundation_stage_boundaries.rs`
+- [X] T013 [P] [US1] Add security coverage for policy-ownership separation in `tests/security/sanitization_foundation_stage_ownership.rs`
 
 ### Implementation for User Story 1
 
-- [ ] T014 [P] [US1] Implement stage-boundary enums and ownership metadata in `crates/pokrov-core/src/types/foundation.rs`
-- [ ] T015 [P] [US1] Refactor `SanitizationEngine` flow comments and exports around the approved stage model in `crates/pokrov-core/src/lib.rs`
-- [ ] T016 [US1] Update API-facing evaluate contract usage to consume foundation-safe exports in `crates/pokrov-api/src/handlers/evaluate.rs`
-- [ ] T017 [US1] Record accepted stage-boundary evidence in `docs/verification/009-architecture-foundation.md`
+- [X] T014 [P] [US1] Implement stage-boundary enums and ownership metadata in `crates/pokrov-core/src/types/foundation.rs`
+- [X] T015 [P] [US1] Refactor `SanitizationEngine` flow comments and exports around the approved stage model in `crates/pokrov-core/src/lib.rs`
+- [X] T016 [US1] Update API-facing evaluate contract usage to consume foundation-safe exports in `crates/pokrov-api/src/handlers/evaluate.rs`
+- [X] T017 [US1] Record accepted stage-boundary evidence in `docs/verification/009-architecture-foundation.md`
 
 **Checkpoint**: User Story 1 is independently verifiable: core stage ownership is explicit, exported, and protected by tests.
 
@@ -72,16 +72,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T018 [P] [US2] Add unit coverage for `NormalizedHit`, `ResolvedHit`, and `TransformPlan` construction in `crates/pokrov-core/src/types/foundation.rs`
-- [ ] T019 [P] [US2] Add integration proof for shared runtime/evaluation contract reuse in `tests/integration/sanitization_foundation_shared_contracts.rs`
-- [ ] T020 [P] [US2] Add performance regression coverage for shared contract reuse in `tests/performance/sanitization_foundation_contract_overhead.rs`
+- [X] T018 [P] [US2] Add unit coverage for `NormalizedHit`, `ResolvedHit`, and `TransformPlan` construction in `crates/pokrov-core/src/types/foundation.rs`
+- [X] T019 [P] [US2] Add integration proof for shared runtime/evaluation contract reuse in `tests/integration/sanitization_foundation_shared_contracts.rs`
+- [X] T020 [P] [US2] Add performance regression coverage for shared contract reuse in `tests/performance/sanitization_foundation_contract_overhead.rs`
 
 ### Implementation for User Story 2
 
-- [ ] T021 [P] [US2] Add runtime/evaluation-compatible helper fields and conversions in `crates/pokrov-core/src/types/foundation.rs` and `crates/pokrov-core/src/types.rs`
-- [ ] T022 [P] [US2] Implement shared proof support helpers in `tests/common/sanitization_foundation_test_support.rs`
-- [ ] T023 [US2] Integrate shared contract proof expectations into `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/audit/mod.rs`
-- [ ] T024 [US2] Record executable runtime/evaluation proof evidence in `docs/verification/009-architecture-foundation.md`
+- [X] T021 [P] [US2] Add runtime/evaluation-compatible helper fields and conversions in `crates/pokrov-core/src/types/foundation.rs` and `crates/pokrov-core/src/types.rs`
+- [X] T022 [P] [US2] Implement shared proof support helpers in `tests/common/sanitization_foundation_test_support.rs`
+- [X] T023 [US2] Integrate shared contract proof expectations into `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/audit/mod.rs`
+- [X] T024 [US2] Record executable runtime/evaluation proof evidence in `docs/verification/009-architecture-foundation.md`
 
 **Checkpoint**: User Story 2 is independently verifiable: one executable proof demonstrates shared runtime/evaluation contract reuse.
 
@@ -95,15 +95,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T025 [P] [US3] Add security coverage for metadata-only explain and audit serialization in `tests/security/sanitization_foundation_metadata_leakage.rs`
-- [ ] T026 [P] [US3] Add integration coverage for evaluation artifact boundary handling in `tests/integration/sanitization_foundation_evaluation_boundary.rs`
-- [ ] T027 [P] [US3] Add unit coverage for safe explain and audit placeholders in `crates/pokrov-core/src/audit/mod.rs`
+- [X] T025 [P] [US3] Add security coverage for metadata-only explain and audit serialization in `tests/security/sanitization_foundation_metadata_leakage.rs`
+- [X] T026 [P] [US3] Add integration coverage for evaluation artifact boundary handling in `tests/integration/sanitization_foundation_evaluation_boundary.rs`
+- [X] T027 [P] [US3] Add unit coverage for safe explain and audit placeholders in `crates/pokrov-core/src/audit/mod.rs`
 
 ### Implementation for User Story 3
 
-- [ ] T028 [P] [US3] Enforce metadata-only explain and audit placeholders in `crates/pokrov-core/src/types.rs` and `crates/pokrov-core/src/audit/mod.rs`
-- [ ] T029 [P] [US3] Create repo-safe evaluation boundary guidance in `tests/fixtures/eval/README.md`
-- [ ] T030 [US3] Record security and evaluation-boundary evidence in `docs/verification/009-architecture-foundation.md`
+- [X] T028 [P] [US3] Enforce metadata-only explain and audit placeholders in `crates/pokrov-core/src/types.rs` and `crates/pokrov-core/src/audit/mod.rs`
+- [X] T029 [P] [US3] Create repo-safe evaluation boundary guidance in `tests/fixtures/eval/README.md`
+- [X] T030 [US3] Record security and evaluation-boundary evidence in `docs/verification/009-architecture-foundation.md`
 
 **Checkpoint**: User Story 3 is independently verifiable: metadata-only safety and evaluation-boundary rules are encoded and tested.
 
@@ -113,9 +113,9 @@
 
 **Purpose**: Final documentation alignment, roadmap sync, and verification capture across all stories.
 
-- [ ] T031 [P] Update feature guidance in `specs/009-architecture-foundation/quickstart.md`, `specs/009-architecture-foundation/contracts/shared-contracts.md`, and `specs/009-architecture-foundation/contracts/revision-policy.md`
-- [ ] T032 [P] Sync roadmap references in `docs/superpowers/plans/presidio-rework/master-roadmap.md` and `docs/superpowers/plans/presidio-rework/00-architecture-foundation-backlog.md`
-- [ ] T033 Run final verification commands and record outputs in `docs/verification/009-architecture-foundation.md`
+- [X] T031 [P] Update feature guidance in `specs/009-architecture-foundation/quickstart.md`, `specs/009-architecture-foundation/contracts/shared-contracts.md`, and `specs/009-architecture-foundation/contracts/revision-policy.md`
+- [X] T032 [P] Sync roadmap references in `docs/superpowers/plans/presidio-rework/master-roadmap.md` and `docs/superpowers/plans/presidio-rework/00-architecture-foundation-backlog.md`
+- [X] T033 Run final verification commands and record outputs in `docs/verification/009-architecture-foundation.md`
 
 ---
 

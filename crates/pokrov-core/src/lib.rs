@@ -12,8 +12,10 @@ use policy::{category_hit_counts, resolve_overlaps, select_final_action};
 use transform::apply_transforms;
 
 use crate::types::{
-    EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult, EvaluatorConfig, PolicyProfile,
-    ResolvedSpanView,
+    foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
+    EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult, EvaluatorConfig,
+    FoundationExecutionTrace, FoundationTransformResult, NormalizedHit, PolicyProfile, ResolvedHit,
+    ResolvedSpan, ResolvedSpanView, TransformPlan,
 };
 
 pub mod audit;
@@ -31,12 +33,27 @@ struct CompiledProfile {
 }
 
 #[derive(Debug, Clone)]
+struct EvaluationArtifacts {
+    profile_id: String,
+    mask_visible_suffix: u8,
+    hits: Vec<crate::types::DetectionHit>,
+    resolved_spans: Vec<ResolvedSpan>,
+    decision: EvaluateDecision,
+    transform: crate::types::TransformResult,
+    explain: crate::types::ExplainSummary,
+    audit: crate::types::AuditSummary,
+    executed: bool,
+}
+
+/// Evaluates sanitization requests against the configured policy profiles.
+#[derive(Debug, Clone)]
 pub struct SanitizationEngine {
     default_profile: String,
     profiles: Arc<BTreeMap<String, CompiledProfile>>,
 }
 
 impl SanitizationEngine {
+    /// Builds a sanitization engine from the static evaluator configuration.
     pub fn new(config: EvaluatorConfig) -> Result<Self, EvaluateError> {
         let mut profiles = BTreeMap::new();
 
@@ -62,7 +79,65 @@ impl SanitizationEngine {
         Ok(Self { default_profile: config.default_profile, profiles: Arc::new(profiles) })
     }
 
+    /// Evaluates one payload through the current sanitization pipeline.
     pub fn evaluate(&self, request: EvaluateRequest) -> Result<EvaluateResult, EvaluateError> {
+        let artifacts = self.evaluate_internal(&request)?;
+
+        Ok(EvaluateResult {
+            request_id: request.request_id,
+            profile_id: artifacts.profile_id,
+            mode: request.mode,
+            decision: artifacts.decision,
+            transform: artifacts.transform,
+            explain: artifacts.explain,
+            audit: artifacts.audit,
+            executed: artifacts.executed,
+        })
+    }
+
+    /// Produces the shared foundation contract trace for runtime and evaluation proofs.
+    pub fn trace_foundation_flow(
+        &self,
+        request: EvaluateRequest,
+    ) -> Result<FoundationExecutionTrace, EvaluateError> {
+        let request_id = request.request_id.clone();
+        let mode = request.mode;
+        let path_class = request.path_class;
+        let artifacts = self.evaluate_internal(&request)?;
+        let resolved_hits = artifacts
+            .resolved_spans
+            .iter()
+            .map(ResolvedHit::from_resolved_span)
+            .collect::<Vec<_>>();
+
+        Ok(FoundationExecutionTrace {
+            request_id,
+            profile_id: artifacts.profile_id,
+            mode,
+            path_class,
+            stage_boundaries: foundation_stage_boundaries(),
+            extension_points: foundation_extension_points(),
+            normalized_hits: artifacts
+                .hits
+                .iter()
+                .map(NormalizedHit::from_detection_hit)
+                .collect::<Vec<_>>(),
+            resolved_hits: resolved_hits.clone(),
+            transform_plan: TransformPlan::from_decision(
+                mode,
+                &artifacts.resolved_spans,
+                &artifacts.decision,
+                artifacts.mask_visible_suffix,
+            ),
+            transform_result: FoundationTransformResult::from_transform_result(&artifacts.transform),
+            explain: artifacts.explain,
+            audit: artifacts.audit,
+            evaluation_boundaries: foundation_evaluation_boundaries(),
+            executed: artifacts.executed,
+        })
+    }
+
+    fn evaluate_internal(&self, request: &EvaluateRequest) -> Result<EvaluationArtifacts, EvaluateError> {
         if request.request_id.trim().is_empty() {
             return Err(EvaluateError::InvalidRequest("request_id must not be empty".to_string()));
         }
@@ -107,14 +182,20 @@ impl SanitizationEngine {
             decision.final_action,
             compiled_profile.profile.mask_visible_suffix,
         );
-
         let explain = build_explain_summary(&profile_id, request.mode, &decision, &resolved_spans);
-        let audit = build_audit_summary(&request, &profile_id, &decision, started.elapsed());
+        let audit = build_audit_summary(
+            request,
+            &profile_id,
+            &decision,
+            &resolved_spans,
+            started.elapsed(),
+        );
 
-        Ok(EvaluateResult {
-            request_id: request.request_id,
+        Ok(EvaluationArtifacts {
             profile_id,
-            mode: request.mode,
+            mask_visible_suffix: compiled_profile.profile.mask_visible_suffix,
+            hits,
+            resolved_spans,
             decision,
             transform,
             explain,
@@ -154,6 +235,14 @@ mod tests {
         },
         SanitizationEngine,
     };
+
+    fn engine_with_single_profile(profile: PolicyProfile) -> SanitizationEngine {
+        SanitizationEngine::new(EvaluatorConfig {
+            default_profile: profile.profile_id.clone(),
+            profiles: BTreeMap::from([(profile.profile_id.clone(), profile)]),
+        })
+        .expect("engine should build")
+    }
 
     fn engine() -> SanitizationEngine {
         let strict = PolicyProfile {
@@ -267,7 +356,7 @@ mod tests {
     #[test]
     fn conflicting_partial_transforms_stay_deterministic_across_rule_order() {
         fn engine_with_rules(custom_rules: Vec<CustomRule>) -> SanitizationEngine {
-            let profile = PolicyProfile {
+            engine_with_single_profile(PolicyProfile {
                 profile_id: "strict".to_string(),
                 mode_default: EvaluationMode::Enforce,
                 category_actions: CategoryActions {
@@ -279,13 +368,7 @@ mod tests {
                 mask_visible_suffix: 4,
                 custom_rules_enabled: true,
                 custom_rules,
-            };
-
-            SanitizationEngine::new(EvaluatorConfig {
-                default_profile: "strict".to_string(),
-                profiles: BTreeMap::from([("strict".to_string(), profile)]),
             })
-            .expect("engine should build")
         }
 
         let broader_replace = CustomRule {
@@ -345,6 +428,85 @@ mod tests {
         assert!(
             !transformed_text.contains("secret"),
             "resolved winner span must not leave partial sensitive passthrough"
+        );
+    }
+
+    #[test]
+    fn foundation_trace_does_not_export_sanitized_payload_content() {
+        let engine = engine();
+        let trace = engine
+            .trace_foundation_flow(EvaluateRequest {
+                request_id: "r-trace".to_string(),
+                profile_id: "minimal".to_string(),
+                mode: EvaluationMode::Enforce,
+                payload: json!({"message": "hello from Project X, token sk-test-abc12345"}),
+                path_class: PathClass::Direct,
+            })
+            .expect("trace should build");
+
+        let serialized = serde_json::to_string(&trace).expect("trace must serialize");
+
+        assert!(!serialized.contains("hello from Project X"));
+        assert!(!serialized.contains("sk-test-abc12345"));
+        assert!(!serialized.contains("abc12345"));
+    }
+
+    #[test]
+    fn foundation_trace_plan_changes_when_mask_suffix_changes() {
+        fn engine_with_mask_suffix(mask_visible_suffix: u8) -> SanitizationEngine {
+            engine_with_single_profile(PolicyProfile {
+                profile_id: "strict".to_string(),
+                mode_default: EvaluationMode::Enforce,
+                category_actions: CategoryActions {
+                    secrets: PolicyAction::Allow,
+                    pii: PolicyAction::Allow,
+                    corporate_markers: PolicyAction::Allow,
+                    custom: PolicyAction::Allow,
+                },
+                mask_visible_suffix,
+                custom_rules_enabled: true,
+                custom_rules: vec![CustomRule {
+                    rule_id: "custom.mask_secret".to_string(),
+                    category: DetectionCategory::Custom,
+                    pattern: "secret-[0-9]+".to_string(),
+                    action: PolicyAction::Mask,
+                    priority: 300,
+                    replacement_template: None,
+                    enabled: true,
+                }],
+            })
+        }
+
+        let request = EvaluateRequest {
+            request_id: "r-mask".to_string(),
+            profile_id: "strict".to_string(),
+            mode: EvaluationMode::Enforce,
+            payload: json!({"message": "token secret-123456"}),
+            path_class: PathClass::Direct,
+        };
+        let engine_suffix_2 = engine_with_mask_suffix(2);
+        let engine_suffix_4 = engine_with_mask_suffix(4);
+        let result_suffix_2 = engine_suffix_2
+            .evaluate(request.clone())
+            .expect("evaluation with suffix 2 should pass");
+        let result_suffix_4 = engine_suffix_4
+            .evaluate(request.clone())
+            .expect("evaluation with suffix 4 should pass");
+        let trace_suffix_2 = engine_suffix_2
+            .trace_foundation_flow(request.clone())
+            .expect("trace with suffix 2 should build");
+        let trace_suffix_4 = engine_suffix_4
+            .trace_foundation_flow(request)
+            .expect("trace with suffix 4 should build");
+
+        assert_ne!(
+            result_suffix_2.transform.sanitized_payload,
+            result_suffix_4.transform.sanitized_payload,
+            "different mask suffixes must change runtime output"
+        );
+        assert_ne!(
+            trace_suffix_2.transform_plan, trace_suffix_4.transform_plan,
+            "different mask suffixes must change the exported transform plan"
         );
     }
 }

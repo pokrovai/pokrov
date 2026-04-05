@@ -5,6 +5,7 @@ use axum::{
 };
 use pokrov_core::types::{
     AuditSummary, EvaluateError, EvaluateRequest, EvaluationMode, ExplainSummary, PathClass,
+    PolicyAction,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,6 +13,7 @@ use serde_json::Value;
 use crate::{app::AppState, auth::parse_bearer_token, error::ApiError};
 use crate::app::{GatewayAuthContext, GatewayAuthMechanism};
 
+/// HTTP payload for the sanitization evaluate route.
 #[derive(Debug, Clone, Deserialize)]
 pub struct EvaluateHttpRequest {
     pub profile_id: String,
@@ -21,12 +23,13 @@ pub struct EvaluateHttpRequest {
     pub payload: Value,
 }
 
+/// HTTP response for the sanitization evaluate route.
 #[derive(Debug, Clone, Serialize)]
 pub struct EvaluateHttpResponse {
     pub request_id: String,
     pub profile_id: String,
     pub mode: EvaluationMode,
-    pub final_action: pokrov_core::types::PolicyAction,
+    pub final_action: PolicyAction,
     pub executed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sanitized_payload: Option<Value>,
@@ -34,6 +37,7 @@ pub struct EvaluateHttpResponse {
     pub audit: AuditSummary,
 }
 
+/// Handles metadata-safe evaluation requests for the sanitization API.
 pub async fn handle_evaluate(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,

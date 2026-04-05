@@ -17,55 +17,61 @@ It is not a user-facing API specification. It is the contract boundary between f
 ### Recognizer Execution
 
 - Consumes normalization outputs.
-- Produces `NormalizedHitRecord` families only.
+- Produces `NormalizedHit` families only.
 - May invoke native recognizers and later remote recognizer adapters.
 - Must not resolve overlap, choose operators, or emit audit payloads.
 
 ### Analysis And Suppression
 
 - Consumes normalized hits.
-- Produces `ResolvedHitRecord` families.
+- Produces `ResolvedHit` families.
 - Owns validation, suppression, and precedence outcomes.
 - Must not mutate payloads or own final policy action.
 
 ### Policy Resolution
 
 - Consumes resolved hits plus profile context.
-- Produces `TransformPlanRecord`.
+- Produces `TransformPlan`.
 - Owns final action selection.
 - Must not mutate payloads directly.
 
 ### Transformation
 
 - Consumes transform plan plus original payload.
-- Produces `TransformResultRecord`.
+- Produces `TransformResult`.
 - Owns payload mutation only.
 - Must not re-run recognition or policy.
 
 ### Safe Explain
 
 - Consumes resolved-hit and policy outcomes.
-- Produces `ExplainSummaryRecord`.
+- Produces `ExplainSummary`.
 - Must remain metadata-only.
 
 ### Audit Summary
 
 - Consumes request context, policy outcome, and safe timing/count metadata.
-- Produces `AuditSummaryRecord`.
+- Produces `AuditSummary`.
 - Must remain metadata-only.
 
 ## Shared Contract Families
 
 Downstream workstreams must align with these families:
 
-- `NormalizedHitRecord`
-- `ResolvedHitRecord`
-- `TransformPlanRecord`
-- `TransformResultRecord`
-- `ExplainSummaryRecord`
-- `AuditSummaryRecord`
+- `NormalizedHit`
+- `ResolvedHit`
+- `TransformPlan`
+- `TransformResult`
+- `ExplainSummary`
+- `AuditSummary`
 - `ExtensionPointContract`
 - `EvaluationArtifactBoundary`
+
+Current compile-visible exports live in:
+
+- `crates/pokrov-core/src/types/foundation.rs`
+- `crates/pokrov-core/src/types.rs`
+- `crates/pokrov-core/src/lib.rs` via `SanitizationEngine::trace_foundation_flow`
 
 ## Downstream Consumer Rules
 
@@ -97,3 +103,5 @@ The foundation is not complete until at least one executable proof demonstrates 
 
 - a runtime-oriented flow can emit the approved contract families; and
 - an evaluation-oriented flow can consume or verify those same families without a separate adapter-only result model.
+
+The current executable proof lives in `tests/integration/sanitization_foundation_shared_contracts.rs`.

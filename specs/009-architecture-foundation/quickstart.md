@@ -26,6 +26,7 @@ Expected:
 - recognizer execution does not own policy
 - transformation does not re-run recognition
 - explain and audit remain metadata-only
+- `foundation_stage_boundaries()` exports the frozen sequence from `crates/pokrov-core/src/types/foundation.rs`
 
 ### 2. Shared Contract Family Review
 
@@ -38,6 +39,7 @@ Expected:
 - one transform-result family
 - one explain summary family
 - one audit summary family
+- `SanitizationEngine::trace_foundation_flow` emits the same family set for runtime and evaluation paths
 
 ### 3. Runtime/Evaluation Proof Requirement Review
 
@@ -46,6 +48,7 @@ Confirm that implementation work for this feature includes one executable proof 
 Expected:
 - the proof uses the same top-level contract families
 - the proof does not rely on a private evaluation-only result model
+- the proof is exercised by `tests/integration/sanitization_foundation_shared_contracts.rs`
 
 ### 4. Evaluation Artifact Boundary Review
 
@@ -55,6 +58,7 @@ Expected:
 - repo-safe fixtures are eligible for repository storage
 - restricted datasets remain external and carry access metadata
 - retention and governance policy stay out of foundation scope
+- `tests/fixtures/eval/README.md` remains the repo-safe guidance source for this boundary
 
 ### 5. Revision Control Review
 
@@ -68,8 +72,12 @@ Expected:
 ## Minimal Validation Command Set
 
 ```bash
+cargo test --test contract sanitization_foundation
+cargo test --test integration sanitization_foundation
+cargo test --test security sanitization_foundation
+cargo test --test performance sanitization_foundation
 cargo test -p pokrov-core
-cargo test
+cargo test --workspace
 cargo clippy --all-targets --all-features
 ```
 
@@ -79,3 +87,4 @@ cargo clippy --all-targets --all-features
 - One executable proof for shared runtime/evaluation contract reuse.
 - Evidence that explain and audit contract families remain metadata-only.
 - Evidence that downstream work can reference the approved contract families without redefining them locally.
+- One verification note in `docs/verification/009-architecture-foundation.md` recording the command outputs.
