@@ -69,6 +69,17 @@ pub fn starter_expected_sanitized_payloads() -> BTreeMap<&'static str, Option<Va
             })),
         ),
         (
+            "starter-text-redact-identity-context-name-001",
+            Some(serde_json::json!({
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "[REDACTED] for release approval",
+                    }
+                ]
+            })),
+        ),
+        (
             "starter-json-redact-contextual-identifiers-001",
             Some(serde_json::json!({
                 "tool_args": {

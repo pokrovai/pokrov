@@ -242,3 +242,9 @@ The following items are explicitly outside this implementation backlog:
 
 If free-text person-name coverage becomes mandatory, the next step should be a remote recognizer sidecar rather than expanding the deterministic core into broad NER behavior.
 That path already has a draft architectural contract and should stay isolated behind explicit timeout and fail-closed rules.
+
+## Residual Gaps Requiring Remote NER (2026-04-06)
+
+- Broad free-text person names in arbitrary prose or code comments (`name`, `first_name`, `last_name`) remain deferred to avoid deterministic false positives.
+- Location and organization disambiguation (`city`, `state`, `country`, `county`, `company_name`) requires semantic context not available in deterministic v1 rules.
+- Semantic-sensitive labels (`race_ethnicity`, `religious_belief`, `sexuality`, `political_view`) remain explicitly outside deterministic v1 and should be handled only by an isolated remote recognizer path with strict policy controls.

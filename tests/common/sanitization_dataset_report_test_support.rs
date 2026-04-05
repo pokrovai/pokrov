@@ -210,6 +210,12 @@ Rationale:
 - Name-like and customer-like fields should stay behind stronger context constraints to avoid false positives.
 - Mapped-but-not-yet-runtime-covered labels still require detector implementation before they can move into exact replay coverage.
 
+## Residual gaps requiring remote NER
+
+- Broad free-text person-name coverage (`name`, `first_name`, `last_name`) in arbitrary prose remains deferred to avoid code and identifier false positives.
+- Semantic location and organization classes (`city`, `state`, `country`, `county`, `company_name`) require richer disambiguation than deterministic regex context can provide safely.
+- Sensitive semantic classes (`race_ethnicity`, `religious_belief`, `sexuality`, `political_view`) remain outside deterministic v1 and require a remote recognizer path with explicit policy controls.
+
 ## Current limitations
 
 - The current report is derived from cached open snapshots, not from full upstream datasets.

@@ -250,8 +250,10 @@ fn open_dataset_nvidia_rows_match_expected_block_and_email_redaction() {
     let redact_row = row_by_idx(&snapshot, 23);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "nvidia redact row should expose one assertable annotation");
-    assert_eq!(redact_annotations[0].label, "email");
+    assert!(
+        redact_annotations.iter().any(|annotation| annotation.label == "email"),
+        "nvidia redact row should expose an email annotation"
+    );
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
     let mut redact_request = analyzer_contract_request("nvidia-row-23", EvaluationMode::Enforce);
@@ -273,7 +275,9 @@ fn open_dataset_nvidia_rows_match_expected_block_and_email_redaction() {
         .and_then(Value::as_str)
         .expect("nvidia redact row should preserve sanitized text");
     assert_eq!(actual_text, expected_text, "nvidia row 23 sanitized text mismatch");
-    assert!(!actual_text.contains(redact_annotations[0].value.as_str()));
+    for annotation in &redact_annotations {
+        assert!(!actual_text.contains(annotation.value.as_str()));
+    }
 }
 
 #[test]

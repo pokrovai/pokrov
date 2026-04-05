@@ -176,10 +176,10 @@ Run:
 - Possible modify: `crates/pokrov-core/src/detection/deterministic/context.rs`
 - Modify: `tests/contract/sanitization_evaluation_lab_contract.rs`
 
-- [ ] Add failing tests for explicit identity phrases such as `my name is`, `signed by`, and `author:`.
-- [ ] Implement the smallest context-bound name recognizer that satisfies those cases.
-- [ ] Add hard negatives for ordinary prose and code-like text.
-- [ ] Re-run focused unit and contract tests.
+- [x] Add failing tests for explicit identity phrases such as `my name is`, `signed by`, and `author:`.
+- [x] Implement the smallest context-bound name recognizer that satisfies those cases.
+- [x] Add hard negatives for ordinary prose and code-like text.
+- [x] Re-run focused unit and contract tests.
 
 ## Chunk 4: Remaining Constrained Deterministic Families
 
@@ -222,7 +222,7 @@ Run:
 - [x] Ensure `supported_dataset_label_mapping()` only expresses taxonomy normalization.
 - [x] Ensure `replay_assertable_dataset_labels()` reflects real runtime coverage only.
 - [x] Re-render the gap report and confirm no section overstates support.
-- [ ] Record residual gaps that still require remote NER rather than deterministic growth.
+- [x] Record residual gaps that still require remote NER rather than deterministic growth.
 
 Run:
 - `scripts/eval/render_dataset_detector_gap_report.sh 2026-04-06`
@@ -234,10 +234,10 @@ Run:
 **Files:**
 - No new files; verify all touched runtime, test, and doc files
 
-- [ ] Run focused unit tests for detection and validators.
-- [ ] Run starter-corpus contract tests.
-- [ ] Run ignored local dataset replay tests that cover the new families.
-- [ ] Only then claim the detector wave is complete.
+- [x] Run focused unit tests for detection and validators.
+- [x] Run starter-corpus contract tests.
+- [x] Run ignored local dataset replay tests that cover the new families.
+- [x] Only then claim the detector wave is complete.
 
 Run:
 - `cargo test detect_payload --lib -- --nocapture`

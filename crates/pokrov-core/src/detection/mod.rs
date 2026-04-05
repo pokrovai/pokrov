@@ -461,6 +461,32 @@ mod tests {
     }
 
     #[test]
+    fn detects_identity_context_name_phrases() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "signed by Ivan Petrov and approved for release"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.identity_context_name"));
+    }
+
+    #[test]
+    fn rejects_identity_name_rule_for_code_like_text() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "author: main.rs and module signed_by_parser should stay untouched"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(!hits.iter().any(|hit| hit.rule_id == "builtin.pii.identity_context_name"));
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
