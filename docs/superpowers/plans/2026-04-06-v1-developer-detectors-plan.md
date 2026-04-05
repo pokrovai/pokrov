@@ -191,7 +191,7 @@ Run:
 - Modify: `tests/common/sanitization_dataset_test_support.rs`
 - Modify: `tests/contract/sanitization_open_dataset_pipeline_contract.rs`
 
-- [ ] Implement `en_address_like_high_risk` with explicit context and validation.
+- [x] Implement `en_address_like_high_risk` with explicit context and validation.
 - [x] Implement `customer_id_contextual` and `account_number_contextual` with strict lexical context.
 - [x] Add exact-output replay assertions only where dataset rows are stable enough.
 - [x] Verify these detectors do not accidentally fire on common developer identifiers.

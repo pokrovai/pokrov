@@ -435,6 +435,32 @@ mod tests {
     }
 
     #[test]
+    fn detects_en_address_like_high_risk_patterns() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "I live at 87 Avenida De La Estrella and work remotely"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(hits.iter().any(|hit| hit.rule_id == "builtin.pii.en_address_like_high_risk"));
+    }
+
+    #[test]
+    fn rejects_non_address_numeric_noise() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Build matrix has 87 modules and 123 tasks"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(!hits.iter().any(|hit| hit.rule_id == "builtin.pii.en_address_like_high_risk"));
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

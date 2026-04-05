@@ -123,6 +123,7 @@ pub fn replay_assertable_dataset_labels() -> BTreeSet<&'static str> {
         "medical_record_number",
         "phone",
         "phone_number",
+        "street_address",
         "url",
     ])
 }

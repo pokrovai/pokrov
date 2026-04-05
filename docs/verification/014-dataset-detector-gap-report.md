@@ -56,6 +56,7 @@ These mapped labels already have stable runtime behavior and exact-output replay
 | `medical_record_number` | `medical_record_number_contextual` | 21 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `phone` | `phone_number` | 0 | none in current cached rows |
 | `phone_number` | `phone_number` | 5 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
+| `street_address` | `en_address_like_high_risk` | 10 | `open_gretel_pii_masking_en_v1.json`, `open_nvidia_nemotron_pii.json` |
 | `url` | `url_or_domain` | 6 | `open_nvidia_nemotron_pii.json` |
 
 ## Current replay coverage
@@ -70,6 +71,7 @@ The current format-specific runtime assertions use rows that produce determinist
 - `Nemotron` row `2`: `url` -> expected exact redaction
 - `Nemotron` row `3`: `phone_number` -> expected exact redaction
 - `Nemotron` row `18`: `license_plate` -> expected exact redaction
+- `Nemotron` row `0`: `street_address` -> expected exact redaction
 - `Gretel` row `12`: `credit_card_number` -> expected `block`
 - `Gretel` row `3`: `email` -> expected exact redaction
 - `Gretel` row `14`: `medical_record_number` -> expected exact redaction
@@ -82,8 +84,7 @@ These labels are already mapped to Pokrov entities, but the current runtime does
 
 | Priority | Dataset label | Pokrov entity | Hits | Suggested replay row |
 |---:|---|---|---:|---|
-| 1 | `street_address` | `en_address_like_high_risk` | 10 | `open_nvidia_nemotron_pii.json` row `0` |
-| 2 | `STREET` | `en_address_like_high_risk` | 2 | `open_ai4privacy_pii_masking_200k.json` row `12` |
+| 1 | `STREET` | `en_address_like_high_risk` | 2 | `open_ai4privacy_pii_masking_200k.json` row `12` |
 
 ## Detector backlog from dataset analysis
 
@@ -198,7 +199,7 @@ Rationale:
 ## Current limitations
 
 - The current report is derived from cached open snapshots, not from full upstream datasets.
-- The current runtime assertion set intentionally covers card, email, IPv4, URL, phone, medical-record, and license-plate behavior.
+- The current runtime assertion set intentionally covers card, email, IPv4, URL, phone, street-address, medical-record, and license-plate behavior.
 - The report includes a dedicated detector-gap priority section for mapped labels that still lack current runtime recognizers or stable exact-output replay assertions.
 - `open_presidio_research_repo.json` is metadata-only and is not part of replay coverage.
 

@@ -213,7 +213,7 @@ Rationale:
 ## Current limitations
 
 - The current report is derived from cached open snapshots, not from full upstream datasets.
-- The current runtime assertion set intentionally covers card, email, IPv4, URL, phone, medical-record, and license-plate behavior.
+- The current runtime assertion set intentionally covers card, email, IPv4, URL, phone, street-address, medical-record, and license-plate behavior.
 {limitations}
 - `open_presidio_research_repo.json` is metadata-only and is not part of replay coverage.
 
@@ -336,7 +336,7 @@ fn collect_annotations_direct(
     annotations
 }
 
-fn replay_coverage_entries() -> [ReplayCoverageEntry; 11] {
+fn replay_coverage_entries() -> [ReplayCoverageEntry; 12] {
     [
         ReplayCoverageEntry {
             dataset_name: "ai4privacy",
@@ -384,6 +384,12 @@ fn replay_coverage_entries() -> [ReplayCoverageEntry; 11] {
             dataset_name: "Nemotron",
             row_idx: 18,
             label: "license_plate",
+            expectation: "expected exact redaction",
+        },
+        ReplayCoverageEntry {
+            dataset_name: "Nemotron",
+            row_idx: 0,
+            label: "street_address",
             expectation: "expected exact redaction",
         },
         ReplayCoverageEntry {
