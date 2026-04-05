@@ -58,6 +58,17 @@ pub fn starter_expected_sanitized_payloads() -> BTreeMap<&'static str, Option<Va
         ("starter-text-block-token-assignment-001", None),
         ("starter-json-block-pan-001", None),
         (
+            "starter-json-redact-name-fields-001",
+            Some(serde_json::json!({
+                "tool_args": {
+                    "first_name": "[REDACTED]",
+                    "last_name": "[REDACTED]",
+                    "middle_name": "[REDACTED]",
+                    "role": "developer",
+                }
+            })),
+        ),
+        (
             "starter-json-allow-001",
             Some(serde_json::json!({
                 "tool_args": {

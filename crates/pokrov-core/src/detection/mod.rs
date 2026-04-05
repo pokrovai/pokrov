@@ -254,6 +254,45 @@ mod tests {
     }
 
     #[test]
+    fn detects_person_name_fields_in_structured_json() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "tool_args": {
+                "first_name": "Ivan",
+                "last_name": "Petrov",
+                "middle_name": "Sergeevich"
+            }
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().filter(|hit| hit.rule_id == "builtin.pii.name_field").count() >= 3,
+            "first, last, and middle name fields should each be detected by field-gated name rule"
+        );
+    }
+
+    #[test]
+    fn does_not_detect_name_rule_outside_name_fields() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "tool_args": {
+                "display_name": "Ivan",
+                "module": "first_name_handler"
+            }
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "builtin.pii.name_field"),
+            "field-gated name rule must not trigger outside explicit first/last/middle name keys"
+        );
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

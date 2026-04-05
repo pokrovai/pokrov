@@ -15,7 +15,6 @@ use crate::{
         PolicyProfile,
     },
 };
-
 #[derive(Debug, Clone)]
 pub struct CompiledCustomRule {
     pub rule_id: String,
@@ -28,7 +27,6 @@ pub struct CompiledCustomRule {
     pub deterministic_context: Option<CompiledContextPolicy>,
     pub deterministic_allowlist: Option<BTreeSet<String>>,
 }
-
 #[derive(Debug)]
 struct BuiltinRule {
     rule_id: &'static str,
@@ -39,23 +37,19 @@ struct BuiltinRule {
     normalization: DeterministicNormalizationMode,
     field_gate: Option<CompiledFieldGate>,
 }
-
 #[derive(Debug, Clone)]
 pub struct CompiledContextPolicy {
     pub policy: ContextPolicy,
     pub window: u8,
 }
-
 #[derive(Debug, Clone)]
 struct CompiledFieldGate {
     json_pointer_suffixes: Vec<String>,
 }
-
 #[derive(Debug, Clone, Copy)]
 struct BuiltinFieldGateSpec {
     json_pointer_suffixes: &'static [&'static str],
 }
-
 #[derive(Debug, Clone, Copy)]
 struct BuiltinRuleSpec {
     rule_id: &'static str,
@@ -66,7 +60,6 @@ struct BuiltinRuleSpec {
     normalization: DeterministicNormalizationMode,
     field_gate: Option<BuiltinFieldGateSpec>,
 }
-
 #[derive(Debug, Clone, Copy)]
 struct RuleMatchContext<'a> {
     rule_id: &'a str,
@@ -82,7 +75,7 @@ struct RuleMatchContext<'a> {
     field_gate: Option<&'a CompiledFieldGate>,
 }
 
-const BUILTIN_RULES: [BuiltinRuleSpec; 10] = [
+const BUILTIN_RULES: [BuiltinRuleSpec; 11] = [
     BuiltinRuleSpec {
         rule_id: "builtin.secrets.bearer_token",
         category: DetectionCategory::Secrets,
@@ -154,6 +147,15 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 10] = [
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
         field_gate: None,
+    },
+    BuiltinRuleSpec {
+        rule_id: "builtin.pii.name_field",
+        category: DetectionCategory::Pii,
+        priority: 316,
+        pattern: r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё' -]{0,63}",
+        validator: DeterministicValidatorKind::None,
+        normalization: DeterministicNormalizationMode::Preserve,
+        field_gate: Some(BuiltinFieldGateSpec { json_pointer_suffixes: &["/first_name", "/last_name", "/middle_name", "/firstname", "/lastname", "/middlename", "/firstName", "/lastName", "/middleName"] }),
     },
     BuiltinRuleSpec {
         rule_id: "builtin.pii.card_number",
@@ -526,7 +528,6 @@ fn builtin_rules() -> &'static [BuiltinRule] {
         })
         .as_slice()
 }
-
 fn compile_field_gate(spec: BuiltinFieldGateSpec) -> CompiledFieldGate {
     CompiledFieldGate {
         json_pointer_suffixes: spec
@@ -536,7 +537,6 @@ fn compile_field_gate(spec: BuiltinFieldGateSpec) -> CompiledFieldGate {
             .collect(),
     }
 }
-
 impl CompiledFieldGate {
     fn matches_json_pointer(&self, json_pointer: &str) -> bool {
         self.json_pointer_suffixes
@@ -544,7 +544,6 @@ impl CompiledFieldGate {
             .any(|suffix| json_pointer.ends_with(suffix))
     }
 }
-
 #[cfg(test)]
 #[path = "runtime_rules_tests.rs"]
 mod tests;
