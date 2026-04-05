@@ -50,11 +50,11 @@ pub fn apply_context_policy(
 }
 
 fn default_positive_terms() -> Vec<String> {
-    vec!["token".to_string(), "secret".to_string(), "ключ".to_string(), "пароль".to_string()]
+    vec!["token".to_string(), "secret".to_string()]
 }
 
 fn default_negative_terms() -> Vec<String> {
-    vec!["example".to_string(), "demo".to_string(), "пример".to_string()]
+    vec!["example".to_string(), "demo".to_string()]
 }
 
 #[cfg(test)]

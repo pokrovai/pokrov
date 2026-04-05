@@ -30,6 +30,7 @@ fn engine() -> SanitizationEngine {
             custom: PolicyAction::Redact,
         },
         mask_visible_suffix: 4,
+        max_hits_per_request: 4096,
         custom_rules_enabled: true,
         custom_rules: vec![CustomRule {
             rule_id: "custom.project_andromeda".to_string(),
@@ -53,6 +54,7 @@ fn engine() -> SanitizationEngine {
             custom: PolicyAction::Allow,
         },
         mask_visible_suffix: 4,
+        max_hits_per_request: 4096,
         custom_rules_enabled: false,
         custom_rules: Vec::new(),
     };
@@ -67,6 +69,7 @@ fn engine() -> SanitizationEngine {
             custom: PolicyAction::Redact,
         },
         mask_visible_suffix: 3,
+        max_hits_per_request: 4096,
         custom_rules_enabled: true,
         custom_rules: Vec::new(),
     };
@@ -154,6 +157,7 @@ fn conflicting_partial_transforms_stay_deterministic_across_rule_order() {
                 custom: PolicyAction::Allow,
             },
             mask_visible_suffix: 4,
+            max_hits_per_request: 4096,
             custom_rules_enabled: true,
             custom_rules,
         })
@@ -266,6 +270,7 @@ fn foundation_trace_plan_changes_when_mask_suffix_changes() {
                 custom: PolicyAction::Allow,
             },
             mask_visible_suffix,
+            max_hits_per_request: 4096,
             custom_rules_enabled: true,
             custom_rules: vec![CustomRule {
                 rule_id: "custom.mask_secret".to_string(),
@@ -368,6 +373,7 @@ fn deterministic_candidates_total_counts_only_deterministic_hits() {
             custom: PolicyAction::Redact,
         },
         mask_visible_suffix: 4,
+        max_hits_per_request: 4096,
         custom_rules_enabled: true,
         custom_rules: vec![CustomRule {
             rule_id: "deterministic.payment_card.pattern.pan".to_string(),

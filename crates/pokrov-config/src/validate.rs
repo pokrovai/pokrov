@@ -287,10 +287,18 @@ fn validate_profile(
     profile: &SanitizationProfile,
     issues: &mut Vec<ValidationIssue>,
 ) {
+    // v1 mask operator exposes only a short suffix to reduce re-identification risk.
     if profile.mask_visible_suffix > 8 {
         issues.push(ValidationIssue::new(
             format!("sanitization.profiles.{profile_id}.mask_visible_suffix"),
             "must be in range 0..=8",
+        ));
+    }
+
+    if profile.max_hits_per_request == 0 {
+        issues.push(ValidationIssue::new(
+            format!("sanitization.profiles.{profile_id}.max_hits_per_request"),
+            "must be greater than zero",
         ));
     }
 

@@ -1,11 +1,12 @@
 use std::{collections::BTreeSet, sync::OnceLock};
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde_json::Value;
 
 pub mod deterministic;
 
 use crate::{
+    detection::deterministic::pattern::compile_pattern,
     detection::deterministic::context::{apply_context_policy, ContextPolicy},
     detection::deterministic::lists::{build_allowlist_set, is_allowlisted_exact, normalize_exact_value},
     detection::deterministic::validation::{validate_candidate, ValidatorKind},
@@ -57,7 +58,7 @@ const BUILTIN_RULES: [(&str, DetectionCategory, u16, &str); 5] = [
         320,
         r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
     ),
-    ("builtin.pii.card_number", DetectionCategory::Pii, 310, r"\b(?:\d[ -]*?){13,16}\b"),
+    ("builtin.pii.card_number", DetectionCategory::Pii, 310, r"\b\d(?:[ -]?\d){12,15}\b"),
     (
         "builtin.corporate.project_name",
         DetectionCategory::CorporateMarkers,
@@ -65,6 +66,7 @@ const BUILTIN_RULES: [(&str, DetectionCategory, u16, &str); 5] = [
         r"(?i)\bproject\s+[a-z][a-z0-9_-]{2,}\b",
     ),
 ];
+const REGEX_SIZE_LIMIT_BYTES: usize = 1024 * 1024;
 
 pub fn compile_custom_rules(
     profile: &PolicyProfile,
@@ -78,7 +80,7 @@ pub fn compile_custom_rules(
         .iter()
         .filter(|rule| rule.enabled)
         .map(|rule| {
-            let matcher = Regex::new(&rule.pattern).map_err(|error| {
+            let matcher = compile_pattern(&rule.pattern).map_err(|error| {
                 EvaluateError::InvalidProfile(format!(
                     "profile '{}' custom rule '{}' regex is invalid: {error}",
                     profile.profile_id, rule.rule_id
@@ -94,7 +96,11 @@ pub fn compile_custom_rules(
                 matcher,
                 deterministic: rule.deterministic.clone(),
                 deterministic_context: compile_context_policy(rule.deterministic.as_ref()),
-                deterministic_allowlist: compile_deterministic_allowlist(rule.deterministic.as_ref()),
+                deterministic_allowlist: compile_deterministic_allowlist(
+                    profile,
+                    &rule.rule_id,
+                    rule.deterministic.as_ref(),
+                ),
             })
         })
         .collect()
@@ -108,13 +114,26 @@ pub fn detect_payload(
 ) -> Vec<DetectionHit> {
     let builtin_rules = builtin_rules();
     let allowlist = build_allowlist_set(allowlist_additions);
+    let max_hits = usize::try_from(profile.max_hits_per_request).unwrap_or(usize::MAX);
+    let mut hit_limit_reached = false;
     let mut hits = Vec::new();
 
     visit_string_leaves(payload, &mut |json_pointer, text| {
+        if hit_limit_reached {
+            return;
+        }
+
         for rule in builtin_rules {
+            if hit_limit_reached {
+                break;
+            }
             for matched in rule.matcher.find_iter(text) {
                 if is_allowlisted_exact(&allowlist, matched.as_str()) {
                     continue;
+                }
+                if hits.len() >= max_hits {
+                    hit_limit_reached = true;
+                    break;
                 }
                 hits.push(DetectionHit {
                     rule_id: rule.rule_id.to_string(),
@@ -130,6 +149,9 @@ pub fn detect_payload(
         }
 
         for rule in custom_rules {
+            if hit_limit_reached {
+                break;
+            }
             for matched in rule.matcher.find_iter(text) {
                 if is_allowlisted_exact(&allowlist, matched.as_str()) {
                     continue;
@@ -181,6 +203,10 @@ pub fn detect_payload(
                         }
                     }
                 }
+                if hits.len() >= max_hits {
+                    hit_limit_reached = true;
+                    break;
+                }
                 hits.push(DetectionHit {
                     rule_id: rule.rule_id.clone(),
                     category: rule.category,
@@ -194,6 +220,14 @@ pub fn detect_payload(
             }
         }
     });
+
+    if hit_limit_reached {
+        tracing::warn!(
+            profile_id = %profile.profile_id,
+            max_hits_per_request = profile.max_hits_per_request,
+            "detection hit limit reached; remaining payload leaves were skipped"
+        );
+    }
 
     hits
 }
@@ -234,6 +268,8 @@ fn compile_context_policy(
 }
 
 fn compile_deterministic_allowlist(
+    profile: &PolicyProfile,
+    rule_id: &str,
     metadata: Option<&DeterministicRuleMetadata>,
 ) -> Option<BTreeSet<String>> {
     let metadata = metadata?;
@@ -241,20 +277,39 @@ fn compile_deterministic_allowlist(
         return None;
     }
 
-    let set = match &metadata.rule {
-        DeterministicRuleKind::Pattern { normalization, .. } => metadata
-            .allowlist_exact
-            .iter()
-            .map(|value| normalize_candidate(value, *normalization))
-            .filter(|value| !value.is_empty())
-            .collect::<BTreeSet<_>>(),
-        DeterministicRuleKind::DenylistExact => metadata
-            .allowlist_exact
-            .iter()
-            .map(|value| normalize_exact_value(value))
-            .filter(|value| !value.is_empty())
-            .collect::<BTreeSet<_>>(),
-    };
+    let mut dropped_entries = 0usize;
+    let mut set = BTreeSet::new();
+    match &metadata.rule {
+        DeterministicRuleKind::Pattern { normalization, .. } => {
+            for value in &metadata.allowlist_exact {
+                let normalized = normalize_candidate(value, *normalization);
+                if normalized.is_empty() {
+                    dropped_entries += 1;
+                } else {
+                    set.insert(normalized);
+                }
+            }
+        }
+        DeterministicRuleKind::DenylistExact => {
+            for value in &metadata.allowlist_exact {
+                let normalized = normalize_exact_value(value);
+                if normalized.is_empty() {
+                    dropped_entries += 1;
+                } else {
+                    set.insert(normalized);
+                }
+            }
+        }
+    }
+
+    if dropped_entries > 0 {
+        tracing::warn!(
+            profile_id = %profile.profile_id,
+            rule_id = %rule_id,
+            dropped_entries,
+            "deterministic allowlist contains empty or normalization-empty entries"
+        );
+    }
 
     (!set.is_empty()).then_some(set)
 }
@@ -271,12 +326,13 @@ fn to_context_policy(context: &crate::types::DeterministicContextPolicy) -> Cont
             .iter()
             .map(|term| term.to_lowercase())
             .collect(),
-        score_boost: 10,
-        score_penalty: 10,
+        score_boost: context.score_boost,
+        score_penalty: context.score_penalty,
         suppress_on_negative: context.suppress_on_negative,
     }
 }
 
+// Regex match offsets are UTF-8 boundary-safe, so slicing by start/end is valid here.
 fn extract_context_window(text: &str, start: usize, end: usize, window: u8) -> String {
     let before = trim_to_chars_start(&text[..start], usize::from(window));
     let after = trim_to_chars_end(&text[end..], usize::from(window));
@@ -284,11 +340,16 @@ fn extract_context_window(text: &str, start: usize, end: usize, window: u8) -> S
 }
 
 fn trim_to_chars_start(text: &str, max_chars: usize) -> String {
-    let count = text.chars().count();
-    if count <= max_chars {
+    if text.chars().nth(max_chars).is_none() {
         return text.to_string();
     }
-    text.chars().skip(count - max_chars).collect()
+    let cut_at = text
+        .char_indices()
+        .rev()
+        .nth(max_chars.saturating_sub(1))
+        .map(|(idx, _)| idx)
+        .unwrap_or(0);
+    text[cut_at..].to_string()
 }
 
 fn trim_to_chars_end(text: &str, max_chars: usize) -> String {
@@ -308,7 +369,10 @@ fn builtin_rules() -> &'static [BuiltinRule] {
                     rule_id,
                     category: *category,
                     priority: *priority,
-                    matcher: Regex::new(pattern).expect("built-in regex patterns must compile"),
+                    matcher: RegexBuilder::new(pattern)
+                        .size_limit(REGEX_SIZE_LIMIT_BYTES)
+                        .build()
+                        .expect("built-in regex patterns must compile"),
                 })
                 .collect()
         })
@@ -338,6 +402,7 @@ mod tests {
                 custom: PolicyAction::Redact,
             },
             mask_visible_suffix: 4,
+            max_hits_per_request: 4096,
             custom_rules_enabled: true,
             custom_rules: vec![CustomRule {
                 rule_id: "custom.project_andromeda".to_string(),
@@ -411,7 +476,7 @@ mod tests {
         profile.custom_rules = vec![CustomRule {
             rule_id: "deterministic.payment_card.pattern.pan".to_string(),
             category: DetectionCategory::Secrets,
-            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            pattern: "\\b\\d(?:[ -]?\\d){12,15}\\b".to_string(),
             action: PolicyAction::Block,
             priority: 200,
             replacement_template: None,
@@ -425,6 +490,8 @@ mod tests {
                     context: Some(DeterministicContextPolicy {
                         positive_terms: Vec::new(),
                         negative_terms: vec!["demo".to_string()],
+                        score_boost: 10,
+                        score_penalty: 10,
                         window: 32,
                         suppress_on_negative: false,
                     }),
@@ -448,7 +515,7 @@ mod tests {
         profile.custom_rules = vec![CustomRule {
             rule_id: "deterministic.payment_card.pattern.pan".to_string(),
             category: DetectionCategory::Secrets,
-            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            pattern: "\\b\\d(?:[ -]?\\d){12,15}\\b".to_string(),
             action: PolicyAction::Block,
             priority: 200,
             replacement_template: None,
@@ -479,7 +546,7 @@ mod tests {
         profile.custom_rules = vec![CustomRule {
             rule_id: "deterministic.payment_card.pattern.pan".to_string(),
             category: DetectionCategory::Secrets,
-            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            pattern: "\\b\\d(?:[ -]?\\d){12,15}\\b".to_string(),
             action: PolicyAction::Block,
             priority: 200,
             replacement_template: None,
@@ -511,7 +578,7 @@ mod tests {
         profile.custom_rules = vec![CustomRule {
             rule_id: "deterministic.payment_card.pattern.pan".to_string(),
             category: DetectionCategory::Secrets,
-            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            pattern: "\\b\\d(?:[ -]?\\d){12,15}\\b".to_string(),
             action: PolicyAction::Block,
             priority: 200,
             replacement_template: None,
@@ -535,5 +602,27 @@ mod tests {
             !hits.iter().any(|hit| hit.rule_id == "deterministic.payment_card.pattern.pan"),
             "allowlist suppression must follow rule normalization mode"
         );
+    }
+
+    #[test]
+    fn caps_hits_per_request_to_profile_limit() {
+        let mut profile = strict_profile();
+        profile.max_hits_per_request = 2;
+        profile.custom_rules = vec![CustomRule {
+            rule_id: "custom.repeat_x".to_string(),
+            category: DetectionCategory::Custom,
+            pattern: "x".to_string(),
+            action: PolicyAction::Redact,
+            priority: 500,
+            replacement_template: None,
+            enabled: true,
+            deterministic: None,
+        }];
+
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({"content": "xxxx"});
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert_eq!(hits.len(), 2);
     }
 }

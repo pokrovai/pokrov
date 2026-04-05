@@ -54,6 +54,8 @@ pub struct SanitizationProfile {
     pub categories: CategoryActionsConfig,
     #[serde(default = "default_mask_visible_suffix")]
     pub mask_visible_suffix: u8,
+    #[serde(default = "default_max_hits_per_request")]
+    pub max_hits_per_request: u32,
     #[serde(default)]
     pub custom_rules: Vec<CustomRuleConfig>,
     #[serde(default)]
@@ -119,6 +121,10 @@ pub struct DeterministicContextConfig {
     pub positive_terms: Vec<String>,
     #[serde(default)]
     pub negative_terms: Vec<String>,
+    #[serde(default = "default_context_score_boost")]
+    pub score_boost: i16,
+    #[serde(default = "default_context_score_penalty")]
+    pub score_penalty: i16,
     #[serde(default = "default_context_window")]
     pub window: u8,
     #[serde(default)]
@@ -197,6 +203,7 @@ fn to_policy_profile(profile_id: &str, profile: &SanitizationProfile) -> PolicyP
             custom: profile.categories.custom.unwrap_or(profile.categories.corporate_markers),
         },
         mask_visible_suffix: profile.mask_visible_suffix,
+        max_hits_per_request: profile.max_hits_per_request,
         custom_rules_enabled: true,
         custom_rules,
     }
@@ -260,6 +267,8 @@ fn deterministic_rules(profile: &SanitizationProfile) -> Vec<CustomRule> {
                             DeterministicContextPolicy {
                                 positive_terms: context.positive_terms.clone(),
                                 negative_terms: context.negative_terms.clone(),
+                                score_boost: context.score_boost,
+                                score_penalty: context.score_penalty,
                                 window: context.window,
                                 suppress_on_negative: context.suppress_on_negative,
                             }
@@ -307,6 +316,10 @@ fn default_mask_visible_suffix() -> u8 {
     4
 }
 
+fn default_max_hits_per_request() -> u32 {
+    4096
+}
+
 fn default_rule_priority() -> u16 {
     100
 }
@@ -319,6 +332,14 @@ fn default_context_window() -> u8 {
     32
 }
 
+fn default_context_score_boost() -> i16 {
+    10
+}
+
+fn default_context_score_penalty() -> i16 {
+    10
+}
+
 fn default_minimal_profile() -> SanitizationProfile {
     SanitizationProfile {
         mode_default: EvaluationMode::Enforce,
@@ -329,6 +350,7 @@ fn default_minimal_profile() -> SanitizationProfile {
             custom: None,
         },
         mask_visible_suffix: 4,
+        max_hits_per_request: default_max_hits_per_request(),
         custom_rules: Vec::new(),
         deterministic_recognizers: Vec::new(),
         allow_empty_matches: false,
@@ -345,6 +367,7 @@ fn default_strict_profile() -> SanitizationProfile {
             custom: None,
         },
         mask_visible_suffix: 4,
+        max_hits_per_request: default_max_hits_per_request(),
         custom_rules: Vec::new(),
         deterministic_recognizers: Vec::new(),
         allow_empty_matches: false,
@@ -361,6 +384,7 @@ fn default_custom_profile() -> SanitizationProfile {
             custom: None,
         },
         mask_visible_suffix: 4,
+        max_hits_per_request: default_max_hits_per_request(),
         custom_rules: Vec::new(),
         deterministic_recognizers: Vec::new(),
         allow_empty_matches: false,
@@ -376,7 +400,8 @@ mod tests {
     };
 
     use super::{
-        to_policy_profile, CategoryActionsConfig, DeterministicContextConfig,
+        default_max_hits_per_request, to_policy_profile, CategoryActionsConfig,
+        DeterministicContextConfig,
         DeterministicNormalizationMode, DeterministicPatternConfig, DeterministicRecognizerConfig,
         DeterministicValidatorConfig, DeterministicValidatorKind, RuntimeConfig,
         SanitizationProfile,
@@ -502,6 +527,7 @@ sanitization:
                 custom: None,
             },
             mask_visible_suffix: 4,
+            max_hits_per_request: default_max_hits_per_request(),
             custom_rules: Vec::new(),
             deterministic_recognizers: vec![DeterministicRecognizerConfig {
                 id: "payment_card".to_string(),
@@ -541,6 +567,7 @@ sanitization:
                 custom: None,
             },
             mask_visible_suffix: 4,
+            max_hits_per_request: default_max_hits_per_request(),
             custom_rules: Vec::new(),
             deterministic_recognizers: vec![DeterministicRecognizerConfig {
                 id: "payment_card".to_string(),
@@ -550,7 +577,7 @@ sanitization:
                 enabled: true,
                 patterns: vec![DeterministicPatternConfig {
                     id: "pan".to_string(),
-                    expression: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+                    expression: "\\b\\d(?:[ -]?\\d){12,15}\\b".to_string(),
                     base_score: 150,
                     validator: Some(DeterministicValidatorConfig {
                         kind: DeterministicValidatorKind::Luhn,
@@ -562,6 +589,8 @@ sanitization:
                 context: Some(DeterministicContextConfig {
                     positive_terms: vec!["card".to_string()],
                     negative_terms: vec!["demo".to_string()],
+                    score_boost: 10,
+                    score_penalty: 10,
                     window: 16,
                     suppress_on_negative: true,
                 }),

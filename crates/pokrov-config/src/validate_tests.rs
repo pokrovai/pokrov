@@ -59,6 +59,7 @@ fn valid_config() -> RuntimeConfig {
                         custom: None,
                     },
                     mask_visible_suffix: 4,
+                    max_hits_per_request: 4096,
                     custom_rules: Vec::new(),
                     deterministic_recognizers: Vec::new(),
                     allow_empty_matches: false,
@@ -72,6 +73,7 @@ fn valid_config() -> RuntimeConfig {
                         custom: None,
                     },
                     mask_visible_suffix: 4,
+                    max_hits_per_request: 4096,
                     custom_rules: Vec::new(),
                     deterministic_recognizers: Vec::new(),
                     allow_empty_matches: false,
@@ -85,6 +87,7 @@ fn valid_config() -> RuntimeConfig {
                         custom: None,
                     },
                     mask_visible_suffix: 4,
+                    max_hits_per_request: 4096,
                     custom_rules: vec![CustomRuleConfig {
                         id: "custom.pattern".to_string(),
                         category: DetectionCategory::Custom,

@@ -22,6 +22,7 @@ pub fn foundation_engine() -> SanitizationEngine {
             custom: pokrov_core::types::PolicyAction::Redact,
         },
         mask_visible_suffix: 4,
+        max_hits_per_request: 4096,
         custom_rules_enabled: true,
         custom_rules: vec![
             CustomRule {
@@ -32,15 +33,17 @@ pub fn foundation_engine() -> SanitizationEngine {
                 priority: 900,
                 replacement_template: None,
                 enabled: true,
+                deterministic: None,
             },
             CustomRule {
                 rule_id: "deterministic.payment_card.pattern.pan".to_string(),
                 category: DetectionCategory::Secrets,
-                pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+                pattern: "\\b\\d(?:[ -]?\\d){12,15}\\b".to_string(),
                 action: pokrov_core::types::PolicyAction::Block,
                 priority: 800,
                 replacement_template: None,
                 enabled: true,
+                deterministic: None,
             },
         ],
     };

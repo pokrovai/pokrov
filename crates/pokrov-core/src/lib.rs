@@ -166,7 +166,7 @@ impl SanitizationEngine {
             &compiled_profile.custom_rules,
             &request.allowlist_additions,
         );
-        let resolved_spans = resolve_overlaps(hits.clone());
+        let resolved_spans = resolve_overlaps(&hits);
         let final_action = select_final_action(&resolved_spans);
         let hits_by_category = category_hit_counts(&hits);
 

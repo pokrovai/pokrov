@@ -14,6 +14,7 @@ pub enum HitLocationKind {
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceClass {
     BuiltInRule,
+    DeterministicRule,
     CustomRule,
     RemoteRecognizer,
 }
@@ -125,7 +126,9 @@ impl ResolvedHit {
 }
 
 fn evidence_class_from_rule_id(rule_id: &str) -> EvidenceClass {
-    if rule_id.starts_with("custom.") {
+    if rule_id.starts_with("deterministic.") {
+        EvidenceClass::DeterministicRule
+    } else if rule_id.starts_with("custom.") {
         EvidenceClass::CustomRule
     } else {
         // Remote recognizer provenance is reserved for v1 extension-point contracts.
@@ -198,5 +201,21 @@ mod tests {
 
         assert_eq!(custom.evidence_class, super::EvidenceClass::CustomRule);
         assert_eq!(builtin.evidence_class, super::EvidenceClass::BuiltInRule);
+    }
+
+    #[test]
+    fn hit_evidence_tracks_deterministic_provenance() {
+        let deterministic = NormalizedHit::from_detection_hit(&DetectionHit {
+            rule_id: "deterministic.payment_card.pattern.pan".to_string(),
+            category: DetectionCategory::Secrets,
+            json_pointer: "/messages/0/content".to_string(),
+            start: 0,
+            end: 8,
+            action: PolicyAction::Block,
+            priority: 100,
+            replacement_template: None,
+        });
+
+        assert_eq!(deterministic.evidence_class, super::EvidenceClass::DeterministicRule);
     }
 }
