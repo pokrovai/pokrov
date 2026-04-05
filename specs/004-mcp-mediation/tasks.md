@@ -1,6 +1,6 @@
 # Задачи: MCP Mediation
 
-**Вход**: Артефакты проектирования из `/specs/004-mcp-mediation/`
+**Вход**: Артефакты проектирования из `specs/004-mcp-mediation/`
 **Prerequisites**: `plan.md` (обязательно), `spec.md` (обязательно для историй), `research.md`, `data-model.md`, `contracts/`, `quickstart.md`
 
 **Тесты**: Для этой фичи тесты обязательны, так как затрагиваются proxy/policy/security/ops path и в `spec.md` явно задано Required Test Coverage (unit, integration, performance, security).

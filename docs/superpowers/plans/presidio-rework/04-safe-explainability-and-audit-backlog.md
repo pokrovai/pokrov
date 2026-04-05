@@ -2,7 +2,7 @@
 
 Date: 2026-04-05
 Spec source: `docs/superpowers/specs/presidio-rework/04-safe-explainability-and-audit.md`
-Status: Draft
+Status: Implemented by `specs/013-safe-explainability-audit`
 
 ## Summary
 
@@ -31,6 +31,13 @@ Out of scope:
 - initial reason-code catalog wired into deterministic recognizers and policy outcomes
 - confidence-bucket strategy usable by runtime and evaluation outputs
 - leakage-prevention tests
+
+## Implementation Notes
+
+- `ExplainSummary` and `AuditSummary` are part of the canonical analyzer result in `crates/pokrov-core/src/types.rs` and are populated via `crates/pokrov-core/src/audit/mod.rs`.
+- Safe explain and safe audit are wired into the shared engine result path in `crates/pokrov-core/src/lib.rs` and therefore reused by runtime and evaluation consumers.
+- Metadata leakage regression coverage is implemented in contract, integration, security, and performance suites.
+- Verification evidence is recorded in `docs/verification/013-safe-explainability-and-audit.md`.
 
 ## Tasks
 
@@ -75,3 +82,10 @@ Implementation is complete when:
 - serialization tests
 - security-style leakage tests
 - end-to-end tests with deterministic recognizer outputs and policy outcomes
+
+## Progress update 2026-04-05
+
+- `E0401-E0403`: Implemented by canonical explain/audit schema wiring in `pokrov-core` result contracts and analyzer flow.
+- `E0404-E0406`: Implemented by reason/provenance/degradation metadata emission and deterministic-safe explain/audit builders.
+- `E0407-E0411`: Implemented by leakage, integration, structured-boundary reuse, and runtime contract tests.
+- `E0412`: Implemented via verification evidence in `docs/verification/013-safe-explainability-and-audit.md`.

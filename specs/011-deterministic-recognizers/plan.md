@@ -1,7 +1,7 @@
 # Implementation Plan: Deterministic Recognizers
 
 **Branch**: `011-deterministic-recognizers` | **Date**: 2026-04-05 | **Specification**: [spec.md](./spec.md)  
-**Input**: Feature specification from `/specs/011-deterministic-recognizers/spec.md`
+**Input**: Feature specification from `specs/011-deterministic-recognizers/spec.md`
 
 ## Summary
 

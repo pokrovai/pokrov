@@ -1,6 +1,6 @@
 # Задачи: Codex Agent Compatibility
 
-**Вход**: Артефакты проектирования из `/specs/007-codex-agent-compat/`
+**Вход**: Артефакты проектирования из `specs/007-codex-agent-compat/`
 **Prerequisites**: `plan.md` (обязательно), `spec.md` (обязательно для историй), `research.md`, `data-model.md`, `contracts/`, `quickstart.md`
 
 **Тесты**: Для этой фичи тестовые задачи обязательны, потому что `spec.md` явно требует Unit, Integration, Performance и Security coverage для runtime/proxy/auth/policy изменений.

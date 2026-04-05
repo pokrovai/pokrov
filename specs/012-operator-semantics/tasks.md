@@ -1,6 +1,6 @@
 # Tasks: Operator Semantics Freeze
 
-**Input**: Design artifacts from `/specs/012-operator-semantics/`  
+**Input**: Design artifacts from `specs/012-operator-semantics/`  
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/operator-semantics-contract.md`
 
 **Tests**: Test tasks are mandatory for this feature because it changes proxy/policy/security hot paths.

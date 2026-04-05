@@ -1,6 +1,6 @@
 # Tasks: Deterministic Recognizers
 
-**Input**: Design artifacts from `/specs/011-deterministic-recognizers/`  
+**Input**: Design artifacts from `specs/011-deterministic-recognizers/`  
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/`
 
 **Tests**: Test tasks are mandatory for this feature because it changes analyzer, policy, security, observability, and performance-sensitive runtime behavior.
