@@ -130,7 +130,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Validation rules from requirements
    - State transitions if applicable
 
-2. **Define interface contracts** (if project has external interfaces) → `/contracts/`:
+2. **Define interface contracts** (if project has external interfaces) → `contracts/` (within the feature directory):
    - Identify what interfaces the project exposes to users or other systems
    - Document the contract format appropriate for the project type
    - Examples: public APIs for libraries, command schemas for CLI tools, endpoints for web services, grammars for parsers, UI contracts for applications
@@ -147,5 +147,5 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Key rules
 
-- Use absolute paths
+- Accept both absolute and repo-relative paths; normalize internally and use repo-relative paths in user-facing output and generated docs
 - ERROR on gate failures or unresolved clarifications
