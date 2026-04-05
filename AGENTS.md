@@ -214,6 +214,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-05
 - Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror, bytes, futures-util (007-codex-agent-compat)
 - In-memory request/runtime state + metadata-only audit/log sinks (007-codex-agent-compat)
 - In-memory routing/runtime state + metadata-only audit/log sinks (008-proxy-ux-solution)
+- Rust stable 1.85+ + Rust workspace crates with existing `serde`, `serde_json`, `thiserror`, `tracing`-compatible types; no new external dependency required for the planning baseline (009-architecture-foundation)
+- N/A for persistent storage; compile-visible shared contracts plus existing in-memory runtime metadata structures (009-architecture-foundation)
 
 ## Project Structure
 
@@ -239,6 +241,7 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 009-architecture-foundation: Added Rust stable 1.85+ + Rust workspace crates with existing `serde`, `serde_json`, `thiserror`, `tracing`-compatible types; no new external dependency required for the planning baseline
 - 008-proxy-ux-solution: Added Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror
 - 007-codex-agent-compat: Added Rust stable 1.85+ + axum, tokio, tower, serde/serde_json/serde_yaml, tracing, reqwest, uuid, thiserror, bytes, futures-util
 
