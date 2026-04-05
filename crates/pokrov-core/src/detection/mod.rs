@@ -6,9 +6,11 @@ use serde_json::Value;
 pub mod deterministic;
 
 use crate::{
-    detection::deterministic::pattern::compile_pattern,
     detection::deterministic::context::{apply_context_policy, ContextPolicy},
-    detection::deterministic::lists::{build_allowlist_set, is_allowlisted_exact, normalize_exact_value},
+    detection::deterministic::lists::{
+        build_allowlist_set, is_allowlisted_exact, normalize_exact_value,
+    },
+    detection::deterministic::pattern::compile_pattern,
     detection::deterministic::validation::{validate_candidate, ValidatorKind},
     traversal::visit_string_leaves,
     types::{
@@ -159,13 +161,11 @@ pub fn detect_payload(
 
                 let mut priority = rule.priority;
                 if let Some(deterministic) = &rule.deterministic {
-                    if let DeterministicRuleKind::Pattern {
-                        validator,
-                        normalization,
-                        ..
-                    } = &deterministic.rule
+                    if let DeterministicRuleKind::Pattern { validator, normalization, .. } =
+                        &deterministic.rule
                     {
-                        let needs_normalized_candidate = *validator != DeterministicValidatorKind::None
+                        let needs_normalized_candidate = *validator
+                            != DeterministicValidatorKind::None
                             || rule.deterministic_allowlist.is_some();
                         let candidate = needs_normalized_candidate
                             .then(|| normalize_candidate(matched.as_str(), *normalization));
@@ -235,9 +235,9 @@ pub fn detect_payload(
 fn validate_for_kind(kind: DeterministicValidatorKind, candidate: Option<&str>) -> bool {
     match kind {
         DeterministicValidatorKind::None => true,
-        DeterministicValidatorKind::Luhn => candidate
-            .map(|value| validate_candidate(ValidatorKind::Luhn, value))
-            .unwrap_or(false),
+        DeterministicValidatorKind::Luhn => {
+            candidate.map(|value| validate_candidate(ValidatorKind::Luhn, value)).unwrap_or(false)
+        }
     }
 }
 
@@ -316,16 +316,8 @@ fn compile_deterministic_allowlist(
 
 fn to_context_policy(context: &crate::types::DeterministicContextPolicy) -> ContextPolicy {
     ContextPolicy {
-        positive_terms: context
-            .positive_terms
-            .iter()
-            .map(|term| term.to_lowercase())
-            .collect(),
-        negative_terms: context
-            .negative_terms
-            .iter()
-            .map(|term| term.to_lowercase())
-            .collect(),
+        positive_terms: context.positive_terms.iter().map(|term| term.to_lowercase()).collect(),
+        negative_terms: context.negative_terms.iter().map(|term| term.to_lowercase()).collect(),
         score_boost: context.score_boost,
         score_penalty: context.score_penalty,
         suppress_on_negative: context.suppress_on_negative,
@@ -343,12 +335,8 @@ fn trim_to_chars_start(text: &str, max_chars: usize) -> String {
     if text.chars().nth(max_chars).is_none() {
         return text.to_string();
     }
-    let cut_at = text
-        .char_indices()
-        .rev()
-        .nth(max_chars.saturating_sub(1))
-        .map(|(idx, _)| idx)
-        .unwrap_or(0);
+    let cut_at =
+        text.char_indices().rev().nth(max_chars.saturating_sub(1)).map(|(idx, _)| idx).unwrap_or(0);
     text[cut_at..].to_string()
 }
 

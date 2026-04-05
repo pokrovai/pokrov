@@ -40,11 +40,7 @@ pub async fn handle_responses(
         &request_id,
         "/v1/responses",
         UpstreamCredentialRequirement::Required,
-        &RequestContextHooks {
-            on_auth_stage: on_auth_stage,
-            emit_auth_stage: emit_auth_stage,
-            map_error: None,
-        },
+        &RequestContextHooks { on_auth_stage, emit_auth_stage, map_error: None },
     )
     .map_err(|error| error.with_response_metadata_mode(metadata_mode))?;
 

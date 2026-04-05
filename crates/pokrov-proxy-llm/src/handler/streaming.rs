@@ -19,7 +19,7 @@ use crate::{
 
 use super::{
     support::{max_action, mode_as_str, TerminalEvent},
-    LLMProxyHandler,
+    ErrorEventContext, LLMProxyHandler,
 };
 
 impl LLMProxyHandler {
@@ -55,16 +55,18 @@ impl LLMProxyHandler {
             Ok(response) => response,
             Err(error) => {
                 self.emit_error_event(
-                    started,
-                    endpoint,
-                    &request_id,
-                    &profile_id,
-                    Some(route.provider_id.clone()),
-                    &model,
-                    true,
-                    final_action,
-                    total_hits,
-                    error.upstream_status(),
+                    ErrorEventContext {
+                        started,
+                        endpoint,
+                        request_id: &request_id,
+                        profile_id: &profile_id,
+                        provider_id: Some(route.provider_id.clone()),
+                        model: &model,
+                        stream: true,
+                        final_action,
+                        total_hits,
+                        upstream_status: error.upstream_status(),
+                    },
                     &error,
                 );
                 return Err(error);
@@ -83,16 +85,18 @@ impl LLMProxyHandler {
                 Ok(body) => body,
                 Err(cause) => {
                     self.emit_error_event(
-                        started,
-                        endpoint,
-                        &request_id,
-                        &profile_id,
-                        Some(route.provider_id.clone()),
-                        &model,
-                        true,
-                        final_action,
-                        total_hits,
-                        Some(status.as_u16()),
+                        ErrorEventContext {
+                            started,
+                            endpoint,
+                            request_id: &request_id,
+                            profile_id: &profile_id,
+                            provider_id: Some(route.provider_id.clone()),
+                            model: &model,
+                            stream: true,
+                            final_action,
+                            total_hits,
+                            upstream_status: Some(status.as_u16()),
+                        },
                         &cause,
                     );
                     return Err(cause);
@@ -119,16 +123,18 @@ impl LLMProxyHandler {
                         Ok(Ok(sanitized)) => sanitized,
                         Ok(Err(error)) => {
                             self.emit_error_event(
-                                started,
-                                endpoint,
-                                &request_id,
-                                &profile_id,
-                                Some(route.provider_id.clone()),
-                                &model,
-                                true,
-                                final_action,
-                                total_hits,
-                                Some(status.as_u16()),
+                                ErrorEventContext {
+                                    started,
+                                    endpoint,
+                                    request_id: &request_id,
+                                    profile_id: &profile_id,
+                                    provider_id: Some(route.provider_id.clone()),
+                                    model: &model,
+                                    stream: true,
+                                    final_action,
+                                    total_hits,
+                                    upstream_status: Some(status.as_u16()),
+                                },
                                 &error,
                             );
                             return Err(error);
@@ -140,16 +146,18 @@ impl LLMProxyHandler {
                                 format!("failed to execute stream sanitization task: {join_error}"),
                             );
                             self.emit_error_event(
-                                started,
-                                endpoint,
-                                &request_id,
-                                &profile_id,
-                                Some(route.provider_id.clone()),
-                                &model,
-                                true,
-                                final_action,
-                                total_hits,
-                                Some(status.as_u16()),
+                                ErrorEventContext {
+                                    started,
+                                    endpoint,
+                                    request_id: &request_id,
+                                    profile_id: &profile_id,
+                                    provider_id: Some(route.provider_id.clone()),
+                                    model: &model,
+                                    stream: true,
+                                    final_action,
+                                    total_hits,
+                                    upstream_status: Some(status.as_u16()),
+                                },
                                 &error,
                             );
                             return Err(error);

@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use pokrov_core::types::{
-    CategoryActions, CustomRule, DeterministicContextPolicy, DeterministicNormalizationMode as CoreDeterministicNormalizationMode, DeterministicRuleKind, DeterministicRuleMetadata, DeterministicValidatorKind as CoreDeterministicValidatorKind, EvaluationMode, EvaluatorConfig, PolicyAction, PolicyProfile,
+    CategoryActions, CustomRule, DeterministicContextPolicy,
+    DeterministicNormalizationMode as CoreDeterministicNormalizationMode, DeterministicRuleKind,
+    DeterministicRuleMetadata, DeterministicValidatorKind as CoreDeterministicValidatorKind,
+    EvaluationMode, EvaluatorConfig, PolicyAction, PolicyProfile,
 };
 use serde::{Deserialize, Serialize};
 
@@ -401,10 +404,9 @@ mod tests {
 
     use super::{
         default_max_hits_per_request, to_policy_profile, CategoryActionsConfig,
-        DeterministicContextConfig,
-        DeterministicNormalizationMode, DeterministicPatternConfig, DeterministicRecognizerConfig,
-        DeterministicValidatorConfig, DeterministicValidatorKind, RuntimeConfig,
-        SanitizationProfile,
+        DeterministicContextConfig, DeterministicNormalizationMode, DeterministicPatternConfig,
+        DeterministicRecognizerConfig, DeterministicValidatorConfig, DeterministicValidatorKind,
+        RuntimeConfig, SanitizationProfile,
     };
 
     #[test]

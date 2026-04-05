@@ -136,16 +136,10 @@ impl RateLimitWindowState {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RateLimitState {
     pub enabled: bool,
     pub limiter: Option<Arc<RateLimiter>>,
-}
-
-impl Default for RateLimitState {
-    fn default() -> Self {
-        Self { enabled: false, limiter: None }
-    }
 }
 
 #[derive(Clone)]

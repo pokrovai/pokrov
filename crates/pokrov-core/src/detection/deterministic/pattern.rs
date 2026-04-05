@@ -15,5 +15,4 @@ mod tests {
         let matched = matcher.find("TOKEN sk-test-1234").expect("pattern should detect token");
         assert_eq!(matched.as_str(), "TOKEN sk-test-1234");
     }
-
 }

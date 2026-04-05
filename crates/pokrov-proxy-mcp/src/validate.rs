@@ -322,9 +322,7 @@ fn normalized_path_segments(path: &str) -> Option<Vec<String>> {
         match component {
             "" | "." => {}
             ".." => {
-                if segments.pop().is_none() {
-                    return None;
-                }
+                segments.pop()?;
             }
             segment => segments.push(segment.to_string()),
         }

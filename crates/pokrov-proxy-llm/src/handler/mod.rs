@@ -21,10 +21,26 @@ use crate::{
     },
     upstream::UpstreamClient,
 };
-use support::{attach_pokrov_metadata, attach_request_id, max_action, mode_as_str, TerminalEvent};
+use support::{
+    attach_pokrov_metadata, attach_request_id, max_action, mode_as_str, ResponseMetadataContext,
+    TerminalEvent,
+};
 
 mod streaming;
 mod support;
+
+struct ErrorEventContext<'a> {
+    started: Instant,
+    endpoint: &'static str,
+    request_id: &'a str,
+    profile_id: &'a str,
+    provider_id: Option<String>,
+    model: &'a str,
+    stream: bool,
+    final_action: PolicyAction,
+    total_hits: u32,
+    upstream_status: Option<u16>,
+}
 
 #[derive(Clone)]
 pub struct LLMProxyHandler {
@@ -300,16 +316,18 @@ impl LLMProxyHandler {
             Ok(response) => response,
             Err(error) => {
                 self.emit_error_event(
-                    started,
-                    endpoint,
-                    &request_id,
-                    &profile_id,
-                    Some(route.provider_id.clone()),
-                    &model,
-                    false,
-                    final_action,
-                    total_hits,
-                    error.upstream_status(),
+                    ErrorEventContext {
+                        started,
+                        endpoint,
+                        request_id: &request_id,
+                        profile_id: &profile_id,
+                        provider_id: Some(route.provider_id.clone()),
+                        model: &model,
+                        stream: false,
+                        final_action,
+                        total_hits,
+                        upstream_status: error.upstream_status(),
+                    },
                     &error,
                 );
                 return Err(error);
@@ -348,16 +366,18 @@ impl LLMProxyHandler {
                         "response blocked by active profile policy",
                     );
                     self.emit_error_event(
-                        started,
-                        endpoint,
-                        &request_id,
-                        &profile_id,
-                        Some(route.provider_id.clone()),
-                        &model,
-                        false,
-                        final_action,
-                        total_hits,
-                        Some(status.as_u16()),
+                        ErrorEventContext {
+                            started,
+                            endpoint,
+                            request_id: &request_id,
+                            profile_id: &profile_id,
+                            provider_id: Some(route.provider_id.clone()),
+                            model: &model,
+                            stream: false,
+                            final_action,
+                            total_hits,
+                            upstream_status: Some(status.as_u16()),
+                        },
                         &error,
                     );
                     return Err(error);
@@ -372,14 +392,16 @@ impl LLMProxyHandler {
         attach_request_id(&request_id, &route.provider_id, &mut body)?;
         if self.response_metadata_mode == ResponseMetadataMode::Enabled {
             attach_pokrov_metadata(
-                &request_id,
-                &profile_id,
-                &route.provider_id,
-                final_action,
-                total_hits,
-                sanitized_input,
-                sanitized_output,
-                estimated_token_units,
+                ResponseMetadataContext {
+                    request_id: &request_id,
+                    profile_id: &profile_id,
+                    provider_id: &route.provider_id,
+                    final_action,
+                    total_hits,
+                    sanitized_input,
+                    sanitized_output,
+                    estimated_token_units,
+                },
                 &mut body,
             )?;
         }
@@ -404,32 +426,19 @@ impl LLMProxyHandler {
         Ok(LLMProxyResponse { request_id, status, body: LLMProxyBody::Json(body) })
     }
 
-    fn emit_error_event(
-        &self,
-        started: Instant,
-        endpoint: &'static str,
-        request_id: &str,
-        profile_id: &str,
-        provider_id: Option<String>,
-        model: &str,
-        stream: bool,
-        final_action: PolicyAction,
-        total_hits: u32,
-        upstream_status: Option<u16>,
-        error: &LLMProxyError,
-    ) {
+    fn emit_error_event(&self, context: ErrorEventContext<'_>, error: &LLMProxyError) {
         self.emit_terminal_event(TerminalEvent {
-            request_id,
-            endpoint,
-            profile_id,
-            provider_id,
-            model,
-            stream,
-            final_action,
-            rule_hits_total: total_hits,
+            request_id: context.request_id,
+            endpoint: context.endpoint,
+            profile_id: context.profile_id,
+            provider_id: context.provider_id,
+            model: context.model,
+            stream: context.stream,
+            final_action: context.final_action,
+            rule_hits_total: context.total_hits,
             blocked: matches!(error, LLMProxyError::PolicyBlocked { .. }),
-            upstream_status: upstream_status.or_else(|| error.upstream_status()),
-            duration_ms: started.elapsed().as_millis() as u64,
+            upstream_status: context.upstream_status.or_else(|| error.upstream_status()),
+            duration_ms: context.started.elapsed().as_millis() as u64,
             estimated_token_units: 0,
             auth_mode: "unknown",
             credential_origin: UpstreamCredentialOrigin::Config,

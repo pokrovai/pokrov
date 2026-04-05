@@ -34,6 +34,7 @@ pub(super) fn passthrough_error(error: ApiError) -> ApiError {
 }
 
 /// Resolves gateway auth, identity profile, rate-limit profile, and upstream credential in one place.
+#[allow(clippy::result_large_err)]
 pub(super) fn resolve_request_context(
     state: &AppState,
     headers: &HeaderMap,
