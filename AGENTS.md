@@ -224,6 +224,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-05
 - N/A for persistent storage; in-memory transform plans/results and metadata-only audit summaries (012-operator-semantics)
 - Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required (013-safe-explainability-audit)
 - N/A for persistent storage; in-memory analyzer outputs plus metadata-only audit/log sinks with 30-day operational retention policy (013-safe-explainability-audit)
+- Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `serde_yaml`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required (014-structured-json-processing)
+- N/A for persistent storage; in-memory traversal/context state plus metadata-only logs/audit summaries (014-structured-json-processing)
 
 ## Project Structure
 
@@ -249,9 +251,9 @@ tests/
 Rust stable (1.85+): Follow standard conventions
 
 ## Recent Changes
+- 014-structured-json-processing: Added Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `serde_yaml`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required
 - 013-safe-explainability-audit: Added Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required
 - 012-operator-semantics: Added Rust stable 1.85+ (edition 2021 workspace) + Existing workspace crates (`pokrov-core`, `pokrov-config`, `pokrov-proxy-llm`, `pokrov-proxy-mcp`) with `serde`, `serde_json`, `thiserror`, `tracing`, `axum`, `tokio`; no new external dependencies required
-- 011-deterministic-recognizers: Added Rust stable 1.85+ in a workspace using edition 2021 + `pokrov-core`, `pokrov-config`, `serde`, `serde_json`, `serde_yaml`, `regex`, `thiserror`, existing tracing-compatible metadata contracts
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
