@@ -17,13 +17,16 @@ Backlog decomposition starts with the foundation layer only and expands outward 
 - `04-safe-explainability-and-audit-backlog.md`
 - `05-structured-json-processing-backlog.md`
 - `06-en-ru-entity-packs-backlog.md`
+- `07-evaluation-lab-foundation-backlog.md`
+- `08-baseline-and-dataset-inventory-backlog.md`
+- `09-remote-recognizer-contract-backlog.md`
 
 ## Sequencing Rule
 
 - Finish `00` before starting implementation work for `01`.
 - Start `02-04` only after `00` and `01` contracts are implemented or at least frozen strongly enough that downstream tasks do not redefine them.
 - Start `05-06` only after `02-04` behavior is implemented or frozen strongly enough for structured and language coverage work.
-- Do not start later backlog decomposition for `07+` until `05-06` scope is implemented and verified.
+- Start `07-09` only after `05-06` scope is implemented or frozen strongly enough for evaluation and extension work.
 
 ## Acceptance Rule
 
