@@ -78,22 +78,74 @@ mod tests {
     }
 
     #[test]
-    fn detects_standalone_sk_codex_api_key_tokens() {
+    fn detects_generic_standalone_sk_api_key_tokens() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");
         let payload = json!({
-            "content": "Use temporary key sk_codex_1234567890abcdef1234567890 for Codex test run"
+            "content": "Use temporary key sk-live-prod-1234567890abcdef1234567890 for smoke test"
         });
 
         let hits = detect_payload(&payload, &profile, &custom, &[]);
 
         assert!(
             hits.iter().any(|hit| hit.rule_id == "builtin.secrets.sk_api_key"),
-            "sk_codex key should be detected by dedicated sk-api-key rule"
+            "sk-prefixed key should be detected by dedicated sk-api-key rule"
         );
         assert!(
             hits.iter().any(|hit| hit.category == DetectionCategory::Secrets),
-            "sk_codex key should produce a secret-category hit"
+            "sk-prefixed key should produce a secret-category hit"
+        );
+    }
+
+    #[test]
+    fn detects_secret_assignment_tokens() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "token=ghp_1234567890abcdef1234567890abcdef1234"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.secrets.secret_assignment"),
+            "token assignment should be detected as a secret assignment"
+        );
+        assert!(
+            hits.iter().any(|hit| hit.category == DetectionCategory::Secrets),
+            "token assignment should produce a secret-category hit"
+        );
+    }
+
+    #[test]
+    fn detects_standalone_github_pat_like_tokens() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "temporary credential ghp_1234567890abcdef1234567890abcdef1234 leaked in logs"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.secrets.github_pat"),
+            "standalone GitHub PAT-like token should be detected as a secret"
+        );
+    }
+
+    #[test]
+    fn detects_bearer_jwt_like_tokens() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0In0.sgnature1234567890"
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.secrets.bearer_token"),
+            "bearer JWT token should be detected by bearer-token secret rule"
         );
     }
 

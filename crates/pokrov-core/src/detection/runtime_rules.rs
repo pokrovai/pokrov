@@ -39,7 +39,6 @@ struct BuiltinRule {
     matcher: Regex,
     validator: DeterministicValidatorKind,
     normalization: DeterministicNormalizationMode,
-    deterministic_context: Option<CompiledContextPolicy>,
     field_gate: Option<CompiledFieldGate>,
 }
 
@@ -55,16 +54,6 @@ struct CompiledFieldGate {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct BuiltinContextSpec {
-    positive_terms: &'static [&'static str],
-    negative_terms: &'static [&'static str],
-    score_boost: i16,
-    score_penalty: i16,
-    window: u8,
-    suppress_on_negative: bool,
-}
-
-#[derive(Debug, Clone, Copy)]
 struct BuiltinFieldGateSpec {
     json_pointer_suffixes: &'static [&'static str],
 }
@@ -77,7 +66,6 @@ struct BuiltinRuleSpec {
     pattern: &'static str,
     validator: DeterministicValidatorKind,
     normalization: DeterministicNormalizationMode,
-    context: Option<BuiltinContextSpec>,
     field_gate: Option<BuiltinFieldGateSpec>,
 }
 
@@ -96,7 +84,7 @@ struct RuleMatchContext<'a> {
     field_gate: Option<&'a CompiledFieldGate>,
 }
 
-const BUILTIN_RULES: [BuiltinRuleSpec; 7] = [
+const BUILTIN_RULES: [BuiltinRuleSpec; 9] = [
     BuiltinRuleSpec {
         rule_id: "builtin.secrets.openai_key",
         category: DetectionCategory::Secrets,
@@ -104,7 +92,6 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 7] = [
         pattern: r"(?i)sk-[a-z0-9-]{8,}",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
-        context: None,
         field_gate: None,
     },
     BuiltinRuleSpec {
@@ -114,7 +101,6 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 7] = [
         pattern: r"(?i)api[_-]?key\s*[:=]\s*[a-z0-9_\-]{8,}",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
-        context: None,
         field_gate: None,
     },
     BuiltinRuleSpec {
@@ -124,17 +110,33 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 7] = [
         pattern: r"(?i)\bbearer\s+(?:gh[pousr]_[a-z0-9]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Za-z0-9._\-]{24,})\b",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
-        context: None,
+        field_gate: None,
+    },
+    BuiltinRuleSpec {
+        rule_id: "builtin.secrets.secret_assignment",
+        category: DetectionCategory::Secrets,
+        priority: 468,
+        pattern: r#"(?i)\b(?:token|secret|access[_-]?token|auth[_-]?token)\s*[:=]\s*['"]?(?:gh[pousr]_[a-z0-9]{20,}|sk[-_][a-z0-9][a-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Za-z0-9._\-]{24,})['"]?"#,
+        validator: DeterministicValidatorKind::None,
+        normalization: DeterministicNormalizationMode::Preserve,
         field_gate: None,
     },
     BuiltinRuleSpec {
         rule_id: "builtin.secrets.sk_api_key",
         category: DetectionCategory::Secrets,
         priority: 465,
-        pattern: r"(?i)\bsk(?:-|_)(?:proj|test|live|codex)(?:-|_)[a-z0-9][a-z0-9_-]{20,}\b",
+        pattern: r"(?i)\bsk[-_][a-z0-9][a-z0-9_-]{16,}\b",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
-        context: None,
+        field_gate: None,
+    },
+    BuiltinRuleSpec {
+        rule_id: "builtin.secrets.github_pat",
+        category: DetectionCategory::Secrets,
+        priority: 466,
+        pattern: r"(?i)\bgh[pousr]_[a-z0-9]{20,}\b",
+        validator: DeterministicValidatorKind::None,
+        normalization: DeterministicNormalizationMode::Preserve,
         field_gate: None,
     },
     BuiltinRuleSpec {
@@ -144,7 +146,6 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 7] = [
         pattern: r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
-        context: None,
         field_gate: None,
     },
     BuiltinRuleSpec {
@@ -154,7 +155,6 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 7] = [
         pattern: r"\b\d(?:[ -]?\d){12,15}\b",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
-        context: None,
         field_gate: None,
     },
     BuiltinRuleSpec {
@@ -164,7 +164,6 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 7] = [
         pattern: r"(?i)\bproject\s+[a-z][a-z0-9_-]{2,}\b",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
-        context: None,
         field_gate: None,
     },
 ];
@@ -345,7 +344,7 @@ fn builtin_rule_context<'a>(
         matcher: &rule.matcher,
         validator: rule.validator,
         normalization: rule.normalization,
-        deterministic_context: rule.deterministic_context.as_ref(),
+        deterministic_context: None,
         deterministic_allowlist: None,
         field_gate: rule.field_gate.as_ref(),
     }
@@ -516,25 +515,11 @@ fn builtin_rules() -> &'static [BuiltinRule] {
                         .expect("built-in regex patterns must compile"),
                     validator: spec.validator,
                     normalization: spec.normalization,
-                    deterministic_context: spec.context.map(compile_builtin_context),
                     field_gate: spec.field_gate.map(compile_field_gate),
                 })
                 .collect()
         })
         .as_slice()
-}
-
-fn compile_builtin_context(spec: BuiltinContextSpec) -> CompiledContextPolicy {
-    CompiledContextPolicy {
-        policy: ContextPolicy {
-            positive_terms: spec.positive_terms.iter().map(|term| term.to_string()).collect(),
-            negative_terms: spec.negative_terms.iter().map(|term| term.to_string()).collect(),
-            score_boost: spec.score_boost,
-            score_penalty: spec.score_penalty,
-            suppress_on_negative: spec.suppress_on_negative,
-        },
-        window: spec.window,
-    }
 }
 
 fn compile_field_gate(spec: BuiltinFieldGateSpec) -> CompiledFieldGate {
