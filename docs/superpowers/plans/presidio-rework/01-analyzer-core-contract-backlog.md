@@ -75,3 +75,9 @@ Implementation is complete when:
 - integration-style tests for policy-block vs runtime-failure behavior
 - replay test for deterministic identity
 - compatibility tests for at least two downstream consumers
+
+## Progress update 2026-04-05
+
+- `A0101-A0104`: Implemented via canonical `EvaluateRequest`, `EvaluateResult`, and `EvaluateDecision` updates in `pokrov-core`.
+- `A0105-A0106`: Implemented by preserving policy-block as successful result and keeping analyzer invalid input/profile/runtime as analyzer errors.
+- `A0109-A0112`: Implemented with replay-identity logic, shared consumer wiring, and verification notes in `docs/verification/010-analyzer-core-contract.md`.

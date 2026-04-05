@@ -59,8 +59,10 @@ async fn dry_run_keeps_decision_parity_and_returns_metadata_only_explain() {
     assert_eq!(enforce_body["final_action"], dry_run_body["final_action"]);
     assert_eq!(enforce_body["explain"]["rule_hits_total"], dry_run_body["explain"]["rule_hits_total"]);
     assert_eq!(enforce_body["audit"]["rule_hits_total"], dry_run_body["audit"]["rule_hits_total"]);
-    assert_eq!(enforce_body["executed"], true);
-    assert_eq!(dry_run_body["executed"], false);
+    assert_eq!(enforce_body["executed"]["execution_enabled"], true);
+    assert_eq!(dry_run_body["executed"]["execution_enabled"], false);
+    assert_eq!(enforce_body["degraded"]["is_degraded"], false);
+    assert_eq!(dry_run_body["degraded"]["is_degraded"], false);
 
     let explain_json = serde_json::to_string(&dry_run_body["explain"]).expect("explain should serialize");
     let audit_json = serde_json::to_string(&dry_run_body["audit"]).expect("audit should serialize");

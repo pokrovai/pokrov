@@ -113,3 +113,9 @@ Current related surfaces already live in:
 - `crates/pokrov-core/src/types/foundation/`
 - `crates/pokrov-core/src/lib.rs`
 - adapter-local wrappers in `crates/pokrov-api` and proxy crates
+
+## Implementation status note (2026-04-05)
+
+- `EvaluateRequest` in `pokrov-core` now includes mandatory `effective_language` and optional filter collections.
+- `EvaluateResult` now exports explicit `executed` and `degraded` sections in addition to `decision`, `transform`, `explain`, and `audit`.
+- `EvaluateDecision` now exports metadata-only unified `resolved_locations` and a stable `replay_identity`.

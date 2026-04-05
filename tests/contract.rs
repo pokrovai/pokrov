@@ -18,6 +18,8 @@ mod sanitization_foundation_contract;
 pub mod hardening_test_support;
 #[path = "common/sanitization_foundation_test_support.rs"]
 pub mod sanitization_foundation_test_support;
+#[path = "common/sanitization_analyzer_contract_test_support.rs"]
+pub mod sanitization_analyzer_contract_test_support;
 #[path = "contract/release_evidence_contract.rs"]
 mod release_evidence_contract;
 #[path = "contract/responses_api_contract.rs"]

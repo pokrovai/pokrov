@@ -17,9 +17,9 @@
 
 **Purpose**: Prepare verification artifacts and shared test scaffolding for the analyzer-contract milestone.
 
-- [ ] T001 Create analyzer-contract verification note scaffold in `docs/verification/010-analyzer-core-contract.md`
-- [ ] T002 [P] Add shared analyzer contract test helpers in `tests/common/sanitization_analyzer_contract_test_support.rs`
-- [ ] T003 [P] Wire analyzer-contract suites into `tests/contract.rs`, `tests/integration.rs`, `tests/security.rs`, and `tests/performance.rs`
+- [X] T001 Create analyzer-contract verification note scaffold in `docs/verification/010-analyzer-core-contract.md`
+- [X] T002 [P] Add shared analyzer contract test helpers in `tests/common/sanitization_analyzer_contract_test_support.rs`
+- [X] T003 [P] Wire analyzer-contract suites into `tests/contract.rs`, `tests/integration.rs`, `tests/security.rs`, and `tests/performance.rs`
 
 ---
 
@@ -29,12 +29,12 @@
 
 **CRITICAL**: No user story work starts before this phase is complete.
 
-- [ ] T004 Define analyzer-core contract module layout and exports in `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/types.rs`
-- [ ] T005 [P] Add canonical request fields (including mandatory `effective_language` and optional filters) in `crates/pokrov-core/src/types.rs`
-- [ ] T006 [P] Add canonical result sections (`decision`, `transform`, `explain`, `audit`, `executed`, `degraded`) in `crates/pokrov-core/src/types.rs`
-- [ ] T007 [P] Implement unified resolved-location record shape for text and structured paths in `crates/pokrov-core/src/types/foundation/mod.rs`
-- [ ] T008 [P] Extend metadata-only explain/audit builders for new executed/degraded fields in `crates/pokrov-core/src/audit/mod.rs`
-- [ ] T009 Document foundational analyzer-contract checkpoints in `docs/verification/010-analyzer-core-contract.md`
+- [X] T004 Define analyzer-core contract module layout and exports in `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/types.rs`
+- [X] T005 [P] Add canonical request fields (including mandatory `effective_language` and optional filters) in `crates/pokrov-core/src/types.rs`
+- [X] T006 [P] Add canonical result sections (`decision`, `transform`, `explain`, `audit`, `executed`, `degraded`) in `crates/pokrov-core/src/types.rs`
+- [X] T007 [P] Implement unified resolved-location record shape for text and structured paths in `crates/pokrov-core/src/types/foundation/mod.rs`
+- [X] T008 [P] Extend metadata-only explain/audit builders for new executed/degraded fields in `crates/pokrov-core/src/audit/mod.rs`
+- [X] T009 Document foundational analyzer-contract checkpoints in `docs/verification/010-analyzer-core-contract.md`
 
 **Checkpoint**: Canonical analyzer contract is compile-visible in `pokrov-core`, and downstream stories can reuse it without contract forks.
 
@@ -48,18 +48,18 @@
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add unit tests for analyzer request/result construction invariants in `crates/pokrov-core/src/types.rs`
-- [ ] T011 [P] [US1] Add contract coverage for required top-level analyzer sections in `tests/contract/sanitization_evaluate_contract.rs`
-- [ ] T012 [P] [US1] Add integration compatibility proof for shared runtime/evaluation contract reuse in `tests/integration/sanitization_foundation_shared_contracts.rs`
-- [ ] T013 [P] [US1] Add performance check for shared-contract reuse without duplicate conversion layers in `tests/performance/sanitization_foundation_contract_overhead.rs`
-- [ ] T014 [P] [US1] Add security assertions that shared sections remain metadata-only outside transform payload in `tests/security/sanitization_foundation_metadata_leakage.rs`
+- [X] T010 [P] [US1] Add unit tests for analyzer request/result construction invariants in `crates/pokrov-core/src/types.rs`
+- [X] T011 [P] [US1] Add contract coverage for required top-level analyzer sections in `tests/contract/sanitization_evaluate_contract.rs`
+- [X] T012 [P] [US1] Add integration compatibility proof for shared runtime/evaluation contract reuse in `tests/integration/sanitization_foundation_shared_contracts.rs`
+- [X] T013 [P] [US1] Add performance check for shared-contract reuse without duplicate conversion layers in `tests/performance/sanitization_foundation_contract_overhead.rs`
+- [X] T014 [P] [US1] Add security assertions that shared sections remain metadata-only outside transform payload in `tests/security/sanitization_foundation_metadata_leakage.rs`
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] Implement canonical analyzer request/result data structures in `crates/pokrov-core/src/types.rs`
-- [ ] T016 [P] [US1] Implement serialization-safe shared contract helpers for runtime/evaluation consumers in `crates/pokrov-core/src/types/foundation/mod.rs`
-- [ ] T017 [US1] Update evaluate handler to consume canonical analyzer contract without local result forks in `crates/pokrov-api/src/handlers/evaluate.rs`
-- [ ] T018 [US1] Record runtime/evaluation shared-contract evidence in `docs/verification/010-analyzer-core-contract.md`
+- [X] T015 [P] [US1] Implement canonical analyzer request/result data structures in `crates/pokrov-core/src/types.rs`
+- [X] T016 [P] [US1] Implement serialization-safe shared contract helpers for runtime/evaluation consumers in `crates/pokrov-core/src/types/foundation/mod.rs`
+- [X] T017 [US1] Update evaluate handler to consume canonical analyzer contract without local result forks in `crates/pokrov-api/src/handlers/evaluate.rs`
+- [X] T018 [US1] Record runtime/evaluation shared-contract evidence in `docs/verification/010-analyzer-core-contract.md`
 
 **Checkpoint**: User Story 1 is independently verifiable with one shared analyzer contract reused by runtime and evaluation paths.
 
@@ -73,18 +73,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T019 [P] [US2] Add unit tests for block-vs-error and degraded-fail-closed invariants in `crates/pokrov-core/src/lib.rs`
-- [ ] T020 [P] [US2] Add integration coverage for evaluate block and analyzer-error separation in `tests/integration/sanitization_evaluate_flow.rs`
-- [ ] T021 [P] [US2] Add integration coverage proving runtime adapter block handling does not map to analyzer error in `tests/integration/llm_proxy_block_path.rs`
-- [ ] T022 [P] [US2] Add security test for metadata-safe block/error/degraded outputs in `tests/security/sanitization_metadata_leakage.rs`
+- [X] T019 [P] [US2] Add unit tests for block-vs-error and degraded-fail-closed invariants in `crates/pokrov-core/src/lib.rs`
+- [X] T020 [P] [US2] Add integration coverage for evaluate block and analyzer-error separation in `tests/integration/sanitization_evaluate_flow.rs`
+- [X] T021 [P] [US2] Add integration coverage proving runtime adapter block handling does not map to analyzer error in `tests/integration/llm_proxy_block_path.rs`
+- [X] T022 [P] [US2] Add security test for metadata-safe block/error/degraded outputs in `tests/security/sanitization_metadata_leakage.rs`
 
 ### Implementation for User Story 2
 
-- [ ] T023 [P] [US2] Implement explicit analyzer error classification (`InvalidInput`, `InvalidProfile`, `RuntimeFailure`) in `crates/pokrov-core/src/types.rs`
-- [ ] T024 [P] [US2] Implement policy block as successful result with full shared sections in `crates/pokrov-core/src/lib.rs`
-- [ ] T025 [US2] Update LLM proxy adapter mapping to preserve shared block-vs-error semantics in `crates/pokrov-proxy-llm/src/lib.rs` and `crates/pokrov-proxy-llm/src/audit.rs`
-- [ ] T026 [US2] Update MCP proxy adapter mapping to preserve shared block-vs-error semantics in `crates/pokrov-proxy-mcp/src/lib.rs` and `crates/pokrov-proxy-mcp/src/audit.rs`
-- [ ] T027 [US2] Record block/error contract evidence in `docs/verification/010-analyzer-core-contract.md`
+- [X] T023 [P] [US2] Implement explicit analyzer error classification (`InvalidInput`, `InvalidProfile`, `RuntimeFailure`) in `crates/pokrov-core/src/types.rs`
+- [X] T024 [P] [US2] Implement policy block as successful result with full shared sections in `crates/pokrov-core/src/lib.rs`
+- [X] T025 [US2] Update LLM proxy adapter mapping to preserve shared block-vs-error semantics in `crates/pokrov-proxy-llm/src/lib.rs` and `crates/pokrov-proxy-llm/src/audit.rs`
+- [X] T026 [US2] Update MCP proxy adapter mapping to preserve shared block-vs-error semantics in `crates/pokrov-proxy-mcp/src/lib.rs` and `crates/pokrov-proxy-mcp/src/audit.rs`
+- [X] T027 [US2] Record block/error contract evidence in `docs/verification/010-analyzer-core-contract.md`
 
 **Checkpoint**: User Story 2 is independently verifiable: policy enforcement outcomes are distinct from analyzer failures across consumers.
 
@@ -98,17 +98,17 @@
 
 ### Tests for User Story 3
 
-- [ ] T028 [P] [US3] Add unit tests for deterministic ordering and replay identity stability in `crates/pokrov-core/src/types/foundation/mod.rs`
-- [ ] T029 [P] [US3] Add integration test for structured JSON unified location records in `tests/integration/sanitization_foundation_evaluation_boundary.rs`
-- [ ] T030 [P] [US3] Add performance regression test for replay-identity stability without extra hot-path recomputation in `tests/performance/sanitization_evaluate_latency.rs`
-- [ ] T031 [P] [US3] Add security test for metadata-only executed/degraded outputs across degradation paths in `tests/security/sanitization_foundation_metadata_leakage.rs`
+- [X] T028 [P] [US3] Add unit tests for deterministic ordering and replay identity stability in `crates/pokrov-core/src/types/foundation/mod.rs`
+- [X] T029 [P] [US3] Add integration test for structured JSON unified location records in `tests/integration/sanitization_foundation_evaluation_boundary.rs`
+- [X] T030 [P] [US3] Add performance regression test for replay-identity stability without extra hot-path recomputation in `tests/performance/sanitization_evaluate_latency.rs`
+- [X] T031 [P] [US3] Add security test for metadata-only executed/degraded outputs across degradation paths in `tests/security/sanitization_foundation_metadata_leakage.rs`
 
 ### Implementation for User Story 3
 
-- [ ] T032 [P] [US3] Implement deterministic same-span/same-score ordering and replay identity generation in `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/types/foundation/mod.rs`
-- [ ] T033 [P] [US3] Implement unified location population for plain text and structured JSON flows in `crates/pokrov-core/src/traversal/mod.rs` and `crates/pokrov-core/src/types/foundation/mod.rs`
-- [ ] T034 [P] [US3] Implement executed/degraded metadata sections with fail-closed markers for missing required evidence in `crates/pokrov-core/src/audit/mod.rs` and `crates/pokrov-core/src/types.rs`
-- [ ] T035 [US3] Record deterministic replay and metadata-safety evidence in `docs/verification/010-analyzer-core-contract.md`
+- [X] T032 [P] [US3] Implement deterministic same-span/same-score ordering and replay identity generation in `crates/pokrov-core/src/lib.rs` and `crates/pokrov-core/src/types/foundation/mod.rs`
+- [X] T033 [P] [US3] Implement unified location population for plain text and structured JSON flows in `crates/pokrov-core/src/traversal/mod.rs` and `crates/pokrov-core/src/types/foundation/mod.rs`
+- [X] T034 [P] [US3] Implement executed/degraded metadata sections with fail-closed markers for missing required evidence in `crates/pokrov-core/src/audit/mod.rs` and `crates/pokrov-core/src/types.rs`
+- [X] T035 [US3] Record deterministic replay and metadata-safety evidence in `docs/verification/010-analyzer-core-contract.md`
 
 **Checkpoint**: User Story 3 is independently verifiable: deterministic replay and metadata-only guarantees hold across supported modes.
 
@@ -118,9 +118,9 @@
 
 **Purpose**: Align docs/contracts and capture final verification evidence across all stories.
 
-- [ ] T036 [P] Update feature docs alignment in `specs/010-analyzer-core-contract/quickstart.md`, `specs/010-analyzer-core-contract/contracts/analyzer-surface.md`, and `specs/010-analyzer-core-contract/contracts/consumer-compatibility.md`
-- [ ] T037 [P] Sync rework roadmap references in `docs/superpowers/plans/presidio-rework/master-roadmap.md` and `docs/superpowers/plans/presidio-rework/01-analyzer-core-contract-backlog.md`
-- [ ] T038 Run final verification commands and record command outputs in `docs/verification/010-analyzer-core-contract.md`
+- [X] T036 [P] Update feature docs alignment in `specs/010-analyzer-core-contract/quickstart.md`, `specs/010-analyzer-core-contract/contracts/analyzer-surface.md`, and `specs/010-analyzer-core-contract/contracts/consumer-compatibility.md`
+- [X] T037 [P] Sync rework roadmap references in `docs/superpowers/plans/presidio-rework/master-roadmap.md` and `docs/superpowers/plans/presidio-rework/01-analyzer-core-contract-backlog.md`
+- [X] T038 Run final verification commands and record command outputs in `docs/verification/010-analyzer-core-contract.md`
 
 ---
 

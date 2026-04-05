@@ -115,8 +115,9 @@ mod tests {
             final_action: PolicyAction::Redact,
             rule_hits_total: 1,
             hits_by_category: std::collections::BTreeMap::from([("secrets".to_string(), 1)]),
-            resolved_spans: Vec::new(),
-            deterministic_signature: "sig".to_string(),
+            hits_by_family: std::collections::BTreeMap::new(),
+            resolved_locations: Vec::new(),
+            replay_identity: "sig".to_string(),
         };
 
         let plan = TransformPlan::from_decision(EvaluationMode::Enforce, &resolved_spans, &decision, 4);
@@ -133,15 +134,17 @@ mod tests {
             final_action: PolicyAction::Block,
             rule_hits_total: 1,
             hits_by_category: std::collections::BTreeMap::from([("secrets".to_string(), 1)]),
-            resolved_spans: Vec::new(),
-            deterministic_signature: "sig-block".to_string(),
+            hits_by_family: std::collections::BTreeMap::new(),
+            resolved_locations: Vec::new(),
+            replay_identity: "sig-block".to_string(),
         };
         let allow_decision = EvaluateDecision {
             final_action: PolicyAction::Allow,
             rule_hits_total: 0,
             hits_by_category: std::collections::BTreeMap::new(),
-            resolved_spans: Vec::new(),
-            deterministic_signature: "sig-allow".to_string(),
+            hits_by_family: std::collections::BTreeMap::new(),
+            resolved_locations: Vec::new(),
+            replay_identity: "sig-allow".to_string(),
         };
 
         let block_plan = TransformPlan::from_decision(EvaluationMode::Enforce, &no_hits, &block_decision, 4);
@@ -173,8 +176,9 @@ mod tests {
             final_action: PolicyAction::Replace,
             rule_hits_total: 1,
             hits_by_category: std::collections::BTreeMap::from([("custom".to_string(), 1)]),
-            resolved_spans: Vec::new(),
-            deterministic_signature: "sig".to_string(),
+            hits_by_family: std::collections::BTreeMap::new(),
+            resolved_locations: Vec::new(),
+            replay_identity: "sig".to_string(),
         };
 
         let replace_plan = TransformPlan::from_decision(EvaluationMode::Enforce, &resolved_spans, &decision, 4);
@@ -195,6 +199,7 @@ mod tests {
             sanitized_payload: Some(serde_json::json!({"message": "secret"})),
             blocked: false,
             transformed_fields_count: 1,
+            transform_metadata: vec!["json_string_leaf_mutation".to_string()],
         });
 
         let serialized =

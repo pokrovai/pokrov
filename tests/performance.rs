@@ -8,6 +8,8 @@ pub mod mcp_test_support;
 pub mod hardening_test_support;
 #[path = "common/sanitization_foundation_test_support.rs"]
 pub mod sanitization_foundation_test_support;
+#[path = "common/sanitization_analyzer_contract_test_support.rs"]
+pub mod sanitization_analyzer_contract_test_support;
 #[path = "performance/llm_proxy_overhead_budget.rs"]
 mod llm_proxy_overhead_budget;
 #[path = "performance/mcp_mediation_overhead_budget.rs"]

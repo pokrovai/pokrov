@@ -19,6 +19,7 @@ pub fn apply_transforms(
             sanitized_payload: None,
             blocked: true,
             transformed_fields_count: 0,
+            transform_metadata: vec!["policy_block".to_string()],
         };
     }
 
@@ -44,6 +45,11 @@ pub fn apply_transforms(
         sanitized_payload: Some(sanitized_payload),
         blocked: false,
         transformed_fields_count,
+        transform_metadata: if transformed_fields_count == 0 {
+            vec!["pass_through".to_string()]
+        } else {
+            vec!["json_string_leaf_mutation".to_string()]
+        },
     }
 }
 

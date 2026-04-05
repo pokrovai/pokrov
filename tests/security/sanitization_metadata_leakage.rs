@@ -37,11 +37,17 @@ async fn evaluate_outputs_do_not_leak_raw_fragments_in_audit_and_explain() {
 
     let explain = serde_json::to_string(&body["explain"]).expect("explain should serialize");
     let audit = serde_json::to_string(&body["audit"]).expect("audit should serialize");
+    let executed = serde_json::to_string(&body["executed"]).expect("executed should serialize");
+    let degraded = serde_json::to_string(&body["degraded"]).expect("degraded should serialize");
 
     assert!(!explain.contains(raw_fragment));
     assert!(!audit.contains(raw_fragment));
+    assert!(!executed.contains(raw_fragment));
+    assert!(!degraded.contains(raw_fragment));
     assert!(!explain.contains("user@example.com"));
     assert!(!audit.contains("sk-test-rawsecret"));
+    assert!(!executed.contains("user@example.com"));
+    assert!(!degraded.contains("sk-test-rawsecret"));
 
     handle.shutdown().await.expect("shutdown should succeed");
 }

@@ -4,8 +4,8 @@ use axum::{
     Json,
 };
 use pokrov_core::types::{
-    AuditSummary, EvaluateError, EvaluateRequest, EvaluationMode, ExplainSummary, PathClass,
-    PolicyAction,
+    AuditSummary, DegradedSummary, EvaluateError, EvaluateRequest, EvaluationMode, ExecutedSummary,
+    ExplainSummary, PathClass, PolicyAction,
 };
 use pokrov_config::GatewayAuthMode;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,8 @@ pub struct EvaluateHttpRequest {
     pub mode: EvaluationMode,
     #[serde(default)]
     pub path_class: PathClass,
+    #[serde(default)]
+    pub effective_language: Option<String>,
     pub payload: Value,
 }
 
@@ -31,7 +33,8 @@ pub struct EvaluateHttpResponse {
     pub profile_id: String,
     pub mode: EvaluationMode,
     pub final_action: PolicyAction,
-    pub executed: bool,
+    pub executed: ExecutedSummary,
+    pub degraded: DegradedSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sanitized_payload: Option<Value>,
     pub explain: ExplainSummary,
@@ -83,6 +86,12 @@ pub async fn handle_evaluate(
             mode: body.mode,
             payload: body.payload,
             path_class: body.path_class,
+            effective_language: body
+                .effective_language
+                .unwrap_or_else(|| "en".to_string()),
+            entity_scope_filters: Vec::new(),
+            recognizer_family_filters: Vec::new(),
+            allowlist_additions: Vec::new(),
         })
         .map_err(|error| map_evaluate_error(request_id.clone(), error))?;
 
@@ -107,6 +116,7 @@ pub async fn handle_evaluate(
         mode: result.mode,
         final_action: result.decision.final_action,
         executed: result.executed,
+        degraded: result.degraded,
         sanitized_payload: result.transform.sanitized_payload,
         explain: result.explain,
         audit: result.audit,
@@ -116,8 +126,8 @@ pub async fn handle_evaluate(
 fn map_evaluate_error(request_id: String, error: EvaluateError) -> ApiError {
     match error {
         EvaluateError::InvalidProfile(message) => ApiError::invalid_profile(request_id, message),
-        EvaluateError::InvalidRequest(message) => ApiError::invalid_request(request_id, message),
-        EvaluateError::InvalidProfileConfig(message) => ApiError::invalid_profile(request_id, message),
+        EvaluateError::InvalidInput(message) => ApiError::invalid_request(request_id, message),
+        EvaluateError::RuntimeFailure(message) => ApiError::internal(request_id, message),
     }
 }
 

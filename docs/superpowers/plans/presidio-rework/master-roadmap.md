@@ -318,3 +318,9 @@ For implementation planning and issue generation:
 - refine only `M0` first
 - then refine `M1`
 - do not open `M2-M4` implementation work until the preceding gate is explicitly passed or consciously frozen
+
+## Update 2026-04-05: 010 Analyzer Core Contract
+
+- Canonical analyzer request/result contracts were implemented in `pokrov-core` for shared runtime and evaluation consumers.
+- The shared result sections include `decision`, `transform`, `explain`, `audit`, `executed`, and `degraded`.
+- Adapter integrations in evaluate/LLM/MCP paths now consume the same core request contract shape.

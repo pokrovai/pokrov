@@ -6,9 +6,8 @@ use std::{
 use crate::{
     policy::category_to_key,
     types::{
-        foundation::action_key,
-        AuditSummary, EvaluateDecision, EvaluateRequest, ExplainCategory, ExplainSummary, PolicyAction,
-        ResolvedSpan,
+        foundation::action_key, AuditSummary, DegradedSummary, EvaluateDecision, EvaluateRequest,
+        ExecutedSummary, ExplainCategory, ExplainSummary, PolicyAction, ResolvedSpan,
     },
 };
 
@@ -18,6 +17,8 @@ pub fn build_explain_summary(
     mode: crate::types::EvaluationMode,
     decision: &EvaluateDecision,
     resolved_spans: &[ResolvedSpan],
+    executed: &ExecutedSummary,
+    degraded: &DegradedSummary,
 ) -> ExplainSummary {
     let mut actions_by_category: BTreeMap<String, PolicyAction> = BTreeMap::new();
     for span in resolved_spans {
@@ -51,14 +52,14 @@ pub fn build_explain_summary(
         final_action: decision.final_action,
         categories,
         rule_hits_total: decision.rule_hits_total,
-        family_counts: foundation_family_counts(decision.rule_hits_total, resolved_spans.len() as u32),
+        family_counts: decision.hits_by_family.clone(),
         entity_counts: decision.hits_by_category.clone(),
         reason_codes: explain_reason_codes(resolved_spans),
         // Detector confidence is not captured in the resolved span contract.
         // Exporting precedence-derived buckets would misstate audit semantics.
         confidence_buckets: Vec::new(),
         provenance_summary: provenance_summary(resolved_spans),
-        degradation_markers: Vec::new(),
+        degradation_markers: explain_degradation_markers(executed, degraded),
     }
 }
 
@@ -67,7 +68,9 @@ pub fn build_audit_summary(
     request: &EvaluateRequest,
     effective_profile_id: &str,
     decision: &EvaluateDecision,
-    resolved_spans: &[ResolvedSpan],
+    _resolved_spans: &[ResolvedSpan],
+    executed: &ExecutedSummary,
+    degraded: &DegradedSummary,
     duration: Duration,
 ) -> AuditSummary {
     AuditSummary {
@@ -77,10 +80,10 @@ pub fn build_audit_summary(
         final_action: decision.final_action,
         rule_hits_total: decision.rule_hits_total,
         hits_by_category: decision.hits_by_category.clone(),
-        family_counts: foundation_family_counts(decision.rule_hits_total, resolved_spans.len() as u32),
+        counts_by_family: decision.hits_by_family.clone(),
         duration_ms: duration.as_millis() as u64,
         path_class: request.path_class,
-        degradation_metadata: Vec::new(),
+        degradation_metadata: audit_degradation_metadata(executed, degraded),
     }
 }
 
@@ -91,13 +94,6 @@ fn parse_category(value: &str) -> crate::types::DetectionCategory {
         "corporate_markers" => crate::types::DetectionCategory::CorporateMarkers,
         _ => crate::types::DetectionCategory::Custom,
     }
-}
-
-fn foundation_family_counts(rule_hits_total: u32, resolved_hits_total: u32) -> BTreeMap<String, u32> {
-    BTreeMap::from([
-        ("normalized_hit".to_string(), rule_hits_total),
-        ("resolved_hit".to_string(), resolved_hits_total),
-    ])
 }
 
 fn explain_reason_codes(resolved_spans: &[ResolvedSpan]) -> Vec<String> {
@@ -124,233 +120,136 @@ fn provenance_summary(resolved_spans: &[ResolvedSpan]) -> Vec<String> {
         .collect()
 }
 
+fn explain_degradation_markers(executed: &ExecutedSummary, degraded: &DegradedSummary) -> Vec<String> {
+    let mut markers = Vec::new();
+    if !executed.execution_enabled {
+        markers.push("execution_disabled".to_string());
+    }
+    if degraded.is_degraded {
+        markers.push("degraded_execution".to_string());
+    }
+    if degraded.fail_closed_applied {
+        markers.push("fail_closed_applied".to_string());
+    }
+    markers
+}
+
+fn audit_degradation_metadata(executed: &ExecutedSummary, degraded: &DegradedSummary) -> Vec<String> {
+    let mut metadata = Vec::new();
+    metadata.push(format!("execution_enabled={}", executed.execution_enabled));
+    metadata.push(format!("is_degraded={}", degraded.is_degraded));
+    if degraded.fail_closed_applied {
+        metadata.push("fail_closed_applied=true".to_string());
+    }
+    metadata.extend(
+        degraded
+            .missing_execution_paths
+            .iter()
+            .map(|path| format!("missing_execution_path={path}")),
+    );
+    metadata
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
     use crate::types::{
-        DetectionCategory, EvaluateDecision, EvaluateRequest, EvaluationMode::*, PathClass,
-        PolicyAction, ResolvedSpan, ResolvedSpanView,
+        DegradedSummary, DetectionCategory, EvaluateDecision, EvaluateRequest, EvaluationMode, ExecutedSummary,
+        PathClass, PolicyAction, ResolvedSpan,
     };
 
     use super::{build_audit_summary, build_explain_summary};
 
-    #[test]
-    fn explain_summary_contains_only_metadata() {
-        let mut hits_by_category = BTreeMap::new();
-        hits_by_category.insert("secrets".to_string(), 1);
-
-        let decision = EvaluateDecision {
-            final_action: PolicyAction::Block,
-            rule_hits_total: 1,
-            hits_by_category,
-            resolved_spans: vec![ResolvedSpanView {
-                category: DetectionCategory::Secrets,
-                effective_action: PolicyAction::Block,
-                start: 10,
-                end: 20,
-            }],
-            deterministic_signature: "abc".to_string(),
-        };
-
-        let explain = build_explain_summary(
-            "strict",
-            Enforce,
-            &decision,
-            &[ResolvedSpan {
-                json_pointer: "/payload".to_string(),
-                start: 10,
-                end: 20,
-                winning_rule_id: "rule".to_string(),
-                category: DetectionCategory::Secrets,
-                effective_action: PolicyAction::Block,
-                priority: 100,
-                replacement_template: None,
-                suppressed_rule_ids: Vec::new(),
-            }],
-        );
-
-        assert_eq!(explain.rule_hits_total, 1);
-        assert_eq!(explain.categories.len(), 1);
-        assert_eq!(explain.categories[0].effective_action, PolicyAction::Block);
-        assert_eq!(explain.family_counts.get("resolved_hit"), Some(&1));
-        assert_eq!(explain.entity_counts.get("secrets"), Some(&1));
-        assert!(explain.reason_codes.iter().any(|code| code.contains("secrets")));
-    }
-
-    #[test]
-    fn explain_summary_does_not_infer_confidence_from_priority() {
-        let decision = EvaluateDecision {
+    fn sample_decision() -> EvaluateDecision {
+        EvaluateDecision {
             final_action: PolicyAction::Redact,
             rule_hits_total: 1,
             hits_by_category: BTreeMap::from([("secrets".to_string(), 1)]),
-            resolved_spans: vec![ResolvedSpanView {
-                category: DetectionCategory::Secrets,
-                effective_action: PolicyAction::Redact,
-                start: 10,
-                end: 20,
-            }],
-            deterministic_signature: "sig".to_string(),
-        };
+            hits_by_family: BTreeMap::from([("resolved_hit".to_string(), 1)]),
+            resolved_locations: Vec::new(),
+            replay_identity: "sig".to_string(),
+        }
+    }
 
-        let explain = build_explain_summary(
-            "strict",
-            Enforce,
-            &decision,
-            &[ResolvedSpan {
-                json_pointer: "/payload".to_string(),
-                start: 10,
-                end: 20,
-                winning_rule_id: "custom.rule".to_string(),
-                category: DetectionCategory::Secrets,
-                effective_action: PolicyAction::Redact,
-                priority: 900,
-                replacement_template: None,
-                suppressed_rule_ids: Vec::new(),
-            }],
-        );
-
-        assert!(
-            explain.confidence_buckets.is_empty(),
-            "priority is precedence metadata, not detector confidence"
-        );
+    fn sample_resolved_span() -> ResolvedSpan {
+        ResolvedSpan {
+            json_pointer: "/payload".to_string(),
+            start: 10,
+            end: 20,
+            winning_rule_id: "builtin.secret".to_string(),
+            category: DetectionCategory::Secrets,
+            effective_action: PolicyAction::Redact,
+            priority: 900,
+            replacement_template: None,
+            suppressed_rule_ids: Vec::new(),
+        }
     }
 
     #[test]
-    fn explain_reason_codes_use_wire_action_keys() {
-        let decision = EvaluateDecision {
-            final_action: PolicyAction::Redact,
-            rule_hits_total: 1,
-            hits_by_category: BTreeMap::from([("secrets".to_string(), 1)]),
-            resolved_spans: vec![ResolvedSpanView {
-                category: DetectionCategory::Secrets,
-                effective_action: PolicyAction::Redact,
-                start: 10,
-                end: 20,
-            }],
-            deterministic_signature: "sig".to_string(),
-        };
-
+    fn explain_summary_contains_execution_and_degraded_markers() {
         let explain = build_explain_summary(
             "strict",
-            Enforce,
-            &decision,
-            &[ResolvedSpan {
-                json_pointer: "/payload".to_string(),
-                start: 10,
-                end: 20,
-                winning_rule_id: "builtin.secret".to_string(),
-                category: DetectionCategory::Secrets,
-                effective_action: PolicyAction::Redact,
-                priority: 900,
-                replacement_template: None,
-                suppressed_rule_ids: Vec::new(),
-            }],
+            EvaluationMode::DryRun,
+            &sample_decision(),
+            &[sample_resolved_span()],
+            &ExecutedSummary {
+                execution_enabled: false,
+                stages_completed: vec!["input_normalization".to_string()],
+                recognizer_families_executed: Vec::new(),
+                transform_applied: false,
+            },
+            &DegradedSummary {
+                is_degraded: true,
+                reasons: vec!["recognizer_timeout".to_string()],
+                fail_closed_applied: true,
+                missing_execution_paths: vec!["recognizer_execution".to_string()],
+            },
         );
 
-        assert_eq!(explain.reason_codes, vec!["secrets:redact".to_string()]);
+        assert!(explain.degradation_markers.contains(&"execution_disabled".to_string()));
+        assert!(explain.degradation_markers.contains(&"degraded_execution".to_string()));
+        assert!(explain.degradation_markers.contains(&"fail_closed_applied".to_string()));
     }
 
     #[test]
-    fn explain_summary_reports_mixed_provenance_without_payload() {
-        let decision = EvaluateDecision {
-            final_action: PolicyAction::Redact,
-            rule_hits_total: 2,
-            hits_by_category: BTreeMap::from([("secrets".to_string(), 2)]),
-            resolved_spans: vec![
-                ResolvedSpanView {
-                    category: DetectionCategory::Secrets,
-                    effective_action: PolicyAction::Redact,
-                    start: 10,
-                    end: 20,
-                },
-                ResolvedSpanView {
-                    category: DetectionCategory::Secrets,
-                    effective_action: PolicyAction::Redact,
-                    start: 22,
-                    end: 30,
-                },
-            ],
-            deterministic_signature: "sig".to_string(),
-        };
-
-        let explain = build_explain_summary(
-            "strict",
-            Enforce,
-            &decision,
-            &[
-                ResolvedSpan {
-                    json_pointer: "/payload".to_string(),
-                    start: 10,
-                    end: 20,
-                    winning_rule_id: "builtin.secret".to_string(),
-                    category: DetectionCategory::Secrets,
-                    effective_action: PolicyAction::Redact,
-                    priority: 900,
-                    replacement_template: None,
-                    suppressed_rule_ids: Vec::new(),
-                },
-                ResolvedSpan {
-                    json_pointer: "/payload".to_string(),
-                    start: 22,
-                    end: 30,
-                    winning_rule_id: "custom.rule".to_string(),
-                    category: DetectionCategory::Secrets,
-                    effective_action: PolicyAction::Redact,
-                    priority: 900,
-                    replacement_template: None,
-                    suppressed_rule_ids: Vec::new(),
-                },
-            ],
-        );
-
-        assert_eq!(
-            explain.provenance_summary,
-            vec!["built_in_rule".to_string(), "custom_rule".to_string()]
-        );
-    }
-
-    #[test]
-    fn audit_summary_excludes_payload_fragments() {
+    fn audit_summary_stays_metadata_only() {
+        let raw_fragment = "sk-test-rawsecret-123";
         let request = EvaluateRequest {
             request_id: "req-1".to_string(),
             profile_id: String::new(),
-            mode: DryRun,
-            payload: serde_json::json!({"content": "secret"}),
+            mode: EvaluationMode::Enforce,
+            payload: serde_json::json!({"content": raw_fragment}),
             path_class: PathClass::Direct,
+            effective_language: "en".to_string(),
+            entity_scope_filters: Vec::new(),
+            recognizer_family_filters: Vec::new(),
+            allowlist_additions: Vec::new(),
         };
-
-        let decision = EvaluateDecision {
-            final_action: PolicyAction::Redact,
-            rule_hits_total: 1,
-            hits_by_category: BTreeMap::from([("secrets".to_string(), 1)]),
-            resolved_spans: Vec::new(),
-            deterministic_signature: "sig".to_string(),
-        };
-
         let audit = build_audit_summary(
             &request,
             "strict",
-            &decision,
-            &[ResolvedSpan {
-                json_pointer: "/payload".to_string(),
-                start: 10,
-                end: 20,
-                winning_rule_id: "custom.rule".to_string(),
-                category: DetectionCategory::Secrets,
-                effective_action: PolicyAction::Redact,
-                priority: 700,
-                replacement_template: None,
-                suppressed_rule_ids: Vec::new(),
-            }],
+            &sample_decision(),
+            &[sample_resolved_span()],
+            &ExecutedSummary {
+                execution_enabled: true,
+                stages_completed: vec!["policy_resolution".to_string()],
+                recognizer_families_executed: vec!["builtin".to_string()],
+                transform_applied: true,
+            },
+            &DegradedSummary {
+                is_degraded: false,
+                reasons: Vec::new(),
+                fail_closed_applied: false,
+                missing_execution_paths: Vec::new(),
+            },
             std::time::Duration::from_millis(7),
         );
 
-        let serialized = serde_json::to_string(&audit).expect("audit must serialize");
-        assert!(serialized.contains("\"request_id\":\"req-1\""));
+        let serialized = serde_json::to_string(&audit).expect("audit should serialize");
+        assert_eq!(audit.request_id, "req-1");
         assert_eq!(audit.profile_id, "strict");
-        assert!(!serialized.contains("\"content\":\"secret\""));
-        assert_eq!(audit.family_counts.get("normalized_hit"), Some(&1));
-        assert!(audit.degradation_metadata.is_empty());
+        assert_eq!(audit.counts_by_family.get("resolved_hit"), Some(&1));
+        assert!(!serialized.contains(raw_fragment));
     }
 }

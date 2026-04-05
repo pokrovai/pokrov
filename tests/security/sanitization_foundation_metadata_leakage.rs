@@ -13,9 +13,15 @@ fn foundation_trace_serialization_keeps_explain_and_audit_metadata_only() {
 
     let explain = serde_json::to_string(&trace.explain).expect("explain should serialize");
     let audit = serde_json::to_string(&trace.audit).expect("audit should serialize");
+    let executed = serde_json::to_string(&trace.executed).expect("executed should serialize");
+    let degraded = serde_json::to_string(&trace.degraded).expect("degraded should serialize");
 
     assert!(!explain.contains(raw_fragment));
     assert!(!audit.contains(raw_fragment));
+    assert!(!executed.contains(raw_fragment));
+    assert!(!degraded.contains(raw_fragment));
     assert!(!explain.contains("sk-test-12345678"));
     assert!(!audit.contains("user@example.com"));
+    assert!(!executed.contains("sk-test-12345678"));
+    assert!(!degraded.contains("user@example.com"));
 }

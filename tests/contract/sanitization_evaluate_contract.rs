@@ -1,4 +1,9 @@
 use std::path::PathBuf;
+use pokrov_core::types::EvaluationMode;
+
+use crate::sanitization_analyzer_contract_test_support::{
+    analyzer_contract_engine, analyzer_contract_request,
+};
 
 fn contract_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -52,4 +57,20 @@ fn evaluate_contract_requires_metadata_only_response_shape() {
         .collect::<Vec<_>>();
     assert!(values.contains(&"raw_payload"));
     assert!(values.contains(&"raw_fragments"));
+}
+
+#[test]
+fn analyzer_result_contract_exposes_all_required_top_level_sections() {
+    let engine = analyzer_contract_engine();
+    let result = engine
+        .evaluate(analyzer_contract_request("contract-required-sections", EvaluationMode::Enforce))
+        .expect("evaluation should succeed");
+    let serialized = serde_json::to_value(result).expect("result should serialize");
+
+    assert!(serialized.get("decision").is_some());
+    assert!(serialized.get("transform").is_some());
+    assert!(serialized.get("explain").is_some());
+    assert!(serialized.get("audit").is_some());
+    assert!(serialized.get("executed").is_some());
+    assert!(serialized.get("degraded").is_some());
 }

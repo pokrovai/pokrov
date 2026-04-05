@@ -49,6 +49,10 @@ pub fn sanitize_sse_stream(
                         mode: EvaluationMode::Enforce,
                         payload: event_json,
                         path_class: PathClass::Llm,
+                        effective_language: "en".to_string(),
+                        entity_scope_filters: Vec::new(),
+                        recognizer_family_filters: Vec::new(),
+                        allowlist_additions: Vec::new(),
                     })
                     .map_err(|error| {
                         LLMProxyError::invalid_request(
@@ -295,6 +299,10 @@ mod tests {
                 mode: EvaluationMode::Enforce,
                 payload: serde_json::json!({"text": "hello"}),
                 path_class: PathClass::Llm,
+                effective_language: "en".to_string(),
+                entity_scope_filters: Vec::new(),
+                recognizer_family_filters: Vec::new(),
+                allowlist_additions: Vec::new(),
             })
             .expect("evaluation should succeed");
 
