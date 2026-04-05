@@ -293,7 +293,8 @@ security:
     .await
     .expect("startup should resolve quickly");
 
-    let error = startup.expect_err("runtime startup must fail when strict api key resolution is enabled");
+    let error =
+        startup.expect_err("runtime startup must fail when strict api key resolution is enabled");
     assert!(error.to_string().contains("failed to resolve"));
 }
 
@@ -398,11 +399,9 @@ llm:
     .await
     .expect("startup should resolve quickly");
 
-    let error =
-        startup.expect_err("runtime startup must fail when strict provider key resolution is enabled");
-    assert!(error
-        .to_string()
-        .contains("failed to resolve 1 llm provider key binding(s)"));
+    let error = startup
+        .expect_err("runtime startup must fail when strict provider key resolution is enabled");
+    assert!(error.to_string().contains("failed to resolve 1 llm provider key binding(s)"));
 }
 
 #[tokio::test]
@@ -467,6 +466,78 @@ llm:
         Err(error) => error,
     };
     assert!(error.to_string().contains("alias_conflict_after_normalization"));
+}
+
+#[tokio::test]
+async fn runtime_starts_with_deterministic_recognizer_profile_config() {
+    let runtime_key_path = format!(
+        "/tmp/pokrov-runtime-key-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time must be after unix epoch")
+            .as_nanos()
+    );
+    std::fs::write(&runtime_key_path, "deterministic-startup-key")
+        .expect("runtime key file must be created");
+
+    let config_path = write_temp_config(&format!(
+        r#"
+server:
+  host: 127.0.0.1
+  port: 0
+logging:
+  level: info
+  format: json
+shutdown:
+  drain_timeout_ms: 300
+  grace_period_ms: 1000
+security:
+  api_keys:
+    - key: file:{runtime_key_path}
+      profile: strict
+sanitization:
+  enabled: true
+  default_profile: strict
+  profiles:
+    minimal:
+      mode_default: enforce
+      categories:
+        secrets: mask
+        pii: allow
+        corporate_markers: allow
+      mask_visible_suffix: 4
+    strict:
+      mode_default: enforce
+      categories:
+        secrets: block
+        pii: redact
+        corporate_markers: mask
+      mask_visible_suffix: 4
+      deterministic_recognizers:
+        - id: payment_card
+          category: secrets
+          action: block
+          family_priority: 600
+          enabled: true
+          patterns:
+            - id: pan
+              expression: "\\b(?:\\d[ -]*?){{13,16}}\\b"
+              base_score: 200
+              normalization: alnum_lowercase
+    custom:
+      mode_default: dry_run
+      categories:
+        secrets: redact
+        pii: mask
+        corporate_markers: mask
+      mask_visible_suffix: 4
+"#
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start with deterministic recognizer config");
+    handle.shutdown().await.expect("shutdown should succeed");
 }
 
 fn write_temp_config(content: &str) -> std::path::PathBuf {

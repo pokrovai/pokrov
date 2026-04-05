@@ -24,6 +24,16 @@ pub enum EvidenceClass {
 pub enum ValidationStatus {
     Candidate,
     Resolved,
+    Rejected,
+}
+
+/// Marks suppression stage status for one deterministic candidate or resolved hit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuppressionStatus {
+    None,
+    SuppressedAllowlist,
+    SuppressedNegativeContext,
 }
 
 /// Shared candidate hit shape for native and remote recognizer outputs.
@@ -36,8 +46,13 @@ pub struct NormalizedHit {
     pub start: usize,
     pub end: usize,
     pub action_hint: PolicyAction,
+    pub final_score: i32,
+    pub family_priority: u16,
     pub priority: u16,
     pub evidence_class: EvidenceClass,
+    pub validation_status: ValidationStatus,
+    pub suppression_status: SuppressionStatus,
+    pub reason_codes: Vec<String>,
     pub replacement_template_present: bool,
 }
 
@@ -52,8 +67,13 @@ impl NormalizedHit {
             start: hit.start,
             end: hit.end,
             action_hint: hit.action,
+            final_score: i32::from(hit.priority),
+            family_priority: hit.priority,
             priority: hit.priority,
             evidence_class: evidence_class_from_rule_id(&hit.rule_id),
+            validation_status: ValidationStatus::Candidate,
+            suppression_status: SuppressionStatus::None,
+            reason_codes: Vec::new(),
             replacement_template_present: hit.replacement_template.is_some(),
         }
     }
@@ -68,9 +88,13 @@ pub struct ResolvedHit {
     pub start: usize,
     pub end: usize,
     pub effective_action_hint: PolicyAction,
+    pub effective_score: i32,
+    pub family_priority: u16,
     pub suppressed_rule_ids: Vec<String>,
     pub precedence_trace: Vec<String>,
     pub validation_status: ValidationStatus,
+    pub suppression_status: SuppressionStatus,
+    pub reason_codes: Vec<String>,
 }
 
 impl ResolvedHit {
@@ -79,10 +103,7 @@ impl ResolvedHit {
         let mut precedence_trace =
             vec![format!("priority={}", span.priority), format!("winner={}", span.winning_rule_id)];
         if !span.suppressed_rule_ids.is_empty() {
-            precedence_trace.push(format!(
-                "suppressed={}",
-                span.suppressed_rule_ids.join(",")
-            ));
+            precedence_trace.push(format!("suppressed={}", span.suppressed_rule_ids.join(",")));
         }
 
         Self {
@@ -92,9 +113,13 @@ impl ResolvedHit {
             start: span.start,
             end: span.end,
             effective_action_hint: span.effective_action,
+            effective_score: i32::from(span.priority),
+            family_priority: span.priority,
             suppressed_rule_ids: span.suppressed_rule_ids.clone(),
             precedence_trace,
             validation_status: ValidationStatus::Resolved,
+            suppression_status: SuppressionStatus::None,
+            reason_codes: vec![format!("winner:{}", span.winning_rule_id)],
         }
     }
 }
@@ -111,7 +136,7 @@ fn evidence_class_from_rule_id(rule_id: &str) -> EvidenceClass {
 
 #[cfg(test)]
 mod tests {
-    use super::{NormalizedHit, ResolvedHit, ValidationStatus};
+    use super::{NormalizedHit, ResolvedHit, SuppressionStatus, ValidationStatus};
     use crate::types::{DetectionCategory, DetectionHit, PolicyAction, ResolvedSpan};
 
     #[test]
@@ -138,12 +163,14 @@ mod tests {
             suppressed_rule_ids: vec!["custom.shadow".to_string()],
         });
 
-        let normalized_json = serde_json::to_string(&normalized).expect("normalized hit must serialize");
+        let normalized_json =
+            serde_json::to_string(&normalized).expect("normalized hit must serialize");
         let resolved_json = serde_json::to_string(&resolved).expect("resolved hit must serialize");
 
         assert!(!normalized_json.contains("4111"));
         assert!(!resolved_json.contains("4111"));
         assert_eq!(resolved.validation_status, ValidationStatus::Resolved);
+        assert_eq!(resolved.suppression_status, SuppressionStatus::None);
     }
 
     #[test]

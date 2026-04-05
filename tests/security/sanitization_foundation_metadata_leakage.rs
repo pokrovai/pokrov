@@ -5,7 +5,7 @@ use crate::sanitization_foundation_test_support::{foundation_engine, foundation_
 #[test]
 fn foundation_trace_serialization_keeps_explain_and_audit_metadata_only() {
     let engine = foundation_engine();
-    let raw_fragment = "Project Andromeda token sk-test-12345678 and user@example.com";
+    let raw_fragment = "Project Andromeda tenant-a token sk-test-12345678 and user@example.com";
 
     let trace = engine
         .trace_foundation_flow(foundation_request("foundation-security", EvaluationMode::Enforce))
@@ -24,4 +24,8 @@ fn foundation_trace_serialization_keeps_explain_and_audit_metadata_only() {
     assert!(!audit.contains("user@example.com"));
     assert!(!executed.contains("sk-test-12345678"));
     assert!(!degraded.contains("user@example.com"));
+    let hits = serde_json::to_string(&trace.resolved_hits).expect("resolved hits should serialize");
+    assert!(!hits.contains("sk-test-12345678"));
+    assert!(!explain.contains("tenant-a"));
+    assert!(!audit.contains("tenant-a"));
 }

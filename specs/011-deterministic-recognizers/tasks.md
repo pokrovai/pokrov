@@ -17,9 +17,9 @@
 
 **Purpose**: Prepare the deterministic recognizer module, configuration, and test scaffolding used by all stories.
 
-- [ ] T001 Create deterministic recognizer module scaffolding in `crates/pokrov-core/src/detection/mod.rs`, `crates/pokrov-core/src/detection/deterministic/mod.rs`, `crates/pokrov-core/src/detection/deterministic/pattern.rs`, `crates/pokrov-core/src/detection/deterministic/validation.rs`, `crates/pokrov-core/src/detection/deterministic/context.rs`, and `crates/pokrov-core/src/detection/deterministic/lists.rs`
-- [ ] T002 [P] Add deterministic recognizer configuration scaffolding to `crates/pokrov-config/src/model.rs` and `config/pokrov.example.yaml`
-- [ ] T003 [P] Create shared deterministic analyzer fixtures in `tests/common/sanitization_deterministic_test_support.rs` and wire imports from `tests/common/sanitization_analyzer_contract_test_support.rs` and `tests/common/sanitization_foundation_test_support.rs`
+- [X] T001 Create deterministic recognizer module scaffolding in `crates/pokrov-core/src/detection/mod.rs`, `crates/pokrov-core/src/detection/deterministic/mod.rs`, `crates/pokrov-core/src/detection/deterministic/pattern.rs`, `crates/pokrov-core/src/detection/deterministic/validation.rs`, `crates/pokrov-core/src/detection/deterministic/context.rs`, and `crates/pokrov-core/src/detection/deterministic/lists.rs`
+- [X] T002 [P] Add deterministic recognizer configuration scaffolding to `crates/pokrov-config/src/model.rs` and `config/pokrov.example.yaml`
+- [X] T003 [P] Create shared deterministic analyzer fixtures in `tests/common/sanitization_deterministic_test_support.rs` and wire imports from `tests/common/sanitization_analyzer_contract_test_support.rs` and `tests/common/sanitization_foundation_test_support.rs`
 
 ---
 
@@ -29,11 +29,11 @@
 
 **CRITICAL**: No user story work should start before this phase is complete.
 
-- [ ] T004 Extend analyzer hit and decision contracts in `crates/pokrov-core/src/types.rs` and `crates/pokrov-core/src/types/foundation/hit_families.rs`
-- [ ] T005 Extend engine execution flow and metadata-only trace plumbing in `crates/pokrov-core/src/lib.rs`, `crates/pokrov-core/src/audit/mod.rs`, and `crates/pokrov-core/src/types/foundation/mod.rs`
-- [ ] T006 [P] Validate and translate deterministic profile configuration in `crates/pokrov-config/src/model.rs` and `crates/pokrov-config/src/validate.rs`
-- [ ] T007 [P] Add foundation contract coverage for deterministic candidate fields in `tests/contract/sanitization_foundation_contract.rs` and `tests/integration/sanitization_foundation_shared_contracts.rs`
-- [ ] T008 [P] Add startup and readiness coverage for deterministic recognizer configuration in `tests/contract/runtime_config_contract.rs` and `tests/integration/startup_config_flow.rs`
+- [X] T004 Extend analyzer hit and decision contracts in `crates/pokrov-core/src/types.rs` and `crates/pokrov-core/src/types/foundation/hit_families.rs`
+- [X] T005 Extend engine execution flow and metadata-only trace plumbing in `crates/pokrov-core/src/lib.rs`, `crates/pokrov-core/src/audit/mod.rs`, and `crates/pokrov-core/src/types/foundation/mod.rs`
+- [X] T006 [P] Validate and translate deterministic profile configuration in `crates/pokrov-config/src/model.rs` and `crates/pokrov-config/src/validate.rs`
+- [X] T007 [P] Add foundation contract coverage for deterministic candidate fields in `tests/contract/sanitization_foundation_contract.rs` and `tests/integration/sanitization_foundation_shared_contracts.rs`
+- [X] T008 [P] Add startup and readiness coverage for deterministic recognizer configuration in `tests/contract/runtime_config_contract.rs` and `tests/integration/startup_config_flow.rs`
 
 **Checkpoint**: Foundation ready. User story work can now proceed in dependency order.
 
@@ -47,17 +47,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Add unit tests for pattern compilation, normalization, and stable candidate ordering in `crates/pokrov-core/src/detection/mod.rs` and `crates/pokrov-core/src/detection/deterministic/pattern.rs`
-- [ ] T010 [P] [US1] Add analyzer contract tests for deterministic candidate output and replay identity in `tests/contract/sanitization_evaluate_contract.rs`
-- [ ] T011 [P] [US1] Add integration tests for plain-text and JSON-leaf parity in `tests/integration/sanitization_evaluate_flow.rs` and `tests/integration/sanitization_transform_flow.rs`
-- [ ] T012 [P] [US1] Add performance coverage for deterministic pattern evaluation in `tests/performance/sanitization_evaluate_latency.rs`
+- [X] T009 [P] [US1] Add unit tests for pattern compilation, normalization, and stable candidate ordering in `crates/pokrov-core/src/detection/mod.rs` and `crates/pokrov-core/src/detection/deterministic/pattern.rs`
+- [X] T010 [P] [US1] Add analyzer contract tests for deterministic candidate output and replay identity in `tests/contract/sanitization_evaluate_contract.rs`
+- [X] T011 [P] [US1] Add integration tests for plain-text and JSON-leaf parity in `tests/integration/sanitization_evaluate_flow.rs` and `tests/integration/sanitization_transform_flow.rs`
+- [X] T012 [P] [US1] Add performance coverage for deterministic pattern evaluation in `tests/performance/sanitization_evaluate_latency.rs`
 
 ### Implementation for User Story 1
 
-- [ ] T013 [P] [US1] Implement compiled pattern recognizers and normalization flow in `crates/pokrov-core/src/detection/deterministic/pattern.rs` and `crates/pokrov-core/src/detection/deterministic/mod.rs`
-- [ ] T014 [P] [US1] Implement validator and checksum candidate handling in `crates/pokrov-core/src/detection/deterministic/validation.rs`
-- [ ] T015 [US1] Wire deterministic candidate execution into `crates/pokrov-core/src/detection/mod.rs` and `crates/pokrov-core/src/lib.rs`
-- [ ] T016 [US1] Update deterministic overlap inputs and resolved location mapping in `crates/pokrov-core/src/policy/mod.rs` and `crates/pokrov-core/src/types.rs`
+- [X] T013 [P] [US1] Implement compiled pattern recognizers and normalization flow in `crates/pokrov-core/src/detection/deterministic/pattern.rs` and `crates/pokrov-core/src/detection/deterministic/mod.rs`
+- [X] T014 [P] [US1] Implement validator and checksum candidate handling in `crates/pokrov-core/src/detection/deterministic/validation.rs`
+- [X] T015 [US1] Wire deterministic candidate execution into `crates/pokrov-core/src/detection/mod.rs` and `crates/pokrov-core/src/lib.rs`
+- [X] T016 [US1] Update deterministic overlap inputs and resolved location mapping in `crates/pokrov-core/src/policy/mod.rs` and `crates/pokrov-core/src/types.rs`
 
 **Checkpoint**: User Story 1 is independently functional and verifiable.
 
@@ -71,16 +71,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T017 [P] [US2] Add unit tests for context scoring, exact-match allowlists, and denylist provenance in `crates/pokrov-core/src/detection/deterministic/context.rs` and `crates/pokrov-core/src/detection/deterministic/lists.rs`
-- [ ] T018 [P] [US2] Add integration tests for profile-scoped context and list precedence in `tests/integration/sanitization_evaluate_flow.rs` and `tests/integration/sanitization_audit_explain_flow.rs`
-- [ ] T019 [P] [US2] Add security tests for profile and tenant list isolation in `tests/security/sanitization_metadata_leakage.rs` and `tests/security/sanitization_foundation_metadata_leakage.rs`
+- [X] T017 [P] [US2] Add unit tests for context scoring, exact-match allowlists, and denylist provenance in `crates/pokrov-core/src/detection/deterministic/context.rs` and `crates/pokrov-core/src/detection/deterministic/lists.rs`
+- [X] T018 [P] [US2] Add integration tests for profile-scoped context and list precedence in `tests/integration/sanitization_evaluate_flow.rs` and `tests/integration/sanitization_audit_explain_flow.rs`
+- [X] T019 [P] [US2] Add security tests for profile and tenant list isolation in `tests/security/sanitization_metadata_leakage.rs` and `tests/security/sanitization_foundation_metadata_leakage.rs`
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Implement EN/RU lexical context dictionaries and negative-context defaults in `crates/pokrov-core/src/detection/deterministic/context.rs`
-- [ ] T021 [P] [US2] Implement exact-match allowlist suppression and first-class denylist candidate generation in `crates/pokrov-core/src/detection/deterministic/lists.rs`
-- [ ] T022 [US2] Extend deterministic recognizer profile schema for context and list controls in `crates/pokrov-config/src/model.rs` and `crates/pokrov-config/src/validate.rs`
-- [ ] T023 [US2] Apply context and list precedence rules in `crates/pokrov-core/src/detection/deterministic/mod.rs` and `crates/pokrov-core/src/policy/mod.rs`
+- [X] T020 [P] [US2] Implement EN/RU lexical context dictionaries and negative-context defaults in `crates/pokrov-core/src/detection/deterministic/context.rs`
+- [X] T021 [P] [US2] Implement exact-match allowlist suppression and first-class denylist candidate generation in `crates/pokrov-core/src/detection/deterministic/lists.rs`
+- [X] T022 [US2] Extend deterministic recognizer profile schema for context and list controls in `crates/pokrov-config/src/model.rs` and `crates/pokrov-config/src/validate.rs`
+- [X] T023 [US2] Apply context and list precedence rules in `crates/pokrov-core/src/detection/deterministic/mod.rs` and `crates/pokrov-core/src/policy/mod.rs`
 
 **Checkpoint**: User Stories 1 and 2 remain independently testable, with US2 adding deterministic tuning controls.
 
@@ -94,15 +94,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T024 [P] [US3] Add contract tests for validation status, suppression status, and reason-code metadata in `tests/contract/sanitization_foundation_contract.rs` and `tests/contract/sanitization_evaluate_contract.rs`
-- [ ] T025 [P] [US3] Add integration tests for metadata-only explain and audit outcomes in `tests/integration/sanitization_audit_explain_flow.rs` and `tests/integration/sanitization_foundation_evaluation_boundary.rs`
-- [ ] T026 [P] [US3] Add security tests proving no raw deterministic evidence leaks in `tests/security/sanitization_metadata_leakage.rs` and `tests/security/sanitization_foundation_metadata_leakage.rs`
+- [X] T024 [P] [US3] Add contract tests for validation status, suppression status, and reason-code metadata in `tests/contract/sanitization_foundation_contract.rs` and `tests/contract/sanitization_evaluate_contract.rs`
+- [X] T025 [P] [US3] Add integration tests for metadata-only explain and audit outcomes in `tests/integration/sanitization_audit_explain_flow.rs` and `tests/integration/sanitization_foundation_evaluation_boundary.rs`
+- [X] T026 [P] [US3] Add security tests proving no raw deterministic evidence leaks in `tests/security/sanitization_metadata_leakage.rs` and `tests/security/sanitization_foundation_metadata_leakage.rs`
 
 ### Implementation for User Story 3
 
-- [ ] T027 [P] [US3] Extend normalized and resolved hit metadata for validation and suppression traces in `crates/pokrov-core/src/types.rs` and `crates/pokrov-core/src/types/foundation/hit_families.rs`
-- [ ] T028 [P] [US3] Update explain and audit summaries with deterministic family counts and safe reason codes in `crates/pokrov-core/src/audit/mod.rs` and `crates/pokrov-core/src/lib.rs`
-- [ ] T029 [US3] Propagate deterministic execution metadata through runtime-facing traces in `crates/pokrov-core/src/types/foundation/mod.rs` and `tests/common/sanitization_foundation_test_support.rs`
+- [X] T027 [P] [US3] Extend normalized and resolved hit metadata for validation and suppression traces in `crates/pokrov-core/src/types.rs` and `crates/pokrov-core/src/types/foundation/hit_families.rs`
+- [X] T028 [P] [US3] Update explain and audit summaries with deterministic family counts and safe reason codes in `crates/pokrov-core/src/audit/mod.rs` and `crates/pokrov-core/src/lib.rs`
+- [X] T029 [US3] Propagate deterministic execution metadata through runtime-facing traces in `crates/pokrov-core/src/types/foundation/mod.rs` and `tests/common/sanitization_foundation_test_support.rs`
 
 **Checkpoint**: All user stories are independently functional, metadata-safe, and covered by explicit tests.
 
@@ -112,9 +112,9 @@
 
 **Purpose**: Finalize documentation, release evidence, and full-workspace verification.
 
-- [ ] T030 [P] Update deterministic recognizer documentation and example configuration in `config/pokrov.example.yaml` and `config/README.md`
-- [ ] T031 Update verification guidance and acceptance evidence notes in `specs/011-deterministic-recognizers/quickstart.md` and `config/release/verification-checklist.md`
-- [ ] T032 Run final workspace verification from `Cargo.toml` and record deterministic recognizer evidence in `config/release/verification-checklist.md`
+- [X] T030 [P] Update deterministic recognizer documentation and example configuration in `config/pokrov.example.yaml` and `config/README.md`
+- [X] T031 Update verification guidance and acceptance evidence notes in `specs/011-deterministic-recognizers/quickstart.md` and `config/release/verification-checklist.md`
+- [X] T032 Run final workspace verification from `Cargo.toml` and record deterministic recognizer evidence in `config/release/verification-checklist.md`
 
 ---
 

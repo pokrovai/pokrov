@@ -54,7 +54,13 @@ pub fn build_explain_summary(
         rule_hits_total: decision.rule_hits_total,
         family_counts: decision.hits_by_family.clone(),
         entity_counts: decision.hits_by_category.clone(),
-        reason_codes: explain_reason_codes(resolved_spans),
+        reason_codes: {
+            let mut reason_codes = decision.reason_codes.clone();
+            reason_codes.extend(explain_reason_codes(resolved_spans));
+            reason_codes.sort();
+            reason_codes.dedup();
+            reason_codes
+        },
         // Detector confidence is not captured in the resolved span contract.
         // Exporting precedence-derived buckets would misstate audit semantics.
         confidence_buckets: Vec::new(),
@@ -99,7 +105,9 @@ fn parse_category(value: &str) -> crate::types::DetectionCategory {
 fn explain_reason_codes(resolved_spans: &[ResolvedSpan]) -> Vec<String> {
     resolved_spans
         .iter()
-        .map(|span| format!("{}:{}", category_to_key(span.category), action_key(span.effective_action)))
+        .map(|span| {
+            format!("{}:{}", category_to_key(span.category), action_key(span.effective_action))
+        })
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -120,7 +128,10 @@ fn provenance_summary(resolved_spans: &[ResolvedSpan]) -> Vec<String> {
         .collect()
 }
 
-fn explain_degradation_markers(executed: &ExecutedSummary, degraded: &DegradedSummary) -> Vec<String> {
+fn explain_degradation_markers(
+    executed: &ExecutedSummary,
+    degraded: &DegradedSummary,
+) -> Vec<String> {
     let mut markers = Vec::new();
     if !executed.execution_enabled {
         markers.push("execution_disabled".to_string());
@@ -134,7 +145,10 @@ fn explain_degradation_markers(executed: &ExecutedSummary, degraded: &DegradedSu
     markers
 }
 
-fn audit_degradation_metadata(executed: &ExecutedSummary, degraded: &DegradedSummary) -> Vec<String> {
+fn audit_degradation_metadata(
+    executed: &ExecutedSummary,
+    degraded: &DegradedSummary,
+) -> Vec<String> {
     let mut metadata = Vec::new();
     metadata.push(format!("execution_enabled={}", executed.execution_enabled));
     metadata.push(format!("is_degraded={}", degraded.is_degraded));
@@ -155,8 +169,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::types::{
-        DegradedSummary, DetectionCategory, EvaluateDecision, EvaluateRequest, EvaluationMode, ExecutedSummary,
-        PathClass, PolicyAction, ResolvedSpan,
+        DegradedSummary, DetectionCategory, EvaluateDecision, EvaluateRequest, EvaluationMode,
+        ExecutedSummary, PathClass, PolicyAction, ResolvedSpan,
     };
 
     use super::{build_audit_summary, build_explain_summary};
@@ -165,8 +179,11 @@ mod tests {
         EvaluateDecision {
             final_action: PolicyAction::Redact,
             rule_hits_total: 1,
+            deterministic_candidates_total: 1,
+            suppressed_candidates_total: 0,
             hits_by_category: BTreeMap::from([("secrets".to_string(), 1)]),
             hits_by_family: BTreeMap::from([("resolved_hit".to_string(), 1)]),
+            reason_codes: vec!["winner:builtin.secret".to_string()],
             resolved_locations: Vec::new(),
             replay_identity: "sig".to_string(),
         }

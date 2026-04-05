@@ -15,15 +15,24 @@ fn runtime_and_evaluation_flows_share_same_top_level_contract_families() {
 
     assert_eq!(runtime_trace.stage_boundaries, evaluation_trace.stage_boundaries);
     assert_eq!(runtime_trace.extension_points, evaluation_trace.extension_points);
-    assert_eq!(runtime_trace.transform_plan.final_action, evaluation_trace.transform_plan.final_action);
-    assert_eq!(runtime_trace.transform_result.final_action, evaluation_trace.transform_result.final_action);
-    assert_eq!(runtime_trace.explain.family_counts.keys().collect::<Vec<_>>(), evaluation_trace.explain.family_counts.keys().collect::<Vec<_>>());
+    assert_eq!(
+        runtime_trace.transform_plan.final_action,
+        evaluation_trace.transform_plan.final_action
+    );
+    assert_eq!(
+        runtime_trace.transform_result.final_action,
+        evaluation_trace.transform_result.final_action
+    );
+    assert_eq!(
+        runtime_trace.explain.family_counts.keys().collect::<Vec<_>>(),
+        evaluation_trace.explain.family_counts.keys().collect::<Vec<_>>()
+    );
     assert_eq!(
         runtime_trace.audit.counts_by_family.keys().collect::<Vec<_>>(),
-        evaluation_trace
-            .audit
-            .counts_by_family
-            .keys()
-            .collect::<Vec<_>>()
+        evaluation_trace.audit.counts_by_family.keys().collect::<Vec<_>>()
     );
+    assert!(runtime_trace
+        .executed
+        .recognizer_families_executed
+        .contains(&"deterministic".to_string()));
 }

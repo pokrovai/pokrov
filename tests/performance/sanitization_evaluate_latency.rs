@@ -23,7 +23,7 @@ async fn evaluate_overhead_meets_baseline_budget_and_is_deterministic() {
             "messages": [
                 {
                     "role": "user",
-                    "content": "token sk-test-12345678 email user@example.com"
+                    "content": "token sk-test-12345678 card 4111 1111 1111 1111 email user@example.com"
                 }
             ]
         }
@@ -83,9 +83,7 @@ fn percentile(samples: &[u64], p: usize) -> u64 {
 
 fn write_config_with_file_key(token: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let mut key_file = NamedTempFile::new().expect("key file should be created");
-    key_file
-        .write_all(token.as_bytes())
-        .expect("key file should be written");
+    key_file.write_all(token.as_bytes()).expect("key file should be written");
     let key_path = key_file.into_temp_path().keep().expect("key path should persist");
 
     let key_path_display = key_path.display();
@@ -123,6 +121,17 @@ sanitization:
         pii: redact
         corporate_markers: mask
       mask_visible_suffix: 4
+      deterministic_recognizers:
+        - id: payment_card
+          category: secrets
+          action: block
+          family_priority: 600
+          enabled: true
+          patterns:
+            - id: pan
+              expression: "\\b(?:\\d[ -]*?){{13,16}}\\b"
+              base_score: 200
+              normalization: alnum_lowercase
     custom:
       mode_default: dry_run
       categories:

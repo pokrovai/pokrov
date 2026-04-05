@@ -3,11 +3,13 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde_json::Value;
 
+pub mod deterministic;
+
 use crate::{
+    detection::deterministic::context::{apply_context_policy, ContextPolicy},
+    detection::deterministic::lists::{build_allowlist_set, is_allowlisted_exact},
     traversal::visit_string_leaves,
-    types::{
-        DetectionCategory, DetectionHit, EvaluateError, PolicyProfile,
-    },
+    types::{DetectionCategory, DetectionHit, EvaluateError, PolicyProfile},
 };
 
 #[derive(Debug, Clone)]
@@ -29,12 +31,7 @@ struct BuiltinRule {
 }
 
 const BUILTIN_RULES: [(&str, DetectionCategory, u16, &str); 5] = [
-    (
-        "builtin.secrets.openai_key",
-        DetectionCategory::Secrets,
-        500,
-        r"(?i)sk-[a-z0-9-]{8,}",
-    ),
+    ("builtin.secrets.openai_key", DetectionCategory::Secrets, 500, r"(?i)sk-[a-z0-9-]{8,}"),
     (
         "builtin.secrets.api_key_assignment",
         DetectionCategory::Secrets,
@@ -47,12 +44,7 @@ const BUILTIN_RULES: [(&str, DetectionCategory, u16, &str); 5] = [
         320,
         r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
     ),
-    (
-        "builtin.pii.card_number",
-        DetectionCategory::Pii,
-        310,
-        r"\b(?:\d[ -]*?){13,16}\b",
-    ),
+    ("builtin.pii.card_number", DetectionCategory::Pii, 310, r"\b(?:\d[ -]*?){13,16}\b"),
     (
         "builtin.corporate.project_name",
         DetectionCategory::CorporateMarkers,
@@ -61,7 +53,9 @@ const BUILTIN_RULES: [(&str, DetectionCategory, u16, &str); 5] = [
     ),
 ];
 
-pub fn compile_custom_rules(profile: &PolicyProfile) -> Result<Vec<CompiledCustomRule>, EvaluateError> {
+pub fn compile_custom_rules(
+    profile: &PolicyProfile,
+) -> Result<Vec<CompiledCustomRule>, EvaluateError> {
     if !profile.custom_rules_enabled {
         return Ok(Vec::new());
     }
@@ -94,13 +88,18 @@ pub fn detect_payload(
     payload: &Value,
     profile: &PolicyProfile,
     custom_rules: &[CompiledCustomRule],
+    allowlist_additions: &[String],
 ) -> Vec<DetectionHit> {
     let builtin_rules = builtin_rules();
+    let allowlist = build_allowlist_set(allowlist_additions);
     let mut hits = Vec::new();
 
     visit_string_leaves(payload, &mut |json_pointer, text| {
         for rule in builtin_rules {
             for matched in rule.matcher.find_iter(text) {
+                if is_allowlisted_exact(&allowlist, matched.as_str()) {
+                    continue;
+                }
                 hits.push(DetectionHit {
                     rule_id: rule.rule_id.to_string(),
                     category: rule.category,
@@ -116,6 +115,22 @@ pub fn detect_payload(
 
         for rule in custom_rules {
             for matched in rule.matcher.find_iter(text) {
+                if is_allowlisted_exact(&allowlist, matched.as_str()) {
+                    continue;
+                }
+                let priority = if rule.rule_id.starts_with("deterministic.") {
+                    let (score, suppressed, _) = apply_context_policy(
+                        text,
+                        i16::try_from(rule.priority).unwrap_or(i16::MAX),
+                        &ContextPolicy::default(),
+                    );
+                    if suppressed {
+                        continue;
+                    }
+                    score.max(0) as u16
+                } else {
+                    rule.priority
+                };
                 hits.push(DetectionHit {
                     rule_id: rule.rule_id.clone(),
                     category: rule.category,
@@ -123,7 +138,7 @@ pub fn detect_payload(
                     start: matched.start(),
                     end: matched.end(),
                     action: rule.action,
-                    priority: rule.priority,
+                    priority,
                     replacement_template: rule.replacement_template.clone(),
                 });
             }
@@ -192,7 +207,7 @@ mod tests {
             "content": "contact user@example.com for Project Andromeda, token sk-test-12345678"
         });
 
-        let hits = detect_payload(&payload, &profile, &custom);
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
 
         assert!(hits.iter().any(|hit| hit.category == DetectionCategory::Pii));
         assert!(hits.iter().any(|hit| hit.category == DetectionCategory::Secrets));
@@ -205,7 +220,7 @@ mod tests {
         let custom = compile_custom_rules(&profile).expect("rules should compile");
         let payload = json!({"content": "project andromeda sk-test-00000000"});
 
-        let mut hits = detect_payload(&payload, &profile, &custom);
+        let mut hits = detect_payload(&payload, &profile, &custom, &[]);
         hits.sort_by(|left, right| {
             left.start
                 .cmp(&right.start)
@@ -224,5 +239,36 @@ mod tests {
         });
 
         assert_eq!(hits, expected);
+    }
+
+    #[test]
+    fn suppresses_exact_allowlist_matches_from_request() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({"content": "token sk-test-00000000"});
+
+        let hits = detect_payload(&payload, &profile, &custom, &["sk-test-00000000".to_string()]);
+
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn deterministic_context_penalty_reduces_priority_for_negative_terms() {
+        let mut profile = strict_profile();
+        profile.custom_rules = vec![CustomRule {
+            rule_id: "deterministic.payment_card.pattern.pan".to_string(),
+            category: DetectionCategory::Secrets,
+            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            action: PolicyAction::Block,
+            priority: 200,
+            replacement_template: None,
+            enabled: true,
+        }];
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({"content": "demo card 4111 1111 1111 1111"});
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].priority < 200);
     }
 }
