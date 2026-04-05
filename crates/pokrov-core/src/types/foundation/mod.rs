@@ -10,11 +10,17 @@ pub use boundaries::{
     ExtensionPointKind, PipelineStageBoundary, StageArtifact, StageId,
 };
 pub use evaluation_lab::{
-    foundation_evaluation_corpora, foundation_quality_gates, DetectionMetrics, EvaluationCase,
+    foundation_baseline_run_matrix, foundation_baseline_systems, foundation_dataset_inventory,
+    foundation_dataset_inventory_missing_metadata, foundation_evaluation_corpora,
+    foundation_phase_one_a_starter_corpus, foundation_quality_gates,
+    foundation_starter_corpus_missing_groups, BaselineRequirementTier, BaselineRunRequirement,
+    BaselineSystem, BaselineSystemRecord, DatasetAccessModel, DatasetExecutionScope,
+    DatasetInventoryRecord, DatasetRepositoryStatus, DetectionMetrics, EvaluationCase,
     EvaluationCaseMode, EvaluationCaseSource, EvaluationCorpusDefinition, EvaluationCorpusKind,
     EvaluationMetricGroups, EvaluationReport, EvaluationResult, OperatorOutcome, ParityMetrics,
     ParityReport, QualityGateDefinition, QualityGateLevel, ReadinessScoreboard, ReportOutputKind,
-    RuntimeMetrics, SecurityMetrics, TransformationMetrics,
+    RuntimeMetrics, SecurityMetrics, StarterCorpusCaseGroup, StarterCorpusDefinition,
+    StarterCorpusVolumeTargets, TransformationMetrics,
 };
 pub use entity_packs::{
     phase_one_en_ru_entity_pack, DefaultOperatorDirection, EntityLanguageRequirement,

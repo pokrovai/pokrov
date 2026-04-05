@@ -6,8 +6,13 @@ use serde_json::Value;
 pub mod foundation;
 
 pub use foundation::{
-    foundation_evaluation_boundaries, foundation_evaluation_corpora, foundation_extension_points,
-    foundation_quality_gates, foundation_stage_boundaries, phase_one_en_ru_entity_pack,
+    foundation_baseline_run_matrix, foundation_baseline_systems, foundation_dataset_inventory,
+    foundation_dataset_inventory_missing_metadata, foundation_evaluation_boundaries,
+    foundation_evaluation_corpora, foundation_extension_points,
+    foundation_phase_one_a_starter_corpus, foundation_quality_gates, foundation_stage_boundaries,
+    foundation_starter_corpus_missing_groups, phase_one_en_ru_entity_pack,
+    BaselineRequirementTier, BaselineRunRequirement, BaselineSystem, BaselineSystemRecord,
+    DatasetAccessModel, DatasetExecutionScope, DatasetInventoryRecord, DatasetRepositoryStatus,
     DefaultOperatorDirection, DetectionMetrics, EntityLanguageRequirement, EntityPackCoverageReport,
     EntityPackDefinition, EntityPackLanguage, EntityRiskClass, EvaluationArtifactBoundary,
     EvaluationArtifactClass, EvaluationCase, EvaluationCaseMode, EvaluationCaseSource,
@@ -17,6 +22,7 @@ pub use foundation::{
     OperatorOutcome, ParityMetrics, ParityReport, PipelineStageBoundary, QualityGateDefinition,
     QualityGateLevel, ReadinessScoreboard, RecognizerFamily, ReportOutputKind, ResolvedHit,
     RiskClassDirection, RuntimeMetrics, SecurityMetrics, StageArtifact, StageId,
+    StarterCorpusCaseGroup, StarterCorpusDefinition, StarterCorpusVolumeTargets,
     SupportedEntityDefinition, SuppressionStatus, TransformPlan, TransformationMetrics,
     UnsupportedEntityDefinition, ValidationStatus,
 };

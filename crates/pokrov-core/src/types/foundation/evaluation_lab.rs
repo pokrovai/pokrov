@@ -8,6 +8,17 @@ use crate::types::{
     AuditSummary, DegradedSummary, EvaluateResult, ExecutedSummary, ExplainSummary, PolicyAction,
 };
 
+// Inventory submodule freezes dataset and baseline contracts for parity reproducibility.
+mod inventory;
+pub use inventory::{
+    foundation_baseline_run_matrix, foundation_baseline_systems, foundation_dataset_inventory,
+    foundation_dataset_inventory_missing_metadata, foundation_phase_one_a_starter_corpus,
+    foundation_starter_corpus_missing_groups, BaselineRequirementTier, BaselineRunRequirement,
+    BaselineSystem, BaselineSystemRecord, DatasetAccessModel, DatasetExecutionScope,
+    DatasetInventoryRecord, DatasetRepositoryStatus, StarterCorpusCaseGroup,
+    StarterCorpusDefinition, StarterCorpusVolumeTargets,
+};
+
 /// Supported evaluation case mode families for the v1 lab foundation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -186,6 +197,7 @@ pub struct EvaluationCorpusDefinition {
     pub required_contents: Vec<String>,
 }
 
+
 /// Progressive quality-gate levels for readiness rollout control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -274,6 +286,7 @@ pub fn foundation_evaluation_corpora() -> Vec<EvaluationCorpusDefinition> {
     ]
 }
 
+
 /// Returns the progressive quality-gate model while keeping thresholds external.
 pub fn foundation_quality_gates() -> Vec<QualityGateDefinition> {
     vec![
@@ -344,4 +357,5 @@ mod tests {
         assert!(gates[1..].iter().all(|gate| gate.blocking));
         assert!(gates.iter().all(|gate| !gate.required_outputs.is_empty()));
     }
+
 }

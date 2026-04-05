@@ -1,0 +1,12 @@
+# Example only. Keep real restricted dataset paths out of git history.
+datasets:
+  - dataset_id: n2c2_i2b2_deid
+    access_model: restricted
+    local_path: /secure/eval-datasets/n2c2_i2b2
+    license_constraints: restricted clinical license
+    ci_safe: false
+  - dataset_id: tcia_pseudo_phi_dicom
+    access_model: external_download
+    local_path: /secure/eval-datasets/tcia_pseudo_phi_dicom
+    license_constraints: external dataset terms apply
+    ci_safe: false
