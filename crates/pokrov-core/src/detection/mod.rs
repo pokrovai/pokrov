@@ -214,6 +214,30 @@ mod tests {
     }
 
     #[test]
+    fn detects_russian_phone_number_formats() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let samples = [
+            "+79001234567",
+            "89001234567",
+            "8 900 123 45 59",
+            "8-900-123-45-59",
+            "8 (900) 123 45 69",
+        ];
+
+        for sample in samples {
+            let payload = json!({
+                "content": format!("contact {}", sample)
+            });
+            let hits = detect_payload(&payload, &profile, &custom, &[]);
+            assert!(
+                hits.iter().any(|hit| hit.rule_id == "builtin.pii.phone"),
+                "expected russian phone format to be detected: {sample}"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_invalid_phone_candidates() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

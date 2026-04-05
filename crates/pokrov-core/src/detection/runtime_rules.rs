@@ -150,7 +150,7 @@ const BUILTIN_RULES: [BuiltinRuleSpec; 10] = [
         rule_id: "builtin.pii.phone",
         category: DetectionCategory::Pii,
         priority: 317,
-        pattern: r"\b(?:\+?\d{1,3}[ -]?)?(?:\(?\d{3}\)?[ -]?)\d{3}[ -]?\d{4}\b",
+        pattern: r"(?:(?:\+7|8)[ -]?(?:\(\d{3}\)|\d{3})[ -]?\d{3}(?:[ -]?\d{2}){2}|(?:\+?\d{1,3}[ -]?)?(?:\(?\d{3}\)?[ -]?)\d{3}[ -]?\d{4})",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
         field_gate: None,
