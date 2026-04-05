@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::{collections::BTreeSet, sync::OnceLock};
 
 use regex::Regex;
 use serde_json::Value;
@@ -7,7 +7,7 @@ pub mod deterministic;
 
 use crate::{
     detection::deterministic::context::{apply_context_policy, ContextPolicy},
-    detection::deterministic::lists::{build_allowlist_set, is_allowlisted_exact},
+    detection::deterministic::lists::{build_allowlist_set, is_allowlisted_exact, normalize_exact_value},
     detection::deterministic::validation::{validate_candidate, ValidatorKind},
     traversal::visit_string_leaves,
     types::{
@@ -25,6 +25,8 @@ pub struct CompiledCustomRule {
     pub replacement_template: Option<String>,
     pub matcher: Regex,
     pub deterministic: Option<DeterministicRuleMetadata>,
+    pub deterministic_context: Option<CompiledContextPolicy>,
+    pub deterministic_allowlist: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug)]
@@ -33,6 +35,12 @@ struct BuiltinRule {
     category: DetectionCategory,
     priority: u16,
     matcher: Regex,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledContextPolicy {
+    pub policy: ContextPolicy,
+    pub window: u8,
 }
 
 const BUILTIN_RULES: [(&str, DetectionCategory, u16, &str); 5] = [
@@ -85,6 +93,8 @@ pub fn compile_custom_rules(
                 replacement_template: rule.replacement_template.clone(),
                 matcher,
                 deterministic: rule.deterministic.clone(),
+                deterministic_context: compile_context_policy(rule.deterministic.as_ref()),
+                deterministic_allowlist: compile_deterministic_allowlist(rule.deterministic.as_ref()),
             })
         })
         .collect()
@@ -130,16 +140,25 @@ pub fn detect_payload(
                     if let DeterministicRuleKind::Pattern {
                         validator,
                         normalization,
-                        context,
+                        ..
                     } = &deterministic.rule
                     {
-                        let candidate = normalize_candidate(matched.as_str(), *normalization);
-                        if !validate_for_kind(*validator, &candidate) {
+                        let needs_normalized_candidate = *validator != DeterministicValidatorKind::None
+                            || rule.deterministic_allowlist.is_some();
+                        let candidate = needs_normalized_candidate
+                            .then(|| normalize_candidate(matched.as_str(), *normalization));
+                        if !validate_for_kind(*validator, candidate.as_deref()) {
                             continue;
                         }
+                        if let (Some(allowlist), Some(candidate)) =
+                            (rule.deterministic_allowlist.as_ref(), candidate.as_ref())
+                        {
+                            if allowlist.contains(candidate) {
+                                continue;
+                            }
+                        }
 
-                        if let Some(context) = context.as_ref() {
-                            let policy = to_context_policy(context);
+                        if let Some(context) = &rule.deterministic_context {
                             let window = extract_context_window(
                                 text,
                                 matched.start(),
@@ -149,12 +168,16 @@ pub fn detect_payload(
                             let (score, suppressed, _) = apply_context_policy(
                                 &window,
                                 i16::try_from(rule.priority).unwrap_or(i16::MAX),
-                                &policy,
+                                &context.policy,
                             );
                             if suppressed {
                                 continue;
                             }
                             priority = score.max(0) as u16;
+                        }
+                    } else if let Some(allowlist) = rule.deterministic_allowlist.as_ref() {
+                        if is_allowlisted_exact(allowlist, matched.as_str()) {
+                            continue;
                         }
                     }
                 }
@@ -175,10 +198,12 @@ pub fn detect_payload(
     hits
 }
 
-fn validate_for_kind(kind: DeterministicValidatorKind, candidate: &str) -> bool {
+fn validate_for_kind(kind: DeterministicValidatorKind, candidate: Option<&str>) -> bool {
     match kind {
         DeterministicValidatorKind::None => true,
-        DeterministicValidatorKind::Luhn => validate_candidate(ValidatorKind::Luhn, candidate),
+        DeterministicValidatorKind::Luhn => candidate
+            .map(|value| validate_candidate(ValidatorKind::Luhn, value))
+            .unwrap_or(false),
     }
 }
 
@@ -192,6 +217,46 @@ fn normalize_candidate(candidate: &str, mode: DeterministicNormalizationMode) ->
             .flat_map(char::to_lowercase)
             .collect(),
     }
+}
+
+fn compile_context_policy(
+    metadata: Option<&DeterministicRuleMetadata>,
+) -> Option<CompiledContextPolicy> {
+    match metadata.map(|meta| &meta.rule) {
+        Some(DeterministicRuleKind::Pattern { context: Some(context), .. }) => {
+            Some(CompiledContextPolicy {
+                policy: to_context_policy(context),
+                window: context.window,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn compile_deterministic_allowlist(
+    metadata: Option<&DeterministicRuleMetadata>,
+) -> Option<BTreeSet<String>> {
+    let metadata = metadata?;
+    if metadata.allowlist_exact.is_empty() {
+        return None;
+    }
+
+    let set = match &metadata.rule {
+        DeterministicRuleKind::Pattern { normalization, .. } => metadata
+            .allowlist_exact
+            .iter()
+            .map(|value| normalize_candidate(value, *normalization))
+            .filter(|value| !value.is_empty())
+            .collect::<BTreeSet<_>>(),
+        DeterministicRuleKind::DenylistExact => metadata
+            .allowlist_exact
+            .iter()
+            .map(|value| normalize_exact_value(value))
+            .filter(|value| !value.is_empty())
+            .collect::<BTreeSet<_>>(),
+    };
+
+    (!set.is_empty()).then_some(set)
 }
 
 fn to_context_policy(context: &crate::types::DeterministicContextPolicy) -> ContextPolicy {
@@ -353,6 +418,7 @@ mod tests {
             enabled: true,
             deterministic: Some(DeterministicRuleMetadata {
                 recognizer_id: "payment_card".to_string(),
+                allowlist_exact: Vec::new(),
                 rule: DeterministicRuleKind::Pattern {
                     validator: DeterministicValidatorKind::None,
                     normalization: DeterministicNormalizationMode::Preserve,
@@ -389,6 +455,7 @@ mod tests {
             enabled: true,
             deterministic: Some(DeterministicRuleMetadata {
                 recognizer_id: "payment_card".to_string(),
+                allowlist_exact: Vec::new(),
                 rule: DeterministicRuleKind::Pattern {
                     validator: DeterministicValidatorKind::Luhn,
                     normalization: DeterministicNormalizationMode::Preserve,
@@ -403,6 +470,70 @@ mod tests {
         assert!(
             !hits.iter().any(|hit| hit.rule_id == "deterministic.payment_card.pattern.pan"),
             "deterministic luhn rule must reject invalid candidate"
+        );
+    }
+
+    #[test]
+    fn deterministic_profile_allowlist_suppresses_pattern_hit() {
+        let mut profile = strict_profile();
+        profile.custom_rules = vec![CustomRule {
+            rule_id: "deterministic.payment_card.pattern.pan".to_string(),
+            category: DetectionCategory::Secrets,
+            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            action: PolicyAction::Block,
+            priority: 200,
+            replacement_template: None,
+            enabled: true,
+            deterministic: Some(DeterministicRuleMetadata {
+                recognizer_id: "payment_card".to_string(),
+                allowlist_exact: vec!["4111 1111 1111 1111".to_string()],
+                rule: DeterministicRuleKind::Pattern {
+                    validator: DeterministicValidatorKind::None,
+                    normalization: DeterministicNormalizationMode::Preserve,
+                    context: None,
+                },
+            }),
+        }];
+
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({"content": "card 4111 1111 1111 1111"});
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "deterministic.payment_card.pattern.pan"),
+            "profile-level deterministic allowlist must suppress matching candidate"
+        );
+    }
+
+    #[test]
+    fn deterministic_allowlist_uses_rule_normalization_mode() {
+        let mut profile = strict_profile();
+        profile.custom_rules = vec![CustomRule {
+            rule_id: "deterministic.payment_card.pattern.pan".to_string(),
+            category: DetectionCategory::Secrets,
+            pattern: "\\b(?:\\d[ -]*?){13,16}\\b".to_string(),
+            action: PolicyAction::Block,
+            priority: 200,
+            replacement_template: None,
+            enabled: true,
+            deterministic: Some(DeterministicRuleMetadata {
+                recognizer_id: "payment_card".to_string(),
+                allowlist_exact: vec!["4111-1111-1111-1111".to_string()],
+                rule: DeterministicRuleKind::Pattern {
+                    validator: DeterministicValidatorKind::None,
+                    normalization: DeterministicNormalizationMode::AlnumLowercase,
+                    context: None,
+                },
+            }),
+        }];
+
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({"content": "card 4111 1111 1111 1111"});
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+        assert!(
+            !hits.iter().any(|hit| hit.rule_id == "deterministic.payment_card.pattern.pan"),
+            "allowlist suppression must follow rule normalization mode"
         );
     }
 }

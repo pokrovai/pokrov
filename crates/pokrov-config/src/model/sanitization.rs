@@ -234,6 +234,7 @@ fn deterministic_rules(profile: &SanitizationProfile) -> Vec<CustomRule> {
                 enabled: recognizer.enabled,
                 deterministic: Some(DeterministicRuleMetadata {
                     recognizer_id: recognizer.id.clone(),
+                    allowlist_exact: recognizer.allowlist_exact.clone(),
                     rule: DeterministicRuleKind::Pattern {
                         validator: pattern
                             .validator
@@ -280,6 +281,7 @@ fn deterministic_rules(profile: &SanitizationProfile) -> Vec<CustomRule> {
                 enabled: recognizer.enabled,
                 deterministic: Some(DeterministicRuleMetadata {
                     recognizer_id: recognizer.id.clone(),
+                    allowlist_exact: recognizer.allowlist_exact.clone(),
                     rule: DeterministicRuleKind::DenylistExact,
                 }),
             });

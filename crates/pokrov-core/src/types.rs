@@ -110,6 +110,8 @@ pub enum DeterministicRuleKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeterministicRuleMetadata {
     pub recognizer_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowlist_exact: Vec<String>,
     pub rule: DeterministicRuleKind,
 }
 
