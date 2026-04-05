@@ -100,10 +100,26 @@ fn transform_fragment(
     match action {
         PolicyAction::Allow => fragment.to_string(),
         PolicyAction::Mask => mask_fragment(fragment, mask_visible_suffix as usize),
-        PolicyAction::Replace => replacement_template.unwrap_or("[REPLACED]").to_string(),
+        PolicyAction::Replace => match replacement_template {
+            Some("[ID_HASH]") => stable_hash_replacement(fragment),
+            Some(template) => template.to_string(),
+            None => "[REPLACED]".to_string(),
+        },
         PolicyAction::Redact => "[REDACTED]".to_string(),
         PolicyAction::Block => "[BLOCKED]".to_string(),
     }
+}
+
+fn stable_hash_replacement(fragment: &str) -> String {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x00000100000001B3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in fragment.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("[ID_HASH:{hash:016x}]")
 }
 
 fn mask_fragment(fragment: &str, visible_suffix: usize) -> String {
@@ -175,5 +191,30 @@ mod tests {
 
         assert!(transformed.blocked);
         assert!(transformed.sanitized_payload.is_none());
+    }
+
+    #[test]
+    fn replace_with_id_hash_marker_uses_stable_hash() {
+        let payload = json!({"id": "11111111-2222-3333-4444-555555555555"});
+        let spans = vec![ResolvedSpan {
+            json_pointer: "/id".to_string(),
+            start: 0,
+            end: 36,
+            winning_rule_id: "builtin.pii.person_id_field".to_string(),
+            category: DetectionCategory::Pii,
+            effective_action: PolicyAction::Replace,
+            priority: 1,
+            replacement_template: Some("[ID_HASH]".to_string()),
+            suppressed_rule_ids: Vec::new(),
+        }];
+
+        let transformed = apply_transforms(&payload, &spans, PolicyAction::Redact, 4);
+        let actual = transformed
+            .sanitized_payload
+            .as_ref()
+            .and_then(|value| value.get("id"))
+            .and_then(|value| value.as_str())
+            .expect("id should be present");
+        assert_eq!(actual, "[ID_HASH:5ff56bf05c1d58f9]");
     }
 }

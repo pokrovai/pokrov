@@ -293,6 +293,71 @@ mod tests {
     }
 
     #[test]
+    fn detects_nested_identity_fields_in_structured_payload() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "payload": {
+                "owner": {
+                    "profile": {
+                        "name": "Фамилия Имя Отчество",
+                        "email": "owner.alias@corp.test",
+                        "directory": {
+                            "id": "1234567890123456",
+                            "name": "Фамилия Имя Отчество (1234567)"
+                        },
+                        "account": {
+                            "id": "11111111-2222-3333-4444-555555555555",
+                            "username": "owner.user.a"
+                        }
+                    },
+                    "team": {
+                        "name": "Internal Platform",
+                        "unit_id": "TEAM-PRIMARY-01"
+                    },
+                    "supervisor": {
+                        "name": "Тестовый Пользователь Третий",
+                        "email": "manager.alias@corp.test",
+                        "identity": {
+                            "id": "22222222-3333-4444-5555-666666666666",
+                            "username": "manager.user.b"
+                        }
+                    },
+                    "backupEmail": "ops.alias@corp.test"
+                }
+            }
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+        let identity_hits = hits
+            .iter()
+            .filter(|hit| hit.rule_id == "builtin.pii.person_identity_field")
+            .map(|hit| hit.json_pointer.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let id_hits = hits
+            .iter()
+            .filter(|hit| hit.rule_id == "builtin.pii.person_id_field")
+            .map(|hit| hit.json_pointer.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let email_hits = hits
+            .iter()
+            .filter(|hit| hit.rule_id == "builtin.pii.email")
+            .count();
+
+        assert!(identity_hits.contains("/payload/owner/profile/name"));
+        assert!(identity_hits.contains("/payload/owner/profile/directory/name"));
+        assert!(identity_hits.contains("/payload/owner/profile/account/username"));
+        assert!(identity_hits.contains("/payload/owner/supervisor/name"));
+        assert!(identity_hits.contains("/payload/owner/supervisor/identity/username"));
+        assert!(id_hits.contains("/payload/owner/profile/directory/id"));
+        assert!(id_hits.contains("/payload/owner/profile/account/id"));
+        assert!(id_hits.contains("/payload/owner/supervisor/identity/id"));
+        assert!(!identity_hits.contains("/payload/owner/team/name"));
+        assert!(!id_hits.contains("/payload/owner/team/unit_id"));
+        assert_eq!(email_hits, 3, "all nested emails should be detected");
+    }
+
+    #[test]
     fn respects_deterministic_hit_sort_order_contract() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

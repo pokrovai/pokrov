@@ -33,6 +33,8 @@ struct BuiltinRule {
     category: DetectionCategory,
     priority: u16,
     matcher: Regex,
+    action_override: Option<PolicyAction>,
+    replacement_template: Option<&'static str>,
     validator: DeterministicValidatorKind,
     normalization: DeterministicNormalizationMode,
     field_gate: Option<CompiledFieldGate>,
@@ -66,7 +68,7 @@ struct RuleMatchContext<'a> {
     category: DetectionCategory,
     action: PolicyAction,
     priority: u16,
-    replacement_template: Option<&'a String>,
+    replacement_template: Option<&'a str>,
     matcher: &'a Regex,
     validator: DeterministicValidatorKind,
     normalization: DeterministicNormalizationMode,
@@ -74,108 +76,9 @@ struct RuleMatchContext<'a> {
     deterministic_allowlist: Option<&'a BTreeSet<String>>,
     field_gate: Option<&'a CompiledFieldGate>,
 }
-
-const BUILTIN_RULES: [BuiltinRuleSpec; 11] = [
-    BuiltinRuleSpec {
-        rule_id: "builtin.secrets.bearer_token",
-        category: DetectionCategory::Secrets,
-        priority: 470,
-        pattern: r"(?i)\bbearer\s+(?:gh[pousr]_[a-z0-9]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Za-z0-9._\-]{24,})\b",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.secrets.secret_assignment",
-        category: DetectionCategory::Secrets,
-        priority: 468,
-        pattern: r#"(?i)\b(?:token|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*['"]?(?:gh[pousr]_[a-z0-9]{20,}|sk[-_][a-z0-9][a-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Za-z0-9._\-]{24,})['"]?"#,
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.secrets.sk_api_key",
-        category: DetectionCategory::Secrets,
-        priority: 465,
-        pattern: r"(?i)\bsk[-_][a-z0-9][a-z0-9_-]{8,}\b",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.secrets.github_pat",
-        category: DetectionCategory::Secrets,
-        priority: 466,
-        pattern: r"(?i)\bgh[pousr]_[a-z0-9]{20,}\b",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.pii.email",
-        category: DetectionCategory::Pii,
-        priority: 320,
-        pattern: r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.pii.url",
-        category: DetectionCategory::Pii,
-        priority: 319,
-        pattern: r#"(?i)\b(?:https?|ftp)://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?::\d{2,5})?(?:/[a-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*[a-z0-9/#])?"#,
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.pii.ipv4",
-        category: DetectionCategory::Pii,
-        priority: 318,
-        pattern: r"\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.pii.phone",
-        category: DetectionCategory::Pii,
-        priority: 317,
-        pattern: r"(?:(?:\+7|8)[ -]?(?:\(\d{3}\)|\d{3})[ -]?\d{3}(?:[ -]?\d{2}){2}|(?:\+?\d{1,3}[ -]?)?(?:\(?\d{3}\)?[ -]?)\d{3}[ -]?\d{4})",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.pii.name_field",
-        category: DetectionCategory::Pii,
-        priority: 316,
-        pattern: r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё' -]{0,63}",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: Some(BuiltinFieldGateSpec { json_pointer_suffixes: &["/first_name", "/last_name", "/middle_name", "/firstname", "/lastname", "/middlename", "/firstName", "/lastName", "/middleName"] }),
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.pii.card_number",
-        category: DetectionCategory::Pii,
-        priority: 310,
-        pattern: r"\b\d(?:[ -]?\d){12,15}\b",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-    BuiltinRuleSpec {
-        rule_id: "builtin.corporate.project_name",
-        category: DetectionCategory::CorporateMarkers,
-        priority: 220,
-        pattern: r"(?i)\bproject\s+[a-z][a-z0-9_-]{2,}\b",
-        validator: DeterministicValidatorKind::None,
-        normalization: DeterministicNormalizationMode::Preserve,
-        field_gate: None,
-    },
-];
+#[path = "runtime_builtins.rs"]
+mod runtime_builtins;
+use runtime_builtins::BUILTIN_RULES;
 const REGEX_SIZE_LIMIT_BYTES: usize = 1024 * 1024;
 
 pub fn compile_custom_rules(
@@ -195,7 +98,6 @@ pub fn compile_custom_rules(
                     profile.profile_id, rule.rule_id
                 ))
             })?;
-
             Ok(CompiledCustomRule {
                 rule_id: rule.rule_id.clone(),
                 category: rule.category,
@@ -214,7 +116,6 @@ pub fn compile_custom_rules(
         })
         .collect()
 }
-
 pub fn detect_payload(
     payload: &Value,
     profile: &PolicyProfile,
@@ -230,7 +131,6 @@ pub fn detect_payload(
         if hit_limit_reached {
             return;
         }
-
         for rule in builtin_rules {
             if hit_limit_reached {
                 break;
@@ -245,7 +145,6 @@ pub fn detect_payload(
                 &mut hits,
             );
         }
-
         for rule in custom_rules {
             if hit_limit_reached {
                 break;
@@ -261,7 +160,6 @@ pub fn detect_payload(
             );
         }
     });
-
     if hit_limit_reached {
         tracing::warn!(
             profile_id = %profile.profile_id,
@@ -269,10 +167,8 @@ pub fn detect_payload(
             "detection hit limit reached; remaining payload leaves were skipped"
         );
     }
-
     hits
 }
-
 fn emit_rule_matches(
     json_pointer: &str,
     text: &str,
@@ -288,12 +184,10 @@ fn emit_rule_matches(
     {
         return;
     }
-
     for matched in rule.matcher.find_iter(text) {
         if is_allowlisted_exact(allowlist, matched.as_str()) {
             continue;
         }
-
         let candidate = needs_normalized_candidate(rule).then(|| {
             normalize_candidate(matched.as_str(), rule.normalization)
         });
@@ -305,7 +199,6 @@ fn emit_rule_matches(
                 continue;
             }
         }
-
         let mut priority = rule.priority;
         if let Some(context) = rule.deterministic_context {
             let window = extract_context_window(text, matched.start(), matched.end(), context.window);
@@ -333,7 +226,7 @@ fn emit_rule_matches(
             end: matched.end(),
             action: rule.action,
             priority,
-            replacement_template: rule.replacement_template.cloned(),
+            replacement_template: rule.replacement_template.map(str::to_string),
         });
     }
 }
@@ -345,15 +238,31 @@ fn builtin_rule_context<'a>(
     RuleMatchContext {
         rule_id: rule.rule_id,
         category: rule.category,
-        action: profile.category_actions.action_for(rule.category),
+        action: rule.action_override.unwrap_or(profile.category_actions.action_for(rule.category)),
         priority: rule.priority,
-        replacement_template: None,
+        replacement_template: rule.replacement_template,
         matcher: &rule.matcher,
         validator: rule.validator,
         normalization: rule.normalization,
         deterministic_context: None,
         deterministic_allowlist: None,
         field_gate: rule.field_gate.as_ref(),
+    }
+}
+
+fn builtin_action_override(rule_id: &str) -> Option<PolicyAction> {
+    if rule_id == "builtin.pii.person_id_field" {
+        Some(PolicyAction::Replace)
+    } else {
+        None
+    }
+}
+
+fn builtin_replacement_template(rule_id: &str) -> Option<&'static str> {
+    if rule_id == "builtin.pii.person_id_field" {
+        Some("[ID_HASH]")
+    } else {
+        None
     }
 }
 
@@ -373,7 +282,7 @@ fn custom_rule_context<'a>(rule: &'a CompiledCustomRule) -> RuleMatchContext<'a>
         category: rule.category,
         action: rule.action,
         priority: rule.priority,
-        replacement_template: rule.replacement_template.as_ref(),
+        replacement_template: rule.replacement_template.as_deref(),
         matcher: &rule.matcher,
         validator,
         normalization,
@@ -520,6 +429,8 @@ fn builtin_rules() -> &'static [BuiltinRule] {
                         .size_limit(REGEX_SIZE_LIMIT_BYTES)
                         .build()
                         .expect("built-in regex patterns must compile"),
+                    action_override: builtin_action_override(spec.rule_id),
+                    replacement_template: builtin_replacement_template(spec.rule_id),
                     validator: spec.validator,
                     normalization: spec.normalization,
                     field_gate: spec.field_gate.map(compile_field_gate),
