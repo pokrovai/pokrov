@@ -20,7 +20,8 @@ fn foundation_trace_overhead_stays_within_local_budget() {
     }
 
     samples.sort_unstable();
-    let p95 = samples[(samples.len() - 1) * 95 / 100];
+    let p95_index = ((samples.len() * 95).div_ceil(100)).saturating_sub(1);
+    let p95 = samples[p95_index];
 
     assert!(p95 <= 25, "foundation trace p95 must stay <= 25ms, got {p95}ms");
 }

@@ -122,7 +122,7 @@ impl SanitizationEngine {
                 .iter()
                 .map(NormalizedHit::from_detection_hit)
                 .collect::<Vec<_>>(),
-            resolved_hits: resolved_hits.clone(),
+            resolved_hits,
             transform_plan: TransformPlan::from_decision(
                 mode,
                 &artifacts.resolved_spans,
