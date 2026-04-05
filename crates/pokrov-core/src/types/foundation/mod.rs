@@ -1,4 +1,5 @@
 mod boundaries;
+mod evaluation_lab;
 mod entity_packs;
 mod hit_families;
 mod transform;
@@ -7,6 +8,13 @@ pub use boundaries::{
     foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
     EvaluationArtifactBoundary, EvaluationArtifactClass, ExtensionPointContract,
     ExtensionPointKind, PipelineStageBoundary, StageArtifact, StageId,
+};
+pub use evaluation_lab::{
+    foundation_evaluation_corpora, foundation_quality_gates, DetectionMetrics, EvaluationCase,
+    EvaluationCaseMode, EvaluationCaseSource, EvaluationCorpusDefinition, EvaluationCorpusKind,
+    EvaluationMetricGroups, EvaluationReport, EvaluationResult, OperatorOutcome, ParityMetrics,
+    ParityReport, QualityGateDefinition, QualityGateLevel, ReadinessScoreboard, ReportOutputKind,
+    RuntimeMetrics, SecurityMetrics, TransformationMetrics,
 };
 pub use entity_packs::{
     phase_one_en_ru_entity_pack, DefaultOperatorDirection, EntityLanguageRequirement,

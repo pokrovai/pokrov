@@ -6,13 +6,18 @@ use serde_json::Value;
 pub mod foundation;
 
 pub use foundation::{
-    foundation_evaluation_boundaries, foundation_extension_points, foundation_stage_boundaries,
-    phase_one_en_ru_entity_pack, DefaultOperatorDirection, EntityLanguageRequirement,
-    EntityPackCoverageReport, EntityPackDefinition, EntityPackLanguage, EntityRiskClass,
-    EvaluationArtifactBoundary, EvaluationArtifactClass, EvidenceClass, ExtensionPointContract,
-    ExtensionPointKind, FoundationExecutionTrace, FoundationTransformResult, HitLocationKind,
-    NormalizedHit, PipelineStageBoundary, RecognizerFamily, ResolvedHit, RiskClassDirection,
-    StageArtifact, StageId, SupportedEntityDefinition, SuppressionStatus, TransformPlan,
+    foundation_evaluation_boundaries, foundation_evaluation_corpora, foundation_extension_points,
+    foundation_quality_gates, foundation_stage_boundaries, phase_one_en_ru_entity_pack,
+    DefaultOperatorDirection, DetectionMetrics, EntityLanguageRequirement, EntityPackCoverageReport,
+    EntityPackDefinition, EntityPackLanguage, EntityRiskClass, EvaluationArtifactBoundary,
+    EvaluationArtifactClass, EvaluationCase, EvaluationCaseMode, EvaluationCaseSource,
+    EvaluationCorpusDefinition, EvaluationCorpusKind, EvaluationMetricGroups, EvaluationReport,
+    EvaluationResult, EvidenceClass, ExtensionPointContract, ExtensionPointKind,
+    FoundationExecutionTrace, FoundationTransformResult, HitLocationKind, NormalizedHit,
+    OperatorOutcome, ParityMetrics, ParityReport, PipelineStageBoundary, QualityGateDefinition,
+    QualityGateLevel, ReadinessScoreboard, RecognizerFamily, ReportOutputKind, ResolvedHit,
+    RiskClassDirection, RuntimeMetrics, SecurityMetrics, StageArtifact, StageId,
+    SupportedEntityDefinition, SuppressionStatus, TransformPlan, TransformationMetrics,
     UnsupportedEntityDefinition, ValidationStatus,
 };
 
