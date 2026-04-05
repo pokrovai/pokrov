@@ -46,6 +46,14 @@
 
 ## Chunk 1: Architecture Analysis Gate
 
+Progress snapshot (implemented on branch `feature/v1-developer-detectors`):
+- `4496dd7` secret token family expansion
+- `bf9339d` URL + IPv4 runtime coverage
+- `b1290e9` + `bf4ccc8` phone detection and RU phone format coverage
+- `dd54670` constrained structured name-field coverage
+- `59ea869` synthetic nested identity coverage + stable `id` hash replacement
+- `e4c1cff` constrained `customer_id` / `account_number` / `swift_bic`
+
 ### Task 1: Audit detector extensibility before adding new families
 
 **Files:**
@@ -57,11 +65,11 @@
 - Inspect: `docs/verification/015-v1-developer-detector-backlog.md`
 - Output note in: `docs/verification/015-v1-developer-detector-backlog.md`
 
-- [ ] Review how built-in rules and deterministic recognizers are currently split.
-- [ ] Verify whether URL, IP, phone, and secret families can be expressed through the existing `pattern -> normalize -> validate -> context -> allowlist` pipeline without special cases.
-- [ ] Verify whether structured-field name coverage can be added without violating JSON-safe traversal invariants.
-- [ ] Check whether `crates/pokrov-core/src/detection/mod.rs` should stay as one file or be split before new families are added.
-- [ ] Record a decision: `proceed with current architecture` or `perform narrow refactor first`.
+- [x] Review how built-in rules and deterministic recognizers are currently split.
+- [x] Verify whether URL, IP, phone, and secret families can be expressed through the existing `pattern -> normalize -> validate -> context -> allowlist` pipeline without special cases.
+- [x] Verify whether structured-field name coverage can be added without violating JSON-safe traversal invariants.
+- [x] Check whether `crates/pokrov-core/src/detection/mod.rs` should stay as one file or be split before new families are added.
+- [x] Record a decision: `proceed with current architecture` or `perform narrow refactor first`.
 
 Run:
 - `sed -n '1,260p' crates/pokrov-core/src/detection/mod.rs`
@@ -78,10 +86,10 @@ Expected:
 - Possible create: focused submodules under `crates/pokrov-core/src/detection/`
 - Test: existing unit and contract tests touching detection flow
 
-- [ ] Write a failing or missing-coverage test that proves the current structure blocks safe detector growth.
-- [ ] Apply the smallest refactor that improves extensibility without changing policy ownership or audit semantics.
-- [ ] Re-run detection unit tests and existing contract tests.
-- [ ] Update the architecture note in `docs/verification/015-v1-developer-detector-backlog.md` if the refactor changed the implementation path.
+- [x] Write a failing or missing-coverage test that proves the current structure blocks safe detector growth.
+- [x] Apply the smallest refactor that improves extensibility without changing policy ownership or audit semantics.
+- [x] Re-run detection unit tests and existing contract tests.
+- [x] Update the architecture note in `docs/verification/015-v1-developer-detector-backlog.md` if the refactor changed the implementation path.
 
 Run:
 - `cargo test detect_payload --lib -- --nocapture`
@@ -100,10 +108,10 @@ Expected:
 - Test: unit tests in `crates/pokrov-core/src/detection/mod.rs` or focused detector test modules
 - Test: `tests/contract/sanitization_evaluation_lab_contract.rs`
 
-- [ ] Add failing tests for high-confidence secret and token patterns.
-- [ ] Implement the minimal recognizers and validators for secret assignment and token/header forms.
-- [ ] Add starter or contract cases proving `block` or `redact` behavior as required by the active profile.
-- [ ] Re-run focused unit and contract tests.
+- [x] Add failing tests for high-confidence secret and token patterns.
+- [x] Implement the minimal recognizers and validators for secret assignment and token/header forms.
+- [x] Add starter or contract cases proving `block` or `redact` behavior as required by the active profile.
+- [x] Re-run focused unit and contract tests.
 
 ### Task 4: URL and IP family
 
@@ -114,11 +122,11 @@ Expected:
 - Modify: `tests/contract/sanitization_open_dataset_pipeline_contract.rs`
 - Modify: `tests/common/sanitization_dataset_report_test_support.rs`
 
-- [ ] Add failing detector tests for valid and invalid URL/IP candidates.
-- [ ] Implement validation-backed URL and IPv4 recognizers.
-- [ ] Promote dataset labels from mapped-only to runtime-covered only after the runtime behavior is real.
-- [ ] Add exact-output replay assertions for at least one cached URL row and one cached IPv4 row.
-- [ ] Re-render and verify `014-dataset-detector-gap-report.md`.
+- [x] Add failing detector tests for valid and invalid URL/IP candidates.
+- [x] Implement validation-backed URL and IPv4 recognizers.
+- [x] Promote dataset labels from mapped-only to runtime-covered only after the runtime behavior is real.
+- [x] Add exact-output replay assertions for at least one cached URL row and one cached IPv4 row.
+- [x] Re-render and verify `014-dataset-detector-gap-report.md`.
 
 Run:
 - `cargo test rows_match_expected --test contract -- --ignored --nocapture`
@@ -133,10 +141,10 @@ Run:
 - Modify: `tests/common/sanitization_dataset_test_support.rs`
 - Modify: `tests/contract/sanitization_open_dataset_pipeline_contract.rs`
 
-- [ ] Add failing phone positives and adversarial negatives.
+- [x] Add failing phone positives and adversarial negatives.
 - [ ] Implement a context-gated phone recognizer to limit accidental numeric matches.
-- [ ] Add exact-output replay assertions for one or more cached `phone_number` rows.
-- [ ] Verify no regression in card-like overlap behavior.
+- [x] Add exact-output replay assertions for one or more cached `phone_number` rows.
+- [x] Verify no regression in card-like overlap behavior.
 
 Run:
 - `cargo test detect_payload --lib phone -- --nocapture`
@@ -153,10 +161,10 @@ Run:
 - Modify: `tests/contract/sanitization_evaluation_lab_contract.rs`
 - Possible modify: `tests/common/sanitization_dataset_test_support.rs`
 
-- [ ] Add failing tests for `first_name`, `last_name`, and `middle_name` in structured JSON or tool-arg payloads.
-- [ ] Implement constrained field-aware detection without broad free-text name matching.
-- [ ] Add adversarial negatives proving package names, class names, or code identifiers are not redacted as person names.
-- [ ] Add starter-corpus fixtures if cached open datasets are too noisy for exact replay.
+- [x] Add failing tests for `first_name`, `last_name`, and `middle_name` in structured JSON or tool-arg payloads.
+- [x] Implement constrained field-aware detection without broad free-text name matching.
+- [x] Add adversarial negatives proving package names, class names, or code identifiers are not redacted as person names.
+- [x] Add starter-corpus fixtures if cached open datasets are too noisy for exact replay.
 
 Run:
 - `cargo test sanitization_evaluation_lab_contract -- --nocapture`
@@ -184,9 +192,9 @@ Run:
 - Modify: `tests/contract/sanitization_open_dataset_pipeline_contract.rs`
 
 - [ ] Implement `en_address_like_high_risk` with explicit context and validation.
-- [ ] Implement `customer_id_contextual` and `account_number_contextual` with strict lexical context.
-- [ ] Add exact-output replay assertions only where dataset rows are stable enough.
-- [ ] Verify these detectors do not accidentally fire on common developer identifiers.
+- [x] Implement `customer_id_contextual` and `account_number_contextual` with strict lexical context.
+- [x] Add exact-output replay assertions only where dataset rows are stable enough.
+- [x] Verify these detectors do not accidentally fire on common developer identifiers.
 
 ### Task 9: Structured financial and document identifiers
 
@@ -196,9 +204,9 @@ Run:
 - Modify: `tests/common/sanitization_dataset_test_support.rs`
 - Modify: `tests/contract/sanitization_open_dataset_pipeline_contract.rs`
 
-- [ ] Implement `swift_bic` validation-backed detection.
+- [x] Implement `swift_bic` validation-backed detection.
 - [ ] Implement `medical_record_number_contextual` and `license_plate_contextual` with strict context.
-- [ ] Add unit and contract verification for positives and negatives.
+- [x] Add unit and contract verification for positives and negatives.
 - [ ] Update dataset-backed report coverage accordingly.
 
 ## Chunk 5: Finish And Evidence
