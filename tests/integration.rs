@@ -6,6 +6,8 @@ pub mod llm_proxy_test_support;
 pub mod mcp_test_support;
 #[path = "common/hardening_test_support.rs"]
 pub mod hardening_test_support;
+#[path = "common/sanitization_foundation_test_support.rs"]
+pub mod sanitization_foundation_test_support;
 #[path = "integration/request_id_logging_flow.rs"]
 mod request_id_logging_flow;
 #[path = "integration/llm_proxy_block_path.rs"]
@@ -72,6 +74,12 @@ mod sanitization_audit_explain_flow;
 mod sanitization_evaluate_flow;
 #[path = "integration/sanitization_transform_flow.rs"]
 mod sanitization_transform_flow;
+#[path = "integration/sanitization_foundation_stage_boundaries.rs"]
+mod sanitization_foundation_stage_boundaries;
+#[path = "integration/sanitization_foundation_shared_contracts.rs"]
+mod sanitization_foundation_shared_contracts;
+#[path = "integration/sanitization_foundation_evaluation_boundary.rs"]
+mod sanitization_foundation_evaluation_boundary;
 #[path = "integration/startup_config_flow.rs"]
 mod startup_config_flow;
 #[path = "integration/bootstrap_acceptance_contract.rs"]

@@ -2,7 +2,7 @@
 
 Date: 2026-04-05
 Spec source: `docs/superpowers/specs/presidio-rework/00-architecture-foundation.md`
-Status: Draft
+Status: Implemented by `specs/009-architecture-foundation`
 
 ## Summary
 
@@ -31,6 +31,12 @@ Out of scope:
 - shared internal types for normalized hits, resolved hits, transform planning, explain, and audit
 - explicit extension-point interfaces for native recognizers, remote recognizers, structured processors, evaluation runners, and baseline runners
 - repository layout rules documented where future work will consume them
+
+## Implementation Notes
+
+- `crates/pokrov-core/src/types/foundation.rs` now holds the compile-visible stage boundaries, extension-point contracts, shared hit families, transform plan, and evaluation artifact boundaries.
+- `crates/pokrov-core/src/lib.rs` now exposes `SanitizationEngine::trace_foundation_flow` for runtime and evaluation proof reuse.
+- `docs/verification/009-architecture-foundation.md` is the evidence sink for contract, integration, security, performance, and workspace verification output.
 
 ## Tasks
 

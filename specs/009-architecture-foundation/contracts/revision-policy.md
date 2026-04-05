@@ -22,6 +22,7 @@ Downstream work may proceed without a foundation revision when it only:
 - adds fields that are backward-compatible with the frozen contract intent
 - adds implementation details that do not alter policy ownership or metadata-only guarantees
 - adds tests, fixtures, or evidence that reuse the existing contract families
+- consumes the exported `foundation_stage_boundaries()` map and `SanitizationEngine::trace_foundation_flow` proof surface without changing their semantics
 
 ## Required Revision Inputs
 
@@ -32,6 +33,7 @@ A foundation revision proposal must include:
 - why the current contract is insufficient
 - why a local downstream workaround was rejected
 - how metadata-only safety and deterministic behavior remain protected
+- which existing verification artifacts (`docs/verification/009-architecture-foundation.md` and foundation test suites) need updates
 
 ## Approval Consequence
 

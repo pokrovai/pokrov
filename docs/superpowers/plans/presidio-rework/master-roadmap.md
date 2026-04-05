@@ -1,7 +1,7 @@
 # Presidio Rework Master Roadmap
 
 Date: 2026-04-05
-Status: Draft
+Status: In Progress
 
 ## Purpose
 
@@ -80,6 +80,10 @@ Deliverables:
 - stable architecture foundation
 - stable analyzer core contract
 - verification note for shared contract viability
+
+Implementation status:
+- `009-architecture-foundation` now exports the frozen stage map and shared contract scaffolding from `pokrov-core`
+- one executable runtime/evaluation proof is implemented and must remain green before `WS1-WS9` changes land
 
 Blocking dependencies:
 - none beyond the current workspace
