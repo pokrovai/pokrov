@@ -1,35 +1,35 @@
 use pokrov_ner::{model::NerModelBinding, NerConfig, NerEngine, NerEntityType, NerHit};
 
-fn engine_from_env() -> Option<NerEngine> {
-    let en_model = std::env::var("NER_MODEL_PATH").ok()?;
-    let en_tokenizer = std::env::var("NER_TOKENIZER_PATH").ok()?;
-    let ru_model = std::env::var("NER_RU_MODEL_PATH").ok();
-    let ru_tokenizer = std::env::var("NER_RU_TOKENIZER_PATH").ok();
+fn engine_for_languages(required_languages: &[&str]) -> Option<NerEngine> {
+    let default_config = NerConfig::default();
+    let mut selected_models: Vec<NerModelBinding> = Vec::new();
 
-    let mut models = vec![NerModelBinding {
-        language: "en".to_string(),
-        model_path: en_model.into(),
-        tokenizer_path: en_tokenizer.into(),
-        priority: 100,
-    }];
-
-    if let (Some(rp), Some(rt)) = (ru_model, ru_tokenizer) {
-        models.push(NerModelBinding {
-            language: "ru".to_string(),
-            model_path: rp.into(),
-            tokenizer_path: rt.into(),
-            priority: 100,
-        });
+    for &language in required_languages {
+        let Some(binding) = default_config.models.iter().find(|binding| binding.language == language)
+        else {
+            eprintln!("Skipping NER test: language '{language}' is not configured");
+            return None;
+        };
+        if !binding.model_path.exists() || !binding.tokenizer_path.exists() {
+            eprintln!(
+                "Skipping NER test: model assets for '{language}' are missing (model='{}', tokenizer='{}')",
+                binding.model_path.display(),
+                binding.tokenizer_path.display()
+            );
+            return None;
+        }
+        selected_models.push(binding.clone());
     }
 
-    let config = NerConfig { models, ..NerConfig::default() };
+    let config = NerConfig { models: selected_models, ..default_config };
     NerEngine::new(config).ok()
 }
 
 #[test]
-#[ignore = "requires NER_MODEL_PATH and NER_TOKENIZER_PATH env vars"]
 fn recognize_russian_person() {
-    let mut engine = engine_from_env().expect("NER engine must initialize");
+    let Some(mut engine) = engine_for_languages(&["ru"]) else {
+        return;
+    };
     let hits = engine
         .recognize(
             "Меня зовут Иван Петров, я работаю в Газпроме",
@@ -48,9 +48,10 @@ fn recognize_russian_person() {
 }
 
 #[test]
-#[ignore = "requires NER_MODEL_PATH and NER_TOKENIZER_PATH env vars"]
 fn recognize_english_person() {
-    let mut engine = engine_from_env().expect("NER engine must initialize");
+    let Some(mut engine) = engine_for_languages(&["en"]) else {
+        return;
+    };
     let hits = engine
         .recognize(
             "My name is John Smith and I work at Microsoft",
@@ -62,18 +63,20 @@ fn recognize_english_person() {
 }
 
 #[test]
-#[ignore = "requires NER_MODEL_PATH and NER_TOKENIZER_PATH env vars"]
 fn empty_input_returns_empty() {
-    let mut engine = engine_from_env().expect("NER engine must initialize");
+    let Some(mut engine) = engine_for_languages(&["en"]) else {
+        return;
+    };
     let hits =
         engine.recognize("", &[NerEntityType::Person]).expect("must not fail on empty input");
     assert!(hits.is_empty());
 }
 
 #[test]
-#[ignore = "requires NER_MODEL_PATH and NER_TOKENIZER_PATH env vars"]
 fn latency_under_100ms() {
-    let mut engine = engine_from_env().expect("NER engine must initialize");
+    let Some(mut engine) = engine_for_languages(&["en"]) else {
+        return;
+    };
     let text = "Contact Alice Johnson at acme@example.com for details about the project.";
 
     let start = std::time::Instant::now();

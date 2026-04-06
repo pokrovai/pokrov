@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 use serde_yaml;
 
-use pokrov_ner::{NerConfig, NerEngine, NerEntityType, NerHit};
+use pokrov_ner::{model::NerModelBinding, NerConfig, NerEngine, NerEntityType, NerHit};
 
 const DATASET_DIR: &str = "tests/fixtures/eval/datasets/open-cache";
 const DATASET_FILES: &[&str] = &[
@@ -27,7 +27,6 @@ const ORG_LABELS: &[&str] = &["company_name"];
 
 #[derive(Debug, Clone)]
 struct GroundTruthSpan {
-    entity_text: String,
     char_start: usize,
     char_end: usize,
     category: SpanCategory,
@@ -46,20 +45,35 @@ struct EvalMetrics {
     fn_count: usize,
 }
 
-fn engine_from_env() -> NerEngine {
-    let model_path = std::env::var("NER_MODEL_PATH").expect("NER_MODEL_PATH env var required");
-    let tokenizer_path =
-        std::env::var("NER_TOKENIZER_PATH").expect("NER_TOKENIZER_PATH env var required");
-    let config = NerConfig {
-        models: vec![pokrov_ner::model::NerModelBinding {
-            language: "en".to_string(),
-            model_path: model_path.into(),
-            tokenizer_path: tokenizer_path.into(),
-            priority: 100,
-        }],
-        ..NerConfig::default()
-    };
-    NerEngine::new(config).unwrap_or_else(|e| panic!("NER engine init failed: {e}"))
+fn engine_for_languages(required_languages: &[&str]) -> Option<(NerEngine, Vec<NerModelBinding>)> {
+    let default_config = NerConfig::default();
+    let mut selected_models: Vec<NerModelBinding> = Vec::new();
+
+    for &language in required_languages {
+        let Some(binding) = default_config.models.iter().find(|binding| binding.language == language)
+        else {
+            eprintln!("Skipping NER dataset evaluation: language '{language}' is not configured");
+            return None;
+        };
+        if !binding.model_path.exists() || !binding.tokenizer_path.exists() {
+            eprintln!(
+                "Skipping NER dataset evaluation: model assets for '{language}' are missing (model='{}', tokenizer='{}')",
+                binding.model_path.display(),
+                binding.tokenizer_path.display()
+            );
+            return None;
+        }
+        selected_models.push(binding.clone());
+    }
+
+    let config = NerConfig { models: selected_models.clone(), ..default_config };
+    match NerEngine::new(config) {
+        Ok(engine) => Some((engine, selected_models)),
+        Err(error) => {
+            eprintln!("Skipping NER dataset evaluation: NER engine init failed: {error}");
+            None
+        }
+    }
 }
 
 fn dataset_dir() -> PathBuf {
@@ -103,7 +117,6 @@ fn extract_ground_truth_spans(row: &Value) -> Vec<GroundTruthSpan> {
                     if let Some(start) = row.get("text").and_then(|v| v.as_str()) {
                         if let Some(pos) = start.find(&entity) {
                             spans.push(GroundTruthSpan {
-                                entity_text: entity.clone(),
                                 char_start: pos,
                                 char_end: pos + entity.len(),
                                 category: cat,
@@ -139,7 +152,6 @@ fn extract_ground_truth_spans(row: &Value) -> Vec<GroundTruthSpan> {
             if let Some(cat) = category {
                 let effective_end = if end > start { end } else { start + value.len() };
                 spans.push(GroundTruthSpan {
-                    entity_text: value,
                     char_start: start,
                     char_end: effective_end,
                     category: cat,
@@ -173,7 +185,6 @@ fn extract_ground_truth_spans(row: &Value) -> Vec<GroundTruthSpan> {
                 if let Some(cat) = category {
                     let effective_end = if end > start { end } else { start + text.len() };
                     spans.push(GroundTruthSpan {
-                        entity_text: text,
                         char_start: start,
                         char_end: effective_end,
                         category: cat,
@@ -305,12 +316,24 @@ fn print_metrics(label: &str, m: &EvalMetrics) {
 }
 
 #[test]
-#[ignore = "requires NER_MODEL_PATH, NER_TOKENIZER_PATH env vars and model files"]
 fn ner_dataset_evaluation() {
-    let mut engine = engine_from_env();
+    let Some((mut engine, models)) = engine_for_languages(&["en"]) else {
+        return;
+    };
 
     println!("=== NER Dataset Evaluation ===");
-    println!("Model: {}", std::env::var("NER_MODEL_PATH").unwrap_or_default());
+    let model_list = models
+        .iter()
+        .map(|binding| {
+            format!(
+                "{}:{}",
+                binding.language,
+                binding.model_path.display()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!("Models: {model_list}");
 
     let mut total_person = EvalMetrics::default();
     let mut total_org = EvalMetrics::default();

@@ -14,7 +14,8 @@ use transform::apply_transforms;
 use crate::types::{
     DegradedSummary, EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult,
     EvaluatorConfig, ExecutedSummary, FoundationExecutionTrace, FoundationTransformResult,
-    NormalizedHit, PolicyProfile, ResolvedHit, ResolvedLocationKind, ResolvedLocationRecord,
+    NormalizedHit, PolicyAction, PolicyProfile, ResolvedHit, ResolvedLocationKind,
+    ResolvedLocationRecord,
     ResolvedSpan, TransformPlan,
 };
 
@@ -30,7 +31,7 @@ pub mod types;
 pub mod ner_adapter;
 
 #[cfg(feature = "ner")]
-use ner_adapter::NerAdapter;
+use ner_adapter::{NerAdapter, NerAdapterError, NerFailMode};
 
 #[derive(Debug, Clone)]
 struct CompiledProfile {
@@ -61,6 +62,8 @@ pub struct SanitizationEngine {
     ner: Option<Arc<NerAdapter>>,
     #[cfg(feature = "ner")]
     ner_profile_entity_types: std::collections::HashMap<String, Vec<pokrov_ner::NerEntityType>>,
+    #[cfg(feature = "ner")]
+    ner_profile_fail_modes: std::collections::HashMap<String, NerFailMode>,
 }
 
 impl SanitizationEngine {
@@ -94,6 +97,8 @@ impl SanitizationEngine {
             ner: None,
             #[cfg(feature = "ner")]
             ner_profile_entity_types: std::collections::HashMap::new(),
+            #[cfg(feature = "ner")]
+            ner_profile_fail_modes: std::collections::HashMap::new(),
         })
     }
 
@@ -112,6 +117,15 @@ impl SanitizationEngine {
         self
     }
 
+    #[cfg(feature = "ner")]
+    pub fn with_ner_fail_modes(
+        mut self,
+        fail_modes: std::collections::HashMap<String, NerFailMode>,
+    ) -> Self {
+        self.ner_profile_fail_modes = fail_modes;
+        self
+    }
+
     /// Collects NER hits from string leaves and appends them to the detection hit list.
     /// Deduplicates texts via HashSet to avoid redundant inference on identical values.
     #[cfg(feature = "ner")]
@@ -121,7 +135,7 @@ impl SanitizationEngine {
         profile_id: &str,
         ner: &Arc<NerAdapter>,
         hits: &mut Vec<crate::types::DetectionHit>,
-    ) {
+    ) -> Result<(), NerAdapterError> {
         use std::collections::HashSet;
 
         let mut items: Vec<(String, String)> = Vec::new();
@@ -131,7 +145,7 @@ impl SanitizationEngine {
             }
         });
         if items.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut seen: HashSet<&str> = HashSet::with_capacity(items.len());
@@ -155,36 +169,57 @@ impl SanitizationEngine {
                 ner.recognize_batch_sync(&refs)
             };
 
-        match batch_results {
-            Ok(batch_results) => {
-                for (unique_idx, (_, normalized)) in batch_results.iter().enumerate() {
-                    let unique_text = &unique_texts[unique_idx];
-                    if let Some(indices) = text_to_indices.get(unique_text) {
-                        for &item_idx in indices {
-                            let pointer = &items[item_idx].0;
-                            for nh in normalized {
-                                hits.push(crate::types::DetectionHit {
-                                    rule_id: nh.rule_id.clone(),
-                                    category: nh.category,
-                                    json_pointer: pointer.clone(),
-                                    start: nh.start,
-                                    end: nh.end,
-                                    action: nh.action_hint,
-                                    priority: nh.priority,
-                                    replacement_template: if nh.replacement_template_present {
-                                        Some(String::new())
-                                    } else {
-                                        None
-                                    },
-                                });
-                            }
-                        }
+        let batch_results = batch_results?;
+
+        for (unique_idx, (_, normalized)) in batch_results.iter().enumerate() {
+            let unique_text = &unique_texts[unique_idx];
+            if let Some(indices) = text_to_indices.get(unique_text) {
+                for &item_idx in indices {
+                    let pointer = &items[item_idx].0;
+                    for nh in normalized {
+                        hits.push(crate::types::DetectionHit {
+                            rule_id: nh.rule_id.clone(),
+                            category: nh.category,
+                            json_pointer: pointer.clone(),
+                            start: nh.start,
+                            end: nh.end,
+                            action: nh.action_hint,
+                            priority: nh.priority,
+                            replacement_template: if nh.replacement_template_present {
+                                Some(String::new())
+                            } else {
+                                None
+                            },
+                        });
                     }
                 }
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "NER batch inference failed, skipping NER hits");
-            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "ner")]
+    fn ner_fail_mode_for_profile(&self, profile_id: &str, ner: &NerAdapter) -> NerFailMode {
+        self.ner_profile_fail_modes
+            .get(profile_id)
+            .copied()
+            .unwrap_or_else(|| ner.fail_mode())
+    }
+
+    #[cfg(feature = "ner")]
+    fn ner_failure_reason_code(error: &NerAdapterError) -> &'static str {
+        match error {
+            NerAdapterError::Timeout(_) => "ner_inference_timeout",
+            NerAdapterError::EngineFailed(_) => "ner_inference_failed",
+        }
+    }
+
+    #[cfg(feature = "ner")]
+    fn ner_fail_closed_reason_code(error: &NerAdapterError) -> &'static str {
+        match error {
+            NerAdapterError::Timeout(_) => "fail_closed:ner_inference_timeout",
+            NerAdapterError::EngineFailed(_) => "fail_closed:ner_inference_failed",
         }
     }
 
@@ -268,18 +303,48 @@ impl SanitizationEngine {
         };
 
         let started = Instant::now();
+        #[allow(unused_mut)]
         let mut hits = detect_payload(
             &request.payload,
             &compiled_profile.profile,
             &compiled_profile.custom_rules,
             &request.allowlist_additions,
         );
+        #[allow(unused_mut)]
+        let mut degraded_reasons: Vec<String> = Vec::new();
+        #[allow(unused_mut)]
+        let mut fail_closed_applied = false;
 
         #[cfg(feature = "ner")]
         {
             if let Some(ref ner) = self.ner {
                 if compiled_profile.profile.ner_enabled {
-                    self.apply_ner_detection(&request.payload, &profile_id, ner, &mut hits);
+                    if let Err(error) =
+                        self.apply_ner_detection(&request.payload, &profile_id, ner, &mut hits)
+                    {
+                        tracing::warn!(
+                            error = %error,
+                            profile_id = %profile_id,
+                            "NER batch inference failed"
+                        );
+                        let reason = Self::ner_failure_reason_code(&error);
+                        if !degraded_reasons.iter().any(|existing| existing == reason) {
+                            degraded_reasons.push(reason.to_string());
+                        }
+                        if self.ner_fail_mode_for_profile(&profile_id, ner)
+                            == NerFailMode::FailClosed
+                            && is_execution_enabled(request.mode)
+                        {
+                            fail_closed_applied = true;
+                            let fail_closed_reason = Self::ner_fail_closed_reason_code(&error);
+                            if !degraded_reasons
+                                .iter()
+                                .any(|existing| existing == fail_closed_reason)
+                            {
+                                degraded_reasons.push(fail_closed_reason.to_string());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -300,7 +365,7 @@ impl SanitizationEngine {
             })
             .collect::<Vec<_>>();
 
-        let decision = EvaluateDecision {
+        let mut decision = EvaluateDecision {
             final_action,
             rule_hits_total: hits.len() as u32,
             deterministic_candidates_total: hits
@@ -314,6 +379,13 @@ impl SanitizationEngine {
             resolved_locations,
             replay_identity: replay_identity(&profile_id, request, &resolved_spans),
         };
+        if fail_closed_applied {
+            decision.final_action = PolicyAction::Block;
+            let fail_closed_winner = "winner:fail_closed.ner_inference";
+            if !decision.reason_codes.iter().any(|existing| existing == fail_closed_winner) {
+                decision.reason_codes.push(fail_closed_winner.to_string());
+            }
+        }
 
         let transform = apply_transforms(
             &request.payload,
@@ -342,9 +414,9 @@ impl SanitizationEngine {
             transform_applied: transform.transformed_fields_count > 0,
         };
         let degraded = DegradedSummary {
-            is_degraded: false,
-            reasons: Vec::new(),
-            fail_closed_applied: false,
+            is_degraded: !degraded_reasons.is_empty(),
+            reasons: degraded_reasons,
+            fail_closed_applied,
             missing_execution_paths: Vec::new(),
         };
         let explain = build_explain_summary(
@@ -472,6 +544,7 @@ fn logical_field_path(pointer: &str) -> String {
         .join(".")
 }
 
+#[cfg(feature = "ner")]
 fn looks_like_ner_candidate(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {

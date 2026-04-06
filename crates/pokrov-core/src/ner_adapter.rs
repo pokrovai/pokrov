@@ -1,4 +1,7 @@
-use std::sync::Mutex;
+use std::{
+    sync::{mpsc, Arc, Mutex},
+    time::Duration,
+};
 
 use crate::types::foundation::{
     EvidenceClass, HitLocationKind, NormalizedHit, SuppressionStatus, ValidationStatus,
@@ -34,13 +37,17 @@ impl std::fmt::Debug for NerAdapter {
 /// starving the tokio runtime. The streaming LLM handler already does this;
 /// non-streaming paths should be updated similarly.
 pub struct NerAdapter {
-    engine: Mutex<pokrov_ner::NerEngine>,
+    engine: Arc<Mutex<pokrov_ner::NerEngine>>,
     config: NerAdapterConfig,
 }
 
 impl NerAdapter {
     pub fn new(engine: pokrov_ner::NerEngine, config: NerAdapterConfig) -> Self {
-        Self { engine: Mutex::new(engine), config }
+        Self { engine: Arc::new(Mutex::new(engine)), config }
+    }
+
+    pub const fn fail_mode(&self) -> NerFailMode {
+        self.config.fail_mode
     }
 
     pub fn recognize_sync(
@@ -65,17 +72,41 @@ impl NerAdapter {
         items: &[(String, &str)],
         entity_types: &[pokrov_ner::NerEntityType],
     ) -> Result<Vec<(String, Vec<NormalizedHit>)>, NerAdapterError> {
-        let mut engine = self
-            .engine
-            .lock()
-            .map_err(|_| NerAdapterError::EngineFailed("engine lock poisoned".to_string()))?;
-
         let texts: Vec<String> = items.iter().map(|(_, t)| t.to_string()).collect();
-        let results = engine
-            .recognize_batch(&texts, entity_types)
-            .map_err(|e| NerAdapterError::EngineFailed(e.to_string()))?;
+        let entity_types = entity_types.to_vec();
+        let timeout_ms = self.config.timeout_ms;
+        let engine = Arc::clone(&self.engine);
+        let (tx, rx) = mpsc::channel();
 
-        Ok(results
+        std::thread::spawn(move || {
+            let result = recognize_and_normalize_batch(&engine, &texts, &entity_types);
+            let _ = tx.send(result);
+        });
+
+        rx.recv_timeout(Duration::from_millis(timeout_ms))
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => NerAdapterError::Timeout(timeout_ms),
+                mpsc::RecvTimeoutError::Disconnected => {
+                    NerAdapterError::EngineFailed("NER worker disconnected".to_string())
+                }
+            })?
+    }
+}
+
+fn recognize_and_normalize_batch(
+    engine: &Arc<Mutex<pokrov_ner::NerEngine>>,
+    texts: &[String],
+    entity_types: &[pokrov_ner::NerEntityType],
+) -> Result<Vec<(String, Vec<NormalizedHit>)>, NerAdapterError> {
+    let mut engine = engine
+        .lock()
+        .map_err(|_| NerAdapterError::EngineFailed("engine lock poisoned".to_string()))?;
+
+    let results = engine
+        .recognize_batch(texts, entity_types)
+        .map_err(|e| NerAdapterError::EngineFailed(e.to_string()))?;
+
+    Ok(results
             .into_iter()
             .map(|(text, hits)| {
                 let normalized: Vec<NormalizedHit> = hits
@@ -106,7 +137,6 @@ impl NerAdapter {
                 (text, normalized)
             })
             .collect())
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

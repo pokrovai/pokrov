@@ -792,7 +792,14 @@ fn init_ner_engine(
 
     let mut ner_profile_types =
         std::collections::HashMap::<String, Vec<pokrov_ner::NerEntityType>>::new();
+    let mut ner_profile_fail_modes = std::collections::HashMap::<String, NerFailMode>::new();
     for (profile_id, profile_cfg) in &ner_config.profiles {
+        let fail_mode = match profile_cfg.fail_mode {
+            pokrov_config::NerFailMode::FailOpen => NerFailMode::FailOpen,
+            pokrov_config::NerFailMode::FailClosed => NerFailMode::FailClosed,
+        };
+        ner_profile_fail_modes.insert(profile_id.clone(), fail_mode);
+
         let types: Vec<pokrov_ner::NerEntityType> = profile_cfg
             .entity_types
             .iter()
@@ -803,7 +810,10 @@ fn init_ner_engine(
         }
     }
 
-    Ok(engine.with_ner(adapter).with_ner_profiles(ner_profile_types))
+    Ok(engine
+        .with_ner(adapter)
+        .with_ner_profiles(ner_profile_types)
+        .with_ner_fail_modes(ner_profile_fail_modes))
 }
 
 fn is_llm_enabled(config: &RuntimeConfig) -> bool {
