@@ -3,7 +3,7 @@ use std::path::Path;
 
 use ort::session::Session;
 use ort::value::Tensor;
-use tokenizers::Tokenizer;
+use tokenizers::{Tokenizer, TruncationParams};
 use tracing::{debug, info};
 
 use crate::decode::{argmax_labels, decode_bio_tags};
@@ -37,7 +37,12 @@ impl NerEngine {
 
         for binding in &config.models {
             let (session, tokenizer, id2label, has_token_type_ids) =
-                Self::load_model(&binding.model_path, &binding.tokenizer_path, &binding.language)?;
+                Self::load_model(
+                    &binding.model_path,
+                    &binding.tokenizer_path,
+                    &binding.language,
+                    config.max_seq_length,
+                )?;
             models.push(LoadedModel {
                 language: binding.language.clone(),
                 priority: binding.priority,
@@ -71,6 +76,7 @@ impl NerEngine {
         model_path: &Path,
         tokenizer_path: &Path,
         language: &str,
+        max_seq_length: usize,
     ) -> Result<(Session, Tokenizer, HashMap<usize, String>, bool), NerError> {
         if !model_path.exists() {
             return Err(NerError::ModelNotFound { path: model_path.to_path_buf() });
@@ -83,8 +89,15 @@ impl NerEngine {
         let session = builder
             .commit_from_file(model_path)
             .map_err(|e| NerError::SessionInit(e.to_string()))?;
-        let tokenizer = Tokenizer::from_file(tokenizer_path)
+        let mut tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| NerError::TokenizationFailed(e.to_string()))?;
+        if max_seq_length > 0 {
+            let mut truncation = tokenizer.get_truncation().cloned().unwrap_or_default();
+            truncation.max_length = max_seq_length;
+            tokenizer
+                .with_truncation(Some(TruncationParams { max_length: max_seq_length, ..truncation }))
+                .map_err(|e| NerError::TokenizationFailed(e.to_string()))?;
+        }
         let id2label = load_id2label(model_path);
         let has_token_type_ids = session.inputs().iter().any(|inp| inp.name() == "token_type_ids");
 

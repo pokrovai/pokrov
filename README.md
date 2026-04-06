@@ -20,6 +20,7 @@ The service receives agent traffic, applies sanitization and validation policies
 - [Quality Checks](#quality-checks)
 - [Security Policy](#security-policy)
 - [Contributing](#contributing)
+- [License](#license)
 
 ## Project Status
 
@@ -598,3 +599,7 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting and response guidelin
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution workflow, coding expectations, and pull request guidance.
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).

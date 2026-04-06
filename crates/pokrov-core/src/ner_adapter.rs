@@ -74,7 +74,7 @@ impl NerAdapter {
     ) -> Result<Vec<(String, Vec<NormalizedHit>)>, NerAdapterError> {
         let texts: Vec<String> = items.iter().map(|(_, t)| t.to_string()).collect();
         let entity_types = entity_types.to_vec();
-        let timeout_ms = self.config.timeout_ms;
+        let timeout_ms = self.effective_timeout_ms(texts.len());
         let engine = Arc::clone(&self.engine);
         let (tx, rx) = mpsc::channel();
 
@@ -90,6 +90,13 @@ impl NerAdapter {
                     NerAdapterError::EngineFailed("NER worker disconnected".to_string())
                 }
             })?
+    }
+
+    fn effective_timeout_ms(&self, texts_len: usize) -> u64 {
+        // NerEngine evaluates batches in 32-item chunks. Scale timeout to preserve
+        // the configured per-chunk budget on large payloads.
+        let chunks = ((texts_len + 31) / 32).max(1) as u64;
+        self.config.timeout_ms.saturating_mul(chunks)
     }
 }
 
