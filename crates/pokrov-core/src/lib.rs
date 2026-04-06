@@ -112,6 +112,82 @@ impl SanitizationEngine {
         self
     }
 
+    /// Collects NER hits from string leaves and appends them to the detection hit list.
+    /// Deduplicates texts via HashSet to avoid redundant inference on identical values.
+    #[cfg(feature = "ner")]
+    fn apply_ner_detection(
+        &self,
+        payload: &serde_json::Value,
+        profile_id: &str,
+        ner: &Arc<NerAdapter>,
+        hits: &mut Vec<crate::types::DetectionHit>,
+    ) {
+        use std::collections::HashSet;
+
+        let mut items: Vec<(String, String)> = Vec::new();
+        traversal::visit_string_leaves(payload, &mut |pointer, text| {
+            if text.len() >= 3 && looks_like_ner_candidate(text) {
+                items.push((pointer.to_string(), text.to_string()));
+            }
+        });
+        if items.is_empty() {
+            return;
+        }
+
+        let mut seen: HashSet<&str> = HashSet::with_capacity(items.len());
+        let mut unique_texts: Vec<String> = Vec::new();
+        let mut text_to_indices: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
+
+        for (idx, (_, text)) in items.iter().enumerate() {
+            if seen.insert(text.as_str()) {
+                unique_texts.push(text.clone());
+            }
+            text_to_indices.entry(text.clone()).or_default().push(idx);
+        }
+
+        let refs: Vec<(String, &str)> =
+            unique_texts.iter().map(|t| (t.clone(), t.as_str())).collect();
+        let batch_results =
+            if let Some(profile_types) = self.ner_profile_entity_types.get(profile_id) {
+                ner.recognize_batch_sync_with_types(&refs, profile_types)
+            } else {
+                ner.recognize_batch_sync(&refs)
+            };
+
+        match batch_results {
+            Ok(batch_results) => {
+                for (unique_idx, (_, normalized)) in batch_results.iter().enumerate() {
+                    let unique_text = &unique_texts[unique_idx];
+                    if let Some(indices) = text_to_indices.get(unique_text) {
+                        for &item_idx in indices {
+                            let pointer = &items[item_idx].0;
+                            for nh in normalized {
+                                hits.push(crate::types::DetectionHit {
+                                    rule_id: nh.rule_id.clone(),
+                                    category: nh.category,
+                                    json_pointer: pointer.clone(),
+                                    start: nh.start,
+                                    end: nh.end,
+                                    action: nh.action_hint,
+                                    priority: nh.priority,
+                                    replacement_template: if nh.replacement_template_present {
+                                        Some(String::new())
+                                    } else {
+                                        None
+                                    },
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "NER batch inference failed, skipping NER hits");
+            }
+        }
+    }
+
     /// Evaluates one payload through the current sanitization pipeline.
     pub fn evaluate(&self, request: EvaluateRequest) -> Result<EvaluateResult, EvaluateError> {
         let artifacts = self.evaluate_internal(&request)?;
@@ -203,68 +279,7 @@ impl SanitizationEngine {
         {
             if let Some(ref ner) = self.ner {
                 if compiled_profile.profile.ner_enabled {
-                    let mut items: Vec<(String, String)> = Vec::new();
-                    traversal::visit_string_leaves(&request.payload, &mut |pointer, text| {
-                        if text.len() >= 3 && looks_like_ner_candidate(text) {
-                            items.push((pointer.to_string(), text.to_string()));
-                        }
-                    });
-                    if !items.is_empty() {
-                        let mut unique_texts: Vec<String> = Vec::new();
-                        let mut text_to_indices: std::collections::HashMap<String, Vec<usize>> =
-                            std::collections::HashMap::new();
-                        for (idx, (_, text)) in items.iter().enumerate() {
-                            text_to_indices.entry(text.clone()).or_default().push(idx);
-                            if !unique_texts.contains(text) {
-                                unique_texts.push(text.clone());
-                            }
-                        }
-
-                        let refs: Vec<(String, &str)> =
-                            unique_texts.iter().map(|t| (t.clone(), t.as_str())).collect();
-                        let batch_results = if let Some(profile_types) =
-                            self.ner_profile_entity_types.get(&profile_id)
-                        {
-                            ner.recognize_batch_sync_with_types(&refs, profile_types)
-                        } else {
-                            ner.recognize_batch_sync(&refs)
-                        };
-                        match batch_results {
-                            Ok(batch_results) => {
-                                for (unique_idx, (_, normalized)) in
-                                    batch_results.iter().enumerate()
-                                {
-                                    let unique_text = &unique_texts[unique_idx];
-                                    if let Some(indices) = text_to_indices.get(unique_text) {
-                                        for &item_idx in indices {
-                                            let pointer = &items[item_idx].0;
-                                            for nh in normalized {
-                                                hits.push(crate::types::DetectionHit {
-                                                    rule_id: nh.rule_id.clone(),
-                                                    category: nh.category,
-                                                    json_pointer: pointer.clone(),
-                                                    start: nh.start,
-                                                    end: nh.end,
-                                                    action: nh.action_hint,
-                                                    priority: nh.priority,
-                                                    replacement_template: if nh
-                                                        .replacement_template_present
-                                                    {
-                                                        Some(String::new())
-                                                    } else {
-                                                        None
-                                                    },
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "NER batch inference failed, skipping NER hits");
-                            }
-                        }
-                    }
+                    self.apply_ner_detection(&request.payload, &profile_id, ner, &mut hits);
                 }
             }
         }
@@ -468,32 +483,32 @@ fn looks_like_ner_candidate(text: &str) -> bool {
         None => return false,
     };
 
-    if first_char.is_ascii_digit() {
-        if trimmed.contains(':') || trimmed.contains('-') || trimmed.contains('/') {
-            return false;
-        }
+    if first_char.is_ascii_digit()
+        && (trimmed.contains(':') || trimmed.contains('-') || trimmed.contains('/'))
+    {
+        return false;
     }
 
     let mut has_alpha = false;
-    let mut has_upper = false;
-    let mut word_count = 0;
     for word in trimmed.split_whitespace() {
-        word_count += 1;
         for c in word.chars() {
-            if c.is_uppercase() {
-                has_upper = true;
-            }
             if c.is_alphabetic() {
                 has_alpha = true;
+                break;
             }
         }
+        if has_alpha {
+            break;
+        }
     }
-    if !has_alpha || !has_upper {
+    if !has_alpha {
         return false;
     }
-    if word_count == 1 && trimmed.len() < 4 {
+
+    if trimmed.len() < 2 {
         return false;
     }
+
     true
 }
 

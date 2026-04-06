@@ -308,63 +308,7 @@ where
             .map_err(BootstrapError::Sanitization)?;
 
         #[cfg(feature = "ner")]
-        let engine = if let Some(ner_config) = &config.ner {
-            if ner_config.enabled {
-                let ner_engine = pokrov_ner::NerEngine::new(pokrov_ner::NerConfig {
-                    models: ner_config
-                        .models
-                        .iter()
-                        .map(|m| pokrov_ner::model::NerModelBinding {
-                            language: m.language.clone(),
-                            model_path: std::path::PathBuf::from(&m.model_path),
-                            tokenizer_path: std::path::PathBuf::from(&m.tokenizer_path),
-                            priority: m.priority,
-                        })
-                        .collect(),
-                    fallback_language: ner_config.fallback_language.clone(),
-                    timeout_ms: ner_config.timeout_ms,
-                    max_seq_length: ner_config.max_seq_length,
-                    confidence_threshold: ner_config.confidence_threshold,
-                })
-                .map_err(|e| {
-                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
-                        "NER engine init failed: {e}"
-                    )))
-                })?;
-
-                let adapter = Arc::new(pokrov_core::ner_adapter::NerAdapter::new(
-                    ner_engine,
-                    pokrov_core::ner_adapter::NerAdapterConfig {
-                        enabled: true,
-                        fail_mode: pokrov_core::ner_adapter::NerFailMode::FailOpen,
-                        entity_types: vec![
-                            pokrov_ner::NerEntityType::Person,
-                            pokrov_ner::NerEntityType::Organization,
-                        ],
-                        timeout_ms: ner_config.timeout_ms,
-                    },
-                ));
-
-                let mut ner_profile_types =
-                    std::collections::HashMap::<String, Vec<pokrov_ner::NerEntityType>>::new();
-                for (profile_id, profile_cfg) in &ner_config.profiles {
-                    let types: Vec<pokrov_ner::NerEntityType> = profile_cfg
-                        .entity_types
-                        .iter()
-                        .filter_map(|s| serde_json::from_value(serde_json::json!(s)).ok())
-                        .collect();
-                    if !types.is_empty() {
-                        ner_profile_types.insert(profile_id.clone(), types);
-                    }
-                }
-
-                engine.with_ner(adapter).with_ner_profiles(ner_profile_types)
-            } else {
-                engine
-            }
-        } else {
-            engine
-        };
+        let engine = init_ner_engine(engine, &config)?;
 
         Some(Arc::new(engine))
     } else {
@@ -795,6 +739,71 @@ fn parse_peer_subject(certificate_der: &[u8]) -> Result<String, String> {
     let (_, parsed) = parse_x509_certificate(certificate_der)
         .map_err(|error| format!("invalid x509 certificate: {error}"))?;
     Ok(parsed.subject().to_string())
+}
+
+#[cfg(feature = "ner")]
+fn init_ner_engine(
+    engine: SanitizationEngine,
+    config: &RuntimeConfig,
+) -> Result<SanitizationEngine, BootstrapError> {
+    use pokrov_core::ner_adapter::{NerAdapter, NerAdapterConfig, NerFailMode};
+
+    let Some(ner_config) = &config.ner else {
+        return Ok(engine);
+    };
+    if !ner_config.enabled {
+        return Ok(engine);
+    }
+
+    let ner_engine = pokrov_ner::NerEngine::new(pokrov_ner::NerConfig {
+        models: ner_config
+            .models
+            .iter()
+            .map(|m| pokrov_ner::model::NerModelBinding {
+                language: m.language.clone(),
+                model_path: std::path::PathBuf::from(&m.model_path),
+                tokenizer_path: std::path::PathBuf::from(&m.tokenizer_path),
+                priority: m.priority,
+            })
+            .collect(),
+        fallback_language: ner_config.fallback_language.clone(),
+        timeout_ms: ner_config.timeout_ms,
+        max_seq_length: ner_config.max_seq_length,
+        confidence_threshold: ner_config.confidence_threshold,
+    })
+    .map_err(|e| {
+        BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+            "NER engine init failed: {e}"
+        )))
+    })?;
+
+    let adapter = Arc::new(NerAdapter::new(
+        ner_engine,
+        NerAdapterConfig {
+            enabled: true,
+            fail_mode: NerFailMode::FailOpen,
+            entity_types: vec![
+                pokrov_ner::NerEntityType::Person,
+                pokrov_ner::NerEntityType::Organization,
+            ],
+            timeout_ms: ner_config.timeout_ms,
+        },
+    ));
+
+    let mut ner_profile_types =
+        std::collections::HashMap::<String, Vec<pokrov_ner::NerEntityType>>::new();
+    for (profile_id, profile_cfg) in &ner_config.profiles {
+        let types: Vec<pokrov_ner::NerEntityType> = profile_cfg
+            .entity_types
+            .iter()
+            .filter_map(|s| serde_json::from_value(serde_json::json!(s)).ok())
+            .collect();
+        if !types.is_empty() {
+            ner_profile_types.insert(profile_id.clone(), types);
+        }
+    }
+
+    Ok(engine.with_ner(adapter).with_ner_profiles(ner_profile_types))
 }
 
 fn is_llm_enabled(config: &RuntimeConfig) -> bool {

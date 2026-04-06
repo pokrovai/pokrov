@@ -65,6 +65,7 @@ fn default_models() -> Vec<NerModelBinding> {
     vec![
         NerModelBinding {
             language: "en".to_string(),
+            // Relative to the process working directory; override in config for production.
             model_path: PathBuf::from("models/bert-base-NER/model.onnx"),
             tokenizer_path: PathBuf::from("models/bert-base-NER/tokenizer.json"),
             priority: 100,
@@ -94,7 +95,9 @@ impl Default for NerConfig {
 pub struct NerHit {
     pub entity: NerEntityType,
     pub text: String,
+    /// UTF-8 byte offset into the source text.
     pub start: usize,
+    /// UTF-8 byte offset into the source text (exclusive).
     pub end: usize,
     pub score: f32,
     pub language: String,

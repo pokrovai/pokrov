@@ -44,6 +44,7 @@ fn default_models() -> Vec<NerModelBinding> {
     vec![
         NerModelBinding {
             language: "en".to_string(),
+            // Relative to CWD; override in config for production deployments.
             model_path: "./models/bert-base-NER/model.onnx".to_string(),
             tokenizer_path: "./models/bert-base-NER/tokenizer.json".to_string(),
             priority: 100,

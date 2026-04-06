@@ -1,6 +1,8 @@
 pub mod decode;
 pub mod engine;
 pub mod error;
+pub mod label;
+pub mod lang;
 pub mod model;
 
 pub use engine::NerEngine;

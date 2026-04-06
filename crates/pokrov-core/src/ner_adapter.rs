@@ -25,6 +25,14 @@ impl std::fmt::Debug for NerAdapter {
     }
 }
 
+/// Wraps a synchronous `NerEngine` behind a `Mutex` for safe concurrent access.
+///
+/// **Blocking warning**: ONNX inference is CPU-bound and blocks the calling thread
+/// for the duration of the batch (typically 10-80ms). Callers in async contexts
+/// (e.g. axum handlers) MUST wrap calls to this adapter in
+/// `tokio::task::spawn_blocking` or `tokio::task::block_in_place` to avoid
+/// starving the tokio runtime. The streaming LLM handler already does this;
+/// non-streaming paths should be updated similarly.
 pub struct NerAdapter {
     engine: Mutex<pokrov_ner::NerEngine>,
     config: NerAdapterConfig,

@@ -10,8 +10,10 @@ pub struct RawEntitySpan {
     pub label: String,
     pub token_start: usize,
     pub token_end: usize,
-    pub char_start: usize,
-    pub char_end: usize,
+    /// UTF-8 byte offset into the source text (matching regex crate convention).
+    pub byte_start: usize,
+    /// UTF-8 byte offset into the source text (matching regex crate convention).
+    pub byte_end: usize,
     pub text: String,
 }
 
@@ -24,30 +26,27 @@ pub fn decode_bio_tags(
     let mut current: Option<BioSpan> = None;
 
     for (i, label) in labels.iter().enumerate() {
-        if label.starts_with("B-") {
+        if let Some(stripped) = label.strip_prefix("B-") {
             if let Some(span) = current.take() {
                 push_span(&span, char_offsets, text, &mut spans);
             }
-            current = Some(BioSpan {
-                entity_label: label[2..].to_string(),
-                token_start: i,
-                token_end: i,
-            });
-        } else if label.starts_with("I-") {
+            current =
+                Some(BioSpan { entity_label: stripped.to_string(), token_start: i, token_end: i });
+        } else if let Some(stripped) = label.strip_prefix("I-") {
             if let Some(ref mut span) = current {
-                if span.entity_label == label[2..] {
+                if span.entity_label == stripped {
                     span.token_end = i;
                 } else {
                     push_span(span, char_offsets, text, &mut spans);
                     *span = BioSpan {
-                        entity_label: label[2..].to_string(),
+                        entity_label: stripped.to_string(),
                         token_start: i,
                         token_end: i,
                     };
                 }
             } else {
                 current = Some(BioSpan {
-                    entity_label: label[2..].to_string(),
+                    entity_label: stripped.to_string(),
                     token_start: i,
                     token_end: i,
                 });
@@ -83,8 +82,8 @@ fn push_span(span: &BioSpan, offsets: &[(usize, usize)], text: &str, out: &mut V
         label: span.entity_label.clone(),
         token_start: span.token_start,
         token_end: span.token_end,
-        char_start: byte_start,
-        char_end: byte_end,
+        byte_start,
+        byte_end,
         text: extracted,
     });
 }
@@ -122,8 +121,8 @@ mod tests {
         let spans = decode_bio_tags(&labels, &offsets, text);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].label, "PER");
-        assert_eq!(spans[0].char_start, 2);
-        assert_eq!(spans[0].char_end, 12);
+        assert_eq!(spans[0].byte_start, 2);
+        assert_eq!(spans[0].byte_end, 12);
         assert_eq!(spans[0].text, "John Smith");
     }
 
@@ -159,8 +158,8 @@ mod tests {
 
         let spans = decode_bio_tags(&labels, &offsets, text);
         assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].char_start, 2);
-        assert_eq!(spans[0].char_end, 12);
+        assert_eq!(spans[0].byte_start, 2);
+        assert_eq!(spans[0].byte_end, 12);
         assert_eq!(spans[0].text, "John Smith");
     }
 
