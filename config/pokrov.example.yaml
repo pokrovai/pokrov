@@ -122,7 +122,7 @@ ner:
       tokenizer_path: "./models/ner-rubert-tiny-news/tokenizer.json"
       priority: 100
   fallback_language: en
-  timeout_ms: 80
+  timeout_ms: 2000
   confidence_threshold: 0.7
   max_seq_length: 512
   profiles:
