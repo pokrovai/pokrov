@@ -59,6 +59,8 @@ pub struct SanitizationEngine {
     profiles: Arc<BTreeMap<String, CompiledProfile>>,
     #[cfg(feature = "ner")]
     ner: Option<Arc<NerAdapter>>,
+    #[cfg(feature = "ner")]
+    ner_profile_entity_types: std::collections::HashMap<String, Vec<pokrov_ner::NerEntityType>>,
 }
 
 impl SanitizationEngine {
@@ -90,12 +92,23 @@ impl SanitizationEngine {
             profiles: Arc::new(profiles),
             #[cfg(feature = "ner")]
             ner: None,
+            #[cfg(feature = "ner")]
+            ner_profile_entity_types: std::collections::HashMap::new(),
         })
     }
 
     #[cfg(feature = "ner")]
     pub fn with_ner(mut self, adapter: Arc<NerAdapter>) -> Self {
         self.ner = Some(adapter);
+        self
+    }
+
+    #[cfg(feature = "ner")]
+    pub fn with_ner_profiles(
+        mut self,
+        profiles: std::collections::HashMap<String, Vec<pokrov_ner::NerEntityType>>,
+    ) -> Self {
+        self.ner_profile_entity_types = profiles;
         self
     }
 
@@ -189,28 +202,70 @@ impl SanitizationEngine {
         #[cfg(feature = "ner")]
         {
             if let Some(ref ner) = self.ner {
-                let mut ner_hits = Vec::new();
-                traversal::visit_string_leaves(&request.payload, &mut |pointer, text| {
-                    if let Ok(normalized) = ner.recognize_sync(text, pointer) {
-                        for nh in normalized {
-                            ner_hits.push(crate::types::DetectionHit {
-                                rule_id: nh.rule_id,
-                                category: nh.category,
-                                json_pointer: nh.json_pointer,
-                                start: nh.start,
-                                end: nh.end,
-                                action: nh.action_hint,
-                                priority: nh.priority,
-                                replacement_template: if nh.replacement_template_present {
-                                    Some(String::new())
-                                } else {
-                                    None
-                                },
-                            });
+                if compiled_profile.profile.ner_enabled {
+                    let mut items: Vec<(String, String)> = Vec::new();
+                    traversal::visit_string_leaves(&request.payload, &mut |pointer, text| {
+                        if text.len() >= 3 && looks_like_ner_candidate(text) {
+                            items.push((pointer.to_string(), text.to_string()));
+                        }
+                    });
+                    if !items.is_empty() {
+                        let mut unique_texts: Vec<String> = Vec::new();
+                        let mut text_to_indices: std::collections::HashMap<String, Vec<usize>> =
+                            std::collections::HashMap::new();
+                        for (idx, (_, text)) in items.iter().enumerate() {
+                            text_to_indices.entry(text.clone()).or_default().push(idx);
+                            if !unique_texts.contains(text) {
+                                unique_texts.push(text.clone());
+                            }
+                        }
+
+                        let refs: Vec<(String, &str)> =
+                            unique_texts.iter().map(|t| (t.clone(), t.as_str())).collect();
+                        let batch_results = if let Some(profile_types) =
+                            self.ner_profile_entity_types.get(&profile_id)
+                        {
+                            ner.recognize_batch_sync_with_types(&refs, profile_types)
+                        } else {
+                            ner.recognize_batch_sync(&refs)
+                        };
+                        match batch_results {
+                            Ok(batch_results) => {
+                                for (unique_idx, (_, normalized)) in
+                                    batch_results.iter().enumerate()
+                                {
+                                    let unique_text = &unique_texts[unique_idx];
+                                    if let Some(indices) = text_to_indices.get(unique_text) {
+                                        for &item_idx in indices {
+                                            let pointer = &items[item_idx].0;
+                                            for nh in normalized {
+                                                hits.push(crate::types::DetectionHit {
+                                                    rule_id: nh.rule_id.clone(),
+                                                    category: nh.category,
+                                                    json_pointer: pointer.clone(),
+                                                    start: nh.start,
+                                                    end: nh.end,
+                                                    action: nh.action_hint,
+                                                    priority: nh.priority,
+                                                    replacement_template: if nh
+                                                        .replacement_template_present
+                                                    {
+                                                        Some(String::new())
+                                                    } else {
+                                                        None
+                                                    },
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "NER batch inference failed, skipping NER hits");
+                            }
                         }
                     }
-                });
-                hits.extend(ner_hits);
+                }
             }
         }
         let resolved_spans = resolve_overlaps(&hits);
@@ -400,6 +455,46 @@ fn logical_field_path(pointer: &str) -> String {
         .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
         .collect::<Vec<_>>()
         .join(".")
+}
+
+fn looks_like_ner_candidate(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let first_char = match trimmed.chars().next() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    if first_char.is_ascii_digit() {
+        if trimmed.contains(':') || trimmed.contains('-') || trimmed.contains('/') {
+            return false;
+        }
+    }
+
+    let mut has_alpha = false;
+    let mut has_upper = false;
+    let mut word_count = 0;
+    for word in trimmed.split_whitespace() {
+        word_count += 1;
+        for c in word.chars() {
+            if c.is_uppercase() {
+                has_upper = true;
+            }
+            if c.is_alphabetic() {
+                has_alpha = true;
+            }
+        }
+    }
+    if !has_alpha || !has_upper {
+        return false;
+    }
+    if word_count == 1 && trimmed.len() < 4 {
+        return false;
+    }
+    true
 }
 
 #[cfg(test)]

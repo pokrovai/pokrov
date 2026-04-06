@@ -1,23 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL_NAME="${1:-dslim/bert-base-NER}"
-MODEL_DIR="${2:-models/bert-base-NER}"
+usage() {
+    cat <<'EOF'
+Usage: download-ner-model.sh [MODEL_ID [OUTPUT_DIR]]
 
-echo "Downloading NER model: ${MODEL_NAME}"
-echo "Output directory: ${MODEL_DIR}"
+Download a single Hugging Face NER model and export it to ONNX format.
 
-if ! command -v python3 &>/dev/null; then
-    echo "ERROR: python3 is required for model conversion"
-    exit 1
+Options:
+  --all    Download all recommended models (EN + RU)
+
+Examples:
+  # Download a single model
+  ./scripts/download-ner-model.sh dslim/bert-base-NER models/bert-base-NER
+
+  # Download all recommended models
+  ./scripts/download-ner-model.sh --all
+
+Recommended models:
+  EN: dslim/bert-base-NER   -> models/bert-base-NER/
+  RU: cointegrated/rubert-tiny2-ner -> models/ner-rubert-tiny-news/
+
+Dependencies: python3, torch, transformers, optimum
+EOF
+    exit "${1:-0}"
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage 0
 fi
 
-python3 -c "
+export_model() {
+    local model_name="$1"
+    local out_dir="$2"
+
+    echo "Downloading NER model: ${model_name}"
+    echo "Output directory: ${out_dir}"
+
+    if ! command -v python3 &>/dev/null; then
+        echo "ERROR: python3 is required for model conversion"
+        exit 1
+    fi
+
+    python3 -c "
 from transformers import AutoTokenizer, AutoModelForTokenClassification
 import torch, json, os
 
-model_name = '${MODEL_NAME}'
-out_dir = '${MODEL_DIR}'
+model_name = '${model_name}'
+out_dir = '${out_dir}'
 os.makedirs(out_dir, exist_ok=True)
 
 print(f'Loading tokenizer and model: {model_name}')
@@ -76,6 +106,24 @@ for name in sorted(os.listdir(out_dir)):
     print(f'  {name} ({size:,} bytes)')
 "
 
-echo ""
-echo "Model exported to ${MODEL_DIR}"
-ls -la "${MODEL_DIR}"
+    echo ""
+    echo "Model exported to ${out_dir}"
+    ls -la "${out_dir}"
+}
+
+if [[ "${1:-}" == "--all" ]]; then
+    echo "=== Downloading all recommended NER models ==="
+    echo ""
+    export_model "dslim/bert-base-NER" "models/bert-base-NER"
+    echo ""
+    echo "============================================="
+    echo ""
+    export_model "cointegrated/rubert-tiny2-ner" "models/ner-rubert-tiny-news"
+    echo ""
+    echo "=== All models downloaded ==="
+    exit 0
+fi
+
+MODEL_NAME="${1:-dslim/bert-base-NER}"
+MODEL_DIR="${2:-models/$(basename "$MODEL_NAME" | tr '/' '-')}"
+export_model "$MODEL_NAME" "$MODEL_DIR"

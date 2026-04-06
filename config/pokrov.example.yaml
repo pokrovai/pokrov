@@ -61,6 +61,7 @@ sanitization:
         corporate_markers: allow
       mask_visible_suffix: 4
       max_hits_per_request: 4096
+      ner_enabled: false
     strict:
       mode_default: enforce
       categories:
@@ -69,6 +70,7 @@ sanitization:
         corporate_markers: mask
       mask_visible_suffix: 4
       max_hits_per_request: 4096
+      ner_enabled: true
       deterministic_recognizers:
         - id: payment_card
           category: secrets
@@ -99,6 +101,7 @@ sanitization:
         corporate_markers: mask
       mask_visible_suffix: 4
       max_hits_per_request: 4096
+      ner_enabled: false
       custom_rules:
         - id: custom.project_andromeda
           category: corporate_markers

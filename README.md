@@ -30,6 +30,8 @@ Pokrov is a single control point for coding/AI agents to:
 - Health/readiness/metrics endpoints.
 - Metadata-only audit and structured logging.
 - Release evidence artifact generation.
+- Optional NER-based PII detection (persons, organizations) for English and Russian
+  with per-profile entity type filtering and ONNX inference.
 
 ## Runtime Endpoints
 
@@ -45,7 +47,7 @@ Pokrov is a single control point for coding/AI agents to:
 
 ## Out of Scope for v1
 
-Per `docs/PRD.md`, v1 intentionally excludes: A2A proxy, RBAC/IAM, SIEM export, web UI/admin panel, heavy ML NER, response caching, and a full control plane.
+Per `docs/PRD.md`, v1 intentionally excludes: A2A proxy, RBAC/IAM, SIEM export, web UI/admin panel, heavy ML NER (beyond lightweight ONNX models), response caching, and a full control plane.
 
 ## Quick Start (Local)
 
@@ -53,6 +55,12 @@ Per `docs/PRD.md`, v1 intentionally excludes: A2A proxy, RBAC/IAM, SIEM export, 
 export POKROV_API_KEY='dev-runtime-key'
 export OPENAI_API_KEY='provider-dev-key'
 cargo run -p pokrov-runtime -- --config ./config/pokrov.example.yaml
+```
+
+With NER enabled:
+
+```bash
+cargo run -p pokrov-runtime --features ner -- --config ./config/pokrov.example.yaml
 ```
 
 Probe checks:
@@ -113,6 +121,215 @@ curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
     "messages": [{"role": "user", "content": "hello"}]
   }' | jq
 ```
+
+## NER (Named Entity Recognition)
+
+Pokrov includes an optional NER module that detects **person names** and **organization names**
+in English and Russian text using lightweight ONNX models. NER hits are merged with
+builtin/deterministic detectors and go through the same overlap resolution and policy pipeline.
+
+### How It Works
+
+1. The sanitization engine extracts string leaves from the JSON payload.
+2. Candidate strings are filtered (dates, numbers, short lowercase tokens are skipped).
+3. Unique strings are batched and sent to the NER engine for inference.
+4. Detected entities are mapped to `pii` (person) or `corporate_markers` (organization) categories.
+5. Per-profile `entity_types` controls which entity kinds each profile detects.
+
+### Prerequisites
+
+```bash
+pip install torch transformers optimum
+```
+
+### Download Models
+
+Download both recommended models:
+
+```bash
+./scripts/download-ner-model.sh --all
+```
+
+Or download a single model:
+
+```bash
+./scripts/download-ner-model.sh dslim/bert-base-NER models/bert-base-NER
+./scripts/download-ner-model.sh cointegrated/rubert-tiny2-ner models/ner-rubert-tiny-news
+```
+
+Default model locations:
+
+| Language | Model | Directory |
+|----------|-------|-----------|
+| EN | `dslim/bert-base-NER` | `models/bert-base-NER/` |
+| RU | `cointegrated/rubert-tiny2-ner` | `models/ner-rubert-tiny-news/` |
+
+### Configuration
+
+Enable NER in the runtime config under the top-level `ner` section and set `ner_enabled: true`
+on each sanitization profile that should use NER detection.
+
+```yaml
+ner:
+  enabled: true
+  models:
+    - language: en
+      model_path: "./models/bert-base-NER/model.onnx"
+      tokenizer_path: "./models/bert-base-NER/tokenizer.json"
+      priority: 100
+    - language: ru
+      model_path: "./models/ner-rubert-tiny-news/model.onnx"
+      tokenizer_path: "./models/ner-rubert-tiny-news/tokenizer.json"
+      priority: 100
+  fallback_language: en
+  timeout_ms: 80
+  confidence_threshold: 0.7
+  max_seq_length: 512
+  profiles:
+    strict:
+      fail_mode: fail_closed
+      entity_types: [person, organization]
+    minimal:
+      fail_mode: fail_open
+      entity_types: [person]
+
+sanitization:
+  profiles:
+    strict:
+      ner_enabled: true
+      # ...
+    minimal:
+      ner_enabled: true
+      # ...
+```
+
+**Key settings:**
+
+| Field | Description |
+|-------|-------------|
+| `ner.enabled` | Global NER on/off switch |
+| `ner.models[].language` | Language tag (`en`, `ru`, etc.) used for auto-detection |
+| `ner.models[].priority` | Model priority when multiple models match the same language |
+| `ner.profiles.<name>.entity_types` | Which entity types to detect for this profile: `person`, `organization` |
+| `ner.profiles.<name>.fail_mode` | `fail_open` (skip NER on error) or `fail_closed` (block request on error) |
+| `sanitization.profiles.<name>.ner_enabled` | Per-profile toggle — must be `true` for NER to run on that profile |
+
+### Running with NER
+
+```bash
+export POKROV_API_KEY='dev-runtime-key'
+cargo run -p pokrov-runtime --features ner -- --config ./config/pokrov.example.yaml
+```
+
+### NER Examples
+
+**English — person and organization detection:**
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/v1/sanitize/evaluate \
+  -H "Authorization: Bearer $POKROV_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profile_id": "strict",
+    "mode": "enforce",
+    "effective_language": "en",
+    "payload": {
+      "text": "John Smith works at Google and Alice Johnson visited Microsoft"
+    }
+  }' | jq '{action: .final_action, hits: .explain.rule_hits_total, ner: .explain.family_counts.ner, sanitized: .sanitized_payload}'
+```
+
+Result:
+
+```json
+{
+  "action": "redact",
+  "hits": 4,
+  "ner": 4,
+  "sanitized": {
+    "text": "[REDACTED] works at [REDACTED] and [REDACTED] visited [REDACTED]"
+  }
+}
+```
+
+**Russian — person and organization detection:**
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/v1/sanitize/evaluate \
+  -H "Authorization: Bearer $POKROV_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profile_id": "strict",
+    "mode": "enforce",
+    "effective_language": "ru",
+    "payload": {
+      "text": "Иван Петров работает в Газпром и Мария Иванова посетила офис Яндекса"
+    }
+  }' | jq '{action: .final_action, hits: .explain.rule_hits_total, ner: .explain.family_counts.ner, sanitized: .sanitized_payload}'
+```
+
+Result:
+
+```json
+{
+  "action": "redact",
+  "hits": 4,
+  "ner": 4,
+  "sanitized": {
+    "text": "[REDACTED] работает в [REDACTED] и [REDACTED] посетила офис [REDACTED]"
+  }
+}
+```
+
+**Mixed payload — NER combined with builtin secret detection:**
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/v1/sanitize/evaluate \
+  -H "Authorization: Bearer $POKROV_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profile_id": "strict",
+    "mode": "enforce",
+    "effective_language": "en",
+    "payload": {
+      "user_name": "John Smith",
+      "company": "Google",
+      "secret_key": "sk-test-abc12345",
+      "message": "Alice Johnson from Microsoft confirmed the payment"
+    }
+  }' | jq '{action: .final_action, hits: .explain.rule_hits_total, families: .explain.family_counts}'
+```
+
+Result — NER hits merged with builtin secret/card detection:
+
+```json
+{
+  "action": "block",
+  "hits": 7,
+  "families": {
+    "builtin": 3,
+    "ner": 4,
+    "normalized_hit": 7,
+    "resolved_hit": 7
+  }
+}
+```
+
+### Per-Profile Entity Type Filtering
+
+The `ner.profiles` section controls which entity types each sanitization profile detects:
+
+- **strict** profile with `entity_types: [person, organization]` — detects both persons and organizations.
+- **minimal** profile with `entity_types: [person]` — detects only person names; organization names pass through.
+- Profiles not listed in `ner.profiles` use the adapter default (`person` + `organization`).
+
+### Performance
+
+- EN model (`dslim/bert-base-NER`): ~20-50ms per batch, PER F1=0.91.
+- RU model (`cointegrated/rubert-tiny2-ner`): ~15-30ms per batch.
+- Batch inference with automatic text deduplication — identical strings across JSON fields
+  are inferred only once.
+- P95 sanitization + NER overhead stays within the 50ms latency budget.
 
 ## Container Run
 
@@ -290,6 +507,8 @@ Expected:
 - Metadata-only structured errors on auth/policy/upstream failures.
 
 ## Quality Checks
+
+See [docs/configuration.md](docs/configuration.md) for the complete configuration reference with all fields, defaults, and examples.
 
 ```bash
 cargo check --workspace

@@ -267,6 +267,7 @@ mod tests {
             max_hits_per_request: 4096,
             custom_rules: Vec::new(),
             custom_rules_enabled: false,
+            ner_enabled: false,
         };
 
         SanitizationEngine::new(EvaluatorConfig {

@@ -40,40 +40,64 @@ impl NerAdapter {
         text: &str,
         json_pointer: &str,
     ) -> Result<Vec<NormalizedHit>, NerAdapterError> {
+        let refs: [(String, &str); 1] = [(json_pointer.to_string(), text)];
+        let results = self.recognize_batch_sync(&refs)?;
+        Ok(results.into_iter().next().unwrap_or_default().1)
+    }
+
+    pub fn recognize_batch_sync(
+        &self,
+        items: &[(String, &str)],
+    ) -> Result<Vec<(String, Vec<NormalizedHit>)>, NerAdapterError> {
+        self.recognize_batch_sync_with_types(items, &self.config.entity_types)
+    }
+
+    pub fn recognize_batch_sync_with_types(
+        &self,
+        items: &[(String, &str)],
+        entity_types: &[pokrov_ner::NerEntityType],
+    ) -> Result<Vec<(String, Vec<NormalizedHit>)>, NerAdapterError> {
         let mut engine = self
             .engine
             .lock()
             .map_err(|_| NerAdapterError::EngineFailed("engine lock poisoned".to_string()))?;
 
-        let hits = engine
-            .recognize(text, &self.config.entity_types)
+        let texts: Vec<String> = items.iter().map(|(_, t)| t.to_string()).collect();
+        let results = engine
+            .recognize_batch(&texts, entity_types)
             .map_err(|e| NerAdapterError::EngineFailed(e.to_string()))?;
 
-        let normalized: Vec<NormalizedHit> = hits
+        Ok(results
             .into_iter()
-            .map(|hit| NormalizedHit {
-                rule_id: format!("ner.{}.{}", hit.entity.as_str(), hit.language),
-                category: match hit.entity {
-                    pokrov_ner::NerEntityType::Person => DetectionCategory::Pii,
-                    pokrov_ner::NerEntityType::Organization => DetectionCategory::CorporateMarkers,
-                },
-                location_kind: HitLocationKind::JsonPointer,
-                json_pointer: json_pointer.to_string(),
-                start: hit.start,
-                end: hit.end,
-                action_hint: PolicyAction::Redact,
-                final_score: (hit.score * 100.0) as i32,
-                family_priority: 200,
-                priority: 200,
-                evidence_class: EvidenceClass::RemoteRecognizer,
-                validation_status: ValidationStatus::Candidate,
-                suppression_status: SuppressionStatus::None,
-                reason_codes: vec![format!("ner:{}", hit.entity.as_str())],
-                replacement_template_present: false,
+            .map(|(text, hits)| {
+                let normalized: Vec<NormalizedHit> = hits
+                    .into_iter()
+                    .map(|hit| NormalizedHit {
+                        rule_id: format!("ner.{}.{}", hit.entity.as_str(), hit.language),
+                        category: match hit.entity {
+                            pokrov_ner::NerEntityType::Person => DetectionCategory::Pii,
+                            pokrov_ner::NerEntityType::Organization => {
+                                DetectionCategory::CorporateMarkers
+                            }
+                        },
+                        location_kind: HitLocationKind::JsonPointer,
+                        json_pointer: String::new(),
+                        start: hit.start,
+                        end: hit.end,
+                        action_hint: PolicyAction::Redact,
+                        final_score: (hit.score * 100.0) as i32,
+                        family_priority: 200,
+                        priority: 200,
+                        evidence_class: EvidenceClass::RemoteRecognizer,
+                        validation_status: ValidationStatus::Candidate,
+                        suppression_status: SuppressionStatus::None,
+                        reason_codes: vec![format!("ner:{}", hit.entity.as_str())],
+                        replacement_template_present: false,
+                    })
+                    .collect();
+                (text, normalized)
             })
-            .collect();
-
-        Ok(normalized)
+            .collect())
     }
 }
 

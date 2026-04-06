@@ -42,6 +42,7 @@ fn engine() -> SanitizationEngine {
             enabled: true,
             deterministic: None,
         }],
+        ner_enabled: true,
     };
 
     let minimal = PolicyProfile {
@@ -57,6 +58,7 @@ fn engine() -> SanitizationEngine {
         max_hits_per_request: 4096,
         custom_rules_enabled: false,
         custom_rules: Vec::new(),
+        ner_enabled: false,
     };
 
     let custom = PolicyProfile {
@@ -72,6 +74,7 @@ fn engine() -> SanitizationEngine {
         max_hits_per_request: 4096,
         custom_rules_enabled: true,
         custom_rules: Vec::new(),
+        ner_enabled: false,
     };
 
     let profiles = BTreeMap::from([
@@ -160,6 +163,7 @@ fn conflicting_partial_transforms_stay_deterministic_across_rule_order() {
             max_hits_per_request: 4096,
             custom_rules_enabled: true,
             custom_rules,
+            ner_enabled: false,
         })
     }
 
@@ -282,6 +286,7 @@ fn foundation_trace_plan_changes_when_mask_suffix_changes() {
                 enabled: true,
                 deterministic: None,
             }],
+            ner_enabled: false,
         })
     }
 
@@ -393,6 +398,7 @@ fn deterministic_candidates_total_counts_only_deterministic_hits() {
                 },
             }),
         }],
+        ner_enabled: false,
     });
 
     let result = engine

@@ -344,7 +344,21 @@ where
                         timeout_ms: ner_config.timeout_ms,
                     },
                 ));
-                engine.with_ner(adapter)
+
+                let mut ner_profile_types =
+                    std::collections::HashMap::<String, Vec<pokrov_ner::NerEntityType>>::new();
+                for (profile_id, profile_cfg) in &ner_config.profiles {
+                    let types: Vec<pokrov_ner::NerEntityType> = profile_cfg
+                        .entity_types
+                        .iter()
+                        .filter_map(|s| serde_json::from_value(serde_json::json!(s)).ok())
+                        .collect();
+                    if !types.is_empty() {
+                        ner_profile_types.insert(profile_id.clone(), types);
+                    }
+                }
+
+                engine.with_ner(adapter).with_ner_profiles(ner_profile_types)
             } else {
                 engine
             }

@@ -63,6 +63,7 @@ fn valid_config() -> RuntimeConfig {
                     custom_rules: Vec::new(),
                     deterministic_recognizers: Vec::new(),
                     allow_empty_matches: false,
+                    ner_enabled: false,
                 },
                 strict: SanitizationProfile {
                     mode_default: EvaluationMode::Enforce,
@@ -77,6 +78,7 @@ fn valid_config() -> RuntimeConfig {
                     custom_rules: Vec::new(),
                     deterministic_recognizers: Vec::new(),
                     allow_empty_matches: false,
+                    ner_enabled: true,
                 },
                 custom: SanitizationProfile {
                     mode_default: EvaluationMode::DryRun,
@@ -99,6 +101,7 @@ fn valid_config() -> RuntimeConfig {
                     }],
                     deterministic_recognizers: Vec::new(),
                     allow_empty_matches: false,
+                    ner_enabled: false,
                 },
             },
         },

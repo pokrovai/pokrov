@@ -65,6 +65,8 @@ pub struct SanitizationProfile {
     pub deterministic_recognizers: Vec<DeterministicRecognizerConfig>,
     #[serde(default)]
     pub allow_empty_matches: bool,
+    #[serde(default)]
+    pub ner_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -209,6 +211,7 @@ fn to_policy_profile(profile_id: &str, profile: &SanitizationProfile) -> PolicyP
         max_hits_per_request: profile.max_hits_per_request,
         custom_rules_enabled: true,
         custom_rules,
+        ner_enabled: profile.ner_enabled,
     }
 }
 
@@ -357,6 +360,7 @@ fn default_minimal_profile() -> SanitizationProfile {
         custom_rules: Vec::new(),
         deterministic_recognizers: Vec::new(),
         allow_empty_matches: false,
+        ner_enabled: false,
     }
 }
 
@@ -374,6 +378,7 @@ fn default_strict_profile() -> SanitizationProfile {
         custom_rules: Vec::new(),
         deterministic_recognizers: Vec::new(),
         allow_empty_matches: false,
+        ner_enabled: true,
     }
 }
 
@@ -391,6 +396,7 @@ fn default_custom_profile() -> SanitizationProfile {
         custom_rules: Vec::new(),
         deterministic_recognizers: Vec::new(),
         allow_empty_matches: false,
+        ner_enabled: false,
     }
 }
 
@@ -543,6 +549,7 @@ sanitization:
                 context: None,
             }],
             allow_empty_matches: false,
+            ner_enabled: false,
         };
 
         let policy = to_policy_profile("strict", &profile);
@@ -598,6 +605,7 @@ sanitization:
                 }),
             }],
             allow_empty_matches: false,
+            ner_enabled: false,
         };
 
         let policy = to_policy_profile("strict", &profile);

@@ -46,6 +46,7 @@ pub fn foundation_engine() -> SanitizationEngine {
                 deterministic: None,
             },
         ],
+        ner_enabled: true,
     };
 
     let profiles = BTreeMap::from([("strict".to_string(), strict)]);

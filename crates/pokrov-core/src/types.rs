@@ -187,6 +187,8 @@ pub struct PolicyProfile {
     pub max_hits_per_request: u32,
     pub custom_rules: Vec<CustomRule>,
     pub custom_rules_enabled: bool,
+    #[serde(default)]
+    pub ner_enabled: bool,
 }
 
 const fn default_max_hits_per_request() -> u32 {

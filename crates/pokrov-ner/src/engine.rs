@@ -109,37 +109,93 @@ impl NerEngine {
         text: &str,
         entity_types: &[NerEntityType],
     ) -> Result<Vec<NerHit>, NerError> {
-        if text.trim().is_empty() {
+        let items = [text.to_string()];
+        let results = self.recognize_batch(&items, entity_types)?;
+        Ok(results.into_iter().next().unwrap_or_default().1)
+    }
+
+    pub fn recognize_batch(
+        &mut self,
+        texts: &[String],
+        entity_types: &[NerEntityType],
+    ) -> Result<Vec<(String, Vec<NerHit>)>, NerError> {
+        if texts.is_empty() {
             return Ok(Vec::new());
         }
 
-        let detected = detect_language(text);
+        let mut all_results: Vec<(String, Vec<NerHit>)> = Vec::with_capacity(texts.len());
+
+        for chunk_start in (0..texts.len()).step_by(32) {
+            let chunk_end = (chunk_start + 32).min(texts.len());
+            let chunk = &texts[chunk_start..chunk_end];
+            all_results.extend(self.recognize_batch_inner(chunk, entity_types)?);
+        }
+
+        debug!(
+            "Batch recognized {} entities across {} texts",
+            all_results.iter().map(|(_, h)| h.len()).sum::<usize>(),
+            texts.len()
+        );
+        Ok(all_results)
+    }
+
+    fn recognize_batch_inner(
+        &mut self,
+        texts: &[String],
+        entity_types: &[NerEntityType],
+    ) -> Result<Vec<(String, Vec<NerHit>)>, NerError> {
+        let detected = detect_language(&texts[0]);
         let idx = self.select_model_index(&detected);
         let model = &mut self.models[idx];
         let language = model.language.clone();
 
-        let encoding = model
-            .tokenizer
-            .encode(text, true)
-            .map_err(|e| NerError::TokenizationFailed(e.to_string()))?;
+        let encodings: Vec<_> = texts
+            .iter()
+            .map(|text| {
+                model
+                    .tokenizer
+                    .encode(text.as_str(), true)
+                    .map_err(|e| NerError::TokenizationFailed(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let input_ids: Vec<i64> = encoding.get_ids().iter().map(|&x| x as i64).collect();
-        let attention_mask: Vec<i64> =
-            encoding.get_attention_mask().iter().map(|&x| x as i64).collect();
-
-        let seq_len = input_ids.len();
+        let max_seq_len = encodings.iter().map(|e| e.get_ids().len()).max().unwrap_or(0);
+        let batch_size = encodings.len();
         let num_labels = model.id2label.len();
 
-        let input_ids_tensor = Tensor::from_array(([1usize, seq_len], input_ids))
+        let pad_id = model.tokenizer.get_padding().map(|p| p.pad_id).unwrap_or(0);
+        let pad_type_id = model.tokenizer.get_padding().map(|p| p.pad_type_id).unwrap_or(0);
+
+        let mut input_ids = vec![pad_id as i64; batch_size * max_seq_len];
+        let mut attention_mask = vec![0i64; batch_size * max_seq_len];
+
+        for (i, enc) in encodings.iter().enumerate() {
+            let ids = enc.get_ids();
+            let attn = enc.get_attention_mask();
+            let offset = i * max_seq_len;
+            for j in 0..ids.len() {
+                input_ids[offset + j] = ids[j] as i64;
+                attention_mask[offset + j] = attn[j] as i64;
+            }
+        }
+
+        let input_ids_tensor = Tensor::from_array(([batch_size, max_seq_len], input_ids))
             .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
-        let attention_mask_tensor = Tensor::from_array(([1usize, seq_len], attention_mask))
+        let attention_mask_tensor = Tensor::from_array(([batch_size, max_seq_len], attention_mask))
             .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
 
         let outputs = if model.has_token_type_ids {
-            let token_type_ids: Vec<i64> =
-                encoding.get_type_ids().iter().map(|&x| x as i64).collect();
-            let token_type_ids_tensor = Tensor::from_array(([1usize, seq_len], token_type_ids))
-                .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
+            let mut token_type_ids = vec![pad_type_id as i64; batch_size * max_seq_len];
+            for (i, enc) in encodings.iter().enumerate() {
+                let ttids = enc.get_type_ids();
+                let offset = i * max_seq_len;
+                for j in 0..ttids.len() {
+                    token_type_ids[offset + j] = ttids[j] as i64;
+                }
+            }
+            let token_type_ids_tensor =
+                Tensor::from_array(([batch_size, max_seq_len], token_type_ids))
+                    .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
             model
                 .session
                 .run(ort::inputs![
@@ -162,24 +218,11 @@ impl NerEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
 
-        let logits_array: ndarray::Array3<f32> =
-            ndarray::Array3::from_shape_vec((1, seq_len, num_labels), logits_tensor.1.to_vec())
-                .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
-
-        let label_indices = argmax_labels(&logits_array);
-
-        let labels: Vec<String> = label_indices
-            .iter()
-            .map(|&idx| model.id2label.get(&idx).cloned().unwrap_or_else(|| "O".to_string()))
-            .collect();
-
-        let offsets: Vec<(usize, usize)> = encoding
-            .get_offsets()
-            .iter()
-            .map(|&(start, end)| (start as usize, end as usize))
-            .collect();
-
-        let raw_spans = decode_bio_tags(&labels, &offsets, text);
+        let logits_array: ndarray::Array3<f32> = ndarray::Array3::from_shape_vec(
+            (batch_size, max_seq_len, num_labels),
+            logits_tensor.1.to_vec(),
+        )
+        .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
 
         let allowed_labels: HashMap<String, NerEntityType> = entity_types
             .iter()
@@ -192,31 +235,63 @@ impl NerEngine {
             })
             .collect();
 
-        let mut hits = Vec::new();
-        for span in raw_spans {
-            if span.text.is_empty() {
-                continue;
+        let mut results = Vec::with_capacity(batch_size);
+
+        for (i, enc) in encodings.iter().enumerate() {
+            let seq_len = enc.get_ids().len();
+            let text = &texts[i];
+
+            let seq_view = logits_array.index_axis(ndarray::Axis(0), i);
+            let needed = seq_len * num_labels;
+            let seq_data: Vec<f32> =
+                seq_view.to_slice().unwrap_or(&[]).get(0..needed).unwrap_or(&[]).to_vec();
+            let seq_logits: ndarray::Array3<f32> =
+                ndarray::Array3::from_shape_vec((1, seq_len, num_labels), seq_data)
+                    .map_err(|e| NerError::InferenceFailed(e.to_string()))?;
+            let label_indices = argmax_labels(&seq_logits);
+
+            let labels: Vec<String> = label_indices
+                .iter()
+                .map(|&idx| model.id2label.get(&idx).cloned().unwrap_or_else(|| "O".to_string()))
+                .collect();
+
+            let offsets: Vec<(usize, usize)> = enc
+                .get_offsets()
+                .iter()
+                .map(|&(start, end)| (start as usize, end as usize))
+                .collect();
+
+            let raw_spans = decode_bio_tags(&labels, &offsets, text);
+
+            let mut hits = Vec::new();
+            for span in raw_spans {
+                if span.text.is_empty() {
+                    continue;
+                }
+                if !allowed_labels.is_empty() && !allowed_labels.contains_key(&span.label) {
+                    continue;
+                }
+                let entity =
+                    allowed_labels.get(&span.label).copied().unwrap_or(NerEntityType::Person);
+                hits.push(NerHit {
+                    entity,
+                    text: span.text,
+                    start: span.char_start,
+                    end: span.char_end,
+                    score: 1.0,
+                    language: language.clone(),
+                });
             }
 
-            if !allowed_labels.is_empty() && !allowed_labels.contains_key(&span.label) {
-                continue;
-            }
-
-            let entity = allowed_labels.get(&span.label).copied().unwrap_or(NerEntityType::Person);
-
-            let hit = NerHit {
-                entity,
-                text: span.text,
-                start: span.char_start,
-                end: span.char_end,
-                score: 1.0,
-                language: language.clone(),
-            };
-            hits.push(hit);
+            results.push((texts[i].clone(), hits));
         }
 
-        debug!("Recognized {} entities in text", hits.len());
-        Ok(hits)
+        debug!(
+            "Batch recognized {} entities across {} texts",
+            results.iter().map(|(_, h)| h.len()).sum::<usize>(),
+            batch_size
+        );
+        Ok(results)
     }
 }
 

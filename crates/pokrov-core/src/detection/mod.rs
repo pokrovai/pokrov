@@ -39,6 +39,7 @@ mod tests {
                 enabled: true,
                 deterministic: None,
             }],
+            ner_enabled: true,
         }
     }
 
