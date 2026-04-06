@@ -20,9 +20,7 @@ fn field_gate_matches_expected_pointer_suffixes() {
 #[test]
 fn shared_rule_executor_respects_field_gate_before_matching() {
     let matcher = Regex::new("Alice").expect("regex should compile");
-    let field_gate = CompiledFieldGate {
-        json_pointer_suffixes: vec!["/first_name".to_string()],
-    };
+    let field_gate = CompiledFieldGate { json_pointer_suffixes: vec!["/first_name".to_string()] };
     let rule = RuleMatchContext {
         rule_id: "builtin.test.person_name",
         category: DetectionCategory::Pii,

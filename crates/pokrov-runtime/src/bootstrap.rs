@@ -304,10 +304,55 @@ where
     log_lifecycle_event("runtime", "lifecycle_transition", None, "starting");
 
     let evaluator = if config.sanitization.enabled {
-        Some(Arc::new(
-            SanitizationEngine::new(config.evaluator_config())
-                .map_err(BootstrapError::Sanitization)?,
-        ))
+        let engine = SanitizationEngine::new(config.evaluator_config())
+            .map_err(BootstrapError::Sanitization)?;
+
+        #[cfg(feature = "ner")]
+        let engine = if let Some(ner_config) = &config.ner {
+            if ner_config.enabled {
+                let ner_engine = pokrov_ner::NerEngine::new(pokrov_ner::NerConfig {
+                    models: ner_config
+                        .models
+                        .iter()
+                        .map(|m| pokrov_ner::model::NerModelBinding {
+                            language: m.language.clone(),
+                            model_path: std::path::PathBuf::from(&m.model_path),
+                            tokenizer_path: std::path::PathBuf::from(&m.tokenizer_path),
+                            priority: m.priority,
+                        })
+                        .collect(),
+                    fallback_language: ner_config.fallback_language.clone(),
+                    timeout_ms: ner_config.timeout_ms,
+                    max_seq_length: ner_config.max_seq_length,
+                    confidence_threshold: ner_config.confidence_threshold,
+                })
+                .map_err(|e| {
+                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+                        "NER engine init failed: {e}"
+                    )))
+                })?;
+
+                let adapter = Arc::new(pokrov_core::ner_adapter::NerAdapter::new(
+                    ner_engine,
+                    pokrov_core::ner_adapter::NerAdapterConfig {
+                        enabled: true,
+                        fail_mode: pokrov_core::ner_adapter::NerFailMode::FailOpen,
+                        entity_types: vec![
+                            pokrov_ner::NerEntityType::Person,
+                            pokrov_ner::NerEntityType::Organization,
+                        ],
+                        timeout_ms: ner_config.timeout_ms,
+                    },
+                ));
+                engine.with_ner(adapter)
+            } else {
+                engine
+            }
+        } else {
+            engine
+        };
+
+        Some(Arc::new(engine))
     } else {
         None
     };

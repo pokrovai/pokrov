@@ -1,0 +1,17 @@
+[package]
+name = "pokrov-ner"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ndarray = "0.16"
+ort = { version = "2.0.0-rc.12", features = ["ndarray"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokenizers = "0.21"
+tracing = "0.1"
+
+[dev-dependencies]
+serde_yaml = "0.9"

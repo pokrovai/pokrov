@@ -197,7 +197,6 @@ pub struct EvaluationCorpusDefinition {
     pub required_contents: Vec<String>,
 }
 
-
 /// Progressive quality-gate levels for readiness rollout control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -286,14 +285,16 @@ pub fn foundation_evaluation_corpora() -> Vec<EvaluationCorpusDefinition> {
     ]
 }
 
-
 /// Returns the progressive quality-gate model while keeping thresholds external.
 pub fn foundation_quality_gates() -> Vec<QualityGateDefinition> {
     vec![
         QualityGateDefinition {
             level: QualityGateLevel::Level0,
             blocking: false,
-            required_outputs: vec![ReportOutputKind::FamilySummary, ReportOutputKind::EntityBreakdown],
+            required_outputs: vec![
+                ReportOutputKind::FamilySummary,
+                ReportOutputKind::EntityBreakdown,
+            ],
             description: "baseline collection only; no blocking gates".to_string(),
         },
         QualityGateDefinition {
@@ -304,7 +305,8 @@ pub fn foundation_quality_gates() -> Vec<QualityGateDefinition> {
                 ReportOutputKind::EntityBreakdown,
                 ReportOutputKind::ParityReport,
             ],
-            description: "deterministic family regression gates against stable baselines".to_string(),
+            description: "deterministic family regression gates against stable baselines"
+                .to_string(),
         },
         QualityGateDefinition {
             level: QualityGateLevel::Level2,
@@ -357,5 +359,4 @@ mod tests {
         assert!(gates[1..].iter().all(|gate| gate.blocking));
         assert!(gates.iter().all(|gate| !gate.required_outputs.is_empty()));
     }
-
 }

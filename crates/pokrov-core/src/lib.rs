@@ -26,6 +26,12 @@ pub mod transform;
 pub mod traversal;
 pub mod types;
 
+#[cfg(feature = "ner")]
+pub mod ner_adapter;
+
+#[cfg(feature = "ner")]
+use ner_adapter::NerAdapter;
+
 #[derive(Debug, Clone)]
 struct CompiledProfile {
     profile: PolicyProfile,
@@ -51,6 +57,8 @@ struct EvaluationArtifacts {
 pub struct SanitizationEngine {
     default_profile: String,
     profiles: Arc<BTreeMap<String, CompiledProfile>>,
+    #[cfg(feature = "ner")]
+    ner: Option<Arc<NerAdapter>>,
 }
 
 impl SanitizationEngine {
@@ -77,7 +85,18 @@ impl SanitizationEngine {
             )));
         }
 
-        Ok(Self { default_profile: config.default_profile, profiles: Arc::new(profiles) })
+        Ok(Self {
+            default_profile: config.default_profile,
+            profiles: Arc::new(profiles),
+            #[cfg(feature = "ner")]
+            ner: None,
+        })
+    }
+
+    #[cfg(feature = "ner")]
+    pub fn with_ner(mut self, adapter: Arc<NerAdapter>) -> Self {
+        self.ner = Some(adapter);
+        self
     }
 
     /// Evaluates one payload through the current sanitization pipeline.
@@ -160,12 +179,40 @@ impl SanitizationEngine {
         };
 
         let started = Instant::now();
-        let hits = detect_payload(
+        let mut hits = detect_payload(
             &request.payload,
             &compiled_profile.profile,
             &compiled_profile.custom_rules,
             &request.allowlist_additions,
         );
+
+        #[cfg(feature = "ner")]
+        {
+            if let Some(ref ner) = self.ner {
+                let mut ner_hits = Vec::new();
+                traversal::visit_string_leaves(&request.payload, &mut |pointer, text| {
+                    if let Ok(normalized) = ner.recognize_sync(text, pointer) {
+                        for nh in normalized {
+                            ner_hits.push(crate::types::DetectionHit {
+                                rule_id: nh.rule_id,
+                                category: nh.category,
+                                json_pointer: nh.json_pointer,
+                                start: nh.start,
+                                end: nh.end,
+                                action: nh.action_hint,
+                                priority: nh.priority,
+                                replacement_template: if nh.replacement_template_present {
+                                    Some(String::new())
+                                } else {
+                                    None
+                                },
+                            });
+                        }
+                    }
+                });
+                hits.extend(ner_hits);
+            }
+        }
         let resolved_spans = resolve_overlaps(&hits);
         let final_action = select_final_action(&resolved_spans);
         let hits_by_category = category_hit_counts(&hits);
@@ -217,6 +264,10 @@ impl SanitizationEngine {
             ],
             recognizer_families_executed: recognizer_families_executed(
                 &compiled_profile.custom_rules,
+                #[cfg(feature = "ner")]
+                self.ner.is_some(),
+                #[cfg(not(feature = "ner"))]
+                false,
             ),
             transform_applied: transform.transformed_fields_count > 0,
         };
@@ -259,13 +310,19 @@ impl SanitizationEngine {
     }
 }
 
-fn recognizer_families_executed(custom_rules: &[CompiledCustomRule]) -> Vec<String> {
+fn recognizer_families_executed(
+    custom_rules: &[CompiledCustomRule],
+    ner_enabled: bool,
+) -> Vec<String> {
     let mut families = vec!["builtin".to_string()];
     if custom_rules.iter().any(|rule| rule.rule_id.starts_with("deterministic.")) {
         families.push("deterministic".to_string());
     }
     if custom_rules.iter().any(|rule| rule.rule_id.starts_with("custom.")) {
         families.push("custom".to_string());
+    }
+    if ner_enabled {
+        families.push("ner".to_string());
     }
     families
 }
@@ -307,10 +364,13 @@ fn family_counts(
         ("builtin".to_string(), 0),
         ("custom".to_string(), 0),
         ("deterministic".to_string(), 0),
+        ("ner".to_string(), 0),
     ]);
 
     for hit in hits {
-        let key = if hit.rule_id.starts_with("deterministic.") {
+        let key = if hit.rule_id.starts_with("ner.") {
+            "ner"
+        } else if hit.rule_id.starts_with("deterministic.") {
             "deterministic"
         } else if hit.rule_id.starts_with("custom.") {
             "custom"

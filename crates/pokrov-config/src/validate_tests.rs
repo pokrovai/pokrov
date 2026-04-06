@@ -107,6 +107,8 @@ fn valid_config() -> RuntimeConfig {
         mcp: None,
         rate_limit: crate::rate_limit::RateLimitConfig::default(),
         response_envelope: crate::model::ResponseEnvelopeConfig::default(),
+        #[cfg(feature = "ner")]
+        ner: None,
     }
 }
 

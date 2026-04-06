@@ -4,6 +4,12 @@ mod mcp;
 mod runtime;
 mod sanitization;
 
+#[cfg(feature = "ner")]
+mod ner;
+
+#[cfg(feature = "ner")]
+pub use ner::{NerConfig, NerFailMode, NerProfileConfig};
+
 pub use auth::{
     AuthConfig, GatewayAuthMode, IdentityConfig, IdentitySource, InternalMtlsAuthConfig,
     MeshAuthConfig, UpstreamAuthMode,

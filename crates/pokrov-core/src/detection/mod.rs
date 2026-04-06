@@ -437,10 +437,7 @@ mod tests {
             .filter(|hit| hit.rule_id == "builtin.pii.person_id_field")
             .map(|hit| hit.json_pointer.as_str())
             .collect::<std::collections::BTreeSet<_>>();
-        let email_hits = hits
-            .iter()
-            .filter(|hit| hit.rule_id == "builtin.pii.email")
-            .count();
+        let email_hits = hits.iter().filter(|hit| hit.rule_id == "builtin.pii.email").count();
 
         assert!(identity_hits.contains("/payload/owner/profile/name"));
         assert!(identity_hits.contains("/payload/owner/profile/directory/name"));

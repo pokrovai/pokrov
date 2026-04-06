@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::rate_limit::RateLimitConfig;
 
+#[cfg(feature = "ner")]
+use super::NerConfig;
 use super::{AuthConfig, IdentityConfig, LlmConfig, McpConfig, SanitizationConfig};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -29,6 +31,9 @@ pub struct RuntimeConfig {
     pub rate_limit: RateLimitConfig,
     #[serde(default)]
     pub response_envelope: ResponseEnvelopeConfig,
+    #[cfg(feature = "ner")]
+    #[serde(default)]
+    pub ner: Option<NerConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -1,6 +1,3 @@
-use std::{collections::BTreeSet, sync::OnceLock};
-use regex::{Regex, RegexBuilder};
-use serde_json::Value;
 use crate::{
     detection::deterministic::context::{apply_context_policy, ContextPolicy},
     detection::deterministic::lists::{
@@ -15,6 +12,9 @@ use crate::{
         PolicyProfile,
     },
 };
+use regex::{Regex, RegexBuilder};
+use serde_json::Value;
+use std::{collections::BTreeSet, sync::OnceLock};
 #[derive(Debug, Clone)]
 pub struct CompiledCustomRule {
     pub rule_id: String,
@@ -190,30 +190,29 @@ fn emit_rule_matches(
     hit_limit_reached: &mut bool,
     hits: &mut Vec<DetectionHit>,
 ) {
-    if rule
-        .field_gate
-        .is_some_and(|field_gate| !field_gate.matches_json_pointer(json_pointer))
-    {
+    if rule.field_gate.is_some_and(|field_gate| !field_gate.matches_json_pointer(json_pointer)) {
         return;
     }
     for matched in rule.matcher.find_iter(text) {
         if is_allowlisted_exact(allowlist, matched.as_str()) {
             continue;
         }
-        let candidate = needs_normalized_candidate(rule).then(|| {
-            normalize_candidate(matched.as_str(), rule.normalization)
-        });
+        let candidate = needs_normalized_candidate(rule)
+            .then(|| normalize_candidate(matched.as_str(), rule.normalization));
         if !validate_for_kind(rule.validator, candidate.as_deref()) {
             continue;
         }
-        if let (Some(allowlist), Some(candidate)) = (rule.deterministic_allowlist, candidate.as_ref()) {
+        if let (Some(allowlist), Some(candidate)) =
+            (rule.deterministic_allowlist, candidate.as_ref())
+        {
             if allowlist.contains(candidate) {
                 continue;
             }
         }
         let mut priority = rule.priority;
         if let Some(context) = rule.deterministic_context {
-            let window = extract_context_window(text, matched.start(), matched.end(), context.window);
+            let window =
+                extract_context_window(text, matched.start(), matched.end(), context.window);
             let (score, suppressed, _) = apply_context_policy(
                 &window,
                 i16::try_from(rule.priority).unwrap_or(i16::MAX),
@@ -283,10 +282,7 @@ fn custom_rule_context<'a>(rule: &'a CompiledCustomRule) -> RuleMatchContext<'a>
         Some(DeterministicRuleKind::Pattern { validator, normalization, .. }) => {
             (*validator, *normalization)
         }
-        _ => (
-            DeterministicValidatorKind::None,
-            DeterministicNormalizationMode::Preserve,
-        ),
+        _ => (DeterministicValidatorKind::None, DeterministicNormalizationMode::Preserve),
     };
 
     RuleMatchContext {
@@ -426,12 +422,8 @@ fn trim_to_chars_start(text: &str, max_chars: usize) -> String {
     if text.chars().nth(max_chars).is_none() {
         return text.to_string();
     }
-    let cut_at = text
-        .char_indices()
-        .rev()
-        .nth(max_chars.saturating_sub(1))
-        .map(|(idx, _)| idx)
-        .unwrap_or(0);
+    let cut_at =
+        text.char_indices().rev().nth(max_chars.saturating_sub(1)).map(|(idx, _)| idx).unwrap_or(0);
     text[cut_at..].to_string()
 }
 
@@ -480,9 +472,7 @@ fn compile_field_gate(spec: BuiltinFieldGateSpec) -> CompiledFieldGate {
 }
 impl CompiledFieldGate {
     fn matches_json_pointer(&self, json_pointer: &str) -> bool {
-        self.json_pointer_suffixes
-            .iter()
-            .any(|suffix| json_pointer.ends_with(suffix))
+        self.json_pointer_suffixes.iter().any(|suffix| json_pointer.ends_with(suffix))
     }
 }
 #[cfg(test)]

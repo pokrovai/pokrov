@@ -447,10 +447,7 @@ pub fn foundation_starter_corpus_missing_groups(
     ];
     let existing = starter.required_groups.iter().copied().collect::<BTreeSet<_>>();
 
-    required
-        .into_iter()
-        .filter(|group| !existing.contains(group))
-        .collect()
+    required.into_iter().filter(|group| !existing.contains(group)).collect()
 }
 
 #[cfg(test)]
@@ -469,15 +466,9 @@ mod tests {
 
         assert_eq!(inventory.len(), 8);
         assert!(missing.is_empty(), "missing required metadata: {missing:?}");
-        assert!(inventory
-            .iter()
-            .any(|entry| entry.dataset_id == "ai4privacy_pii_masking_200k"));
-        assert!(inventory
-            .iter()
-            .any(|entry| entry.dataset_id == "nvidia_nemotron_pii"));
-        assert!(inventory
-            .iter()
-            .any(|entry| entry.dataset_id == "gretel_pii_masking_en_v1"));
+        assert!(inventory.iter().any(|entry| entry.dataset_id == "ai4privacy_pii_masking_200k"));
+        assert!(inventory.iter().any(|entry| entry.dataset_id == "nvidia_nemotron_pii"));
+        assert!(inventory.iter().any(|entry| entry.dataset_id == "gretel_pii_masking_en_v1"));
         assert!(inventory
             .iter()
             .any(|entry| entry.repository_status == DatasetRepositoryStatus::RepoSafe));
@@ -492,9 +483,7 @@ mod tests {
         let missing = foundation_starter_corpus_missing_groups(&starter);
 
         assert!(missing.is_empty(), "missing starter groups: {missing:?}");
-        assert!(starter
-            .required_groups
-            .contains(&StarterCorpusCaseGroup::StructuredJsonCases));
+        assert!(starter.required_groups.contains(&StarterCorpusCaseGroup::StructuredJsonCases));
         assert_eq!(starter.target_volume.per_priority_family_min, 25);
         assert_eq!(starter.target_volume.per_priority_family_max, 40);
         assert_eq!(starter.target_volume.shared_hard_negatives, 100);
@@ -508,9 +497,7 @@ mod tests {
         let run_matrix = foundation_baseline_run_matrix();
 
         assert_eq!(systems.len(), 5);
-        assert!(systems
-            .iter()
-            .any(|system| system.system == BaselineSystem::NlmScrubber));
+        assert!(systems.iter().any(|system| system.system == BaselineSystem::NlmScrubber));
         assert!(run_matrix.iter().any(|run| {
             run.baseline == BaselineSystem::VanillaPresidio
                 && run.tier == BaselineRequirementTier::MandatoryDeterministic

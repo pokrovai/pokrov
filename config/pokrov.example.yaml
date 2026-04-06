@@ -107,6 +107,29 @@ sanitization:
           priority: 900
           enabled: true
 
+ner:
+  enabled: true
+  models:
+    - language: en
+      model_path: "./models/bert-base-NER/model.onnx"
+      tokenizer_path: "./models/bert-base-NER/tokenizer.json"
+      priority: 100
+    - language: ru
+      model_path: "./models/ner-rubert-tiny-news/model.onnx"
+      tokenizer_path: "./models/ner-rubert-tiny-news/tokenizer.json"
+      priority: 100
+  fallback_language: en
+  timeout_ms: 80
+  confidence_threshold: 0.7
+  max_seq_length: 512
+  profiles:
+    strict:
+      fail_mode: fail_closed
+      entity_types: [person, organization]
+    minimal:
+      fail_mode: fail_open
+      entity_types: [person]
+
 llm:
   providers:
     - id: openai
