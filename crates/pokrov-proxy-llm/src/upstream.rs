@@ -8,10 +8,14 @@ use crate::{
     errors::LLMProxyError,
     types::{RouteResolution, UpstreamJsonResponse, UpstreamStreamResponse},
 };
+#[cfg(feature = "llm_payload_trace")]
+use crate::trace::LlmPayloadTraceSink;
 
 #[derive(Debug, Clone)]
 pub struct UpstreamClient {
     client: reqwest::Client,
+    #[cfg(feature = "llm_payload_trace")]
+    payload_trace_sink: Option<LlmPayloadTraceSink>,
 }
 
 impl UpstreamClient {
@@ -25,7 +29,17 @@ impl UpstreamClient {
                 )
             })?;
 
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            #[cfg(feature = "llm_payload_trace")]
+            payload_trace_sink: None,
+        })
+    }
+
+    #[cfg(feature = "llm_payload_trace")]
+    pub fn with_payload_trace_sink(mut self, payload_trace_sink: Option<LlmPayloadTraceSink>) -> Self {
+        self.payload_trace_sink = payload_trace_sink;
+        self
     }
 
     pub async fn execute_json(
@@ -39,6 +53,9 @@ impl UpstreamClient {
         let bearer = upstream_credential.unwrap_or(&route.api_key);
 
         for attempt in 0..=route.retry_budget {
+            #[cfg(feature = "llm_payload_trace")]
+            self.emit_payload_trace(request_id, route, &endpoint, attempt, payload);
+
             let response = self
                 .client
                 .post(&endpoint)
@@ -110,6 +127,9 @@ impl UpstreamClient {
         let bearer = upstream_credential.unwrap_or(&route.api_key);
 
         for attempt in 0..=route.retry_budget {
+            #[cfg(feature = "llm_payload_trace")]
+            self.emit_payload_trace(request_id, route, &endpoint, attempt, payload);
+
             let response = self
                 .client
                 .post(&endpoint)
@@ -160,6 +180,20 @@ impl UpstreamClient {
             Some(route.provider_id.clone()),
             "upstream retry budget exhausted",
         ))
+    }
+
+    #[cfg(feature = "llm_payload_trace")]
+    fn emit_payload_trace(
+        &self,
+        request_id: &str,
+        route: &RouteResolution,
+        endpoint: &str,
+        attempt: u8,
+        payload: &Value,
+    ) {
+        if let Some(sink) = self.payload_trace_sink.as_ref() {
+            sink.emit_request_payload(request_id, &route.provider_id, endpoint, attempt, payload);
+        }
     }
 }
 

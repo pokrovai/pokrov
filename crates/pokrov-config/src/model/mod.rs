@@ -21,9 +21,10 @@ pub use mcp::{
     McpConfig, McpDefaultsConfig, McpServerDefinition, McpToolPolicy, ToolArgumentConstraints,
 };
 pub use runtime::{
-    ApiKeyBinding, LogFormat, LogLevel, LoggingConfig, ResponseEnvelopeConfig,
-    ResponseEnvelopeMetadataConfig, ResponseMetadataMode, RuntimeConfig, SecretRef, SecurityConfig,
-    ServerConfig, ShutdownConfig, TlsServerConfig,
+    ApiKeyBinding, LlmPayloadTraceConfig, LogFormat, LogLevel, LoggingConfig,
+    ObservabilityConfig, ResponseEnvelopeConfig, ResponseEnvelopeMetadataConfig,
+    ResponseMetadataMode, RuntimeConfig, SecretRef, SecurityConfig, ServerConfig, ShutdownConfig,
+    TlsServerConfig,
 };
 pub use sanitization::{
     CategoryActionsConfig, CustomRuleConfig, DeterministicContextConfig,

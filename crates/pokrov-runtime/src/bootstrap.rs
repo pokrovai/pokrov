@@ -173,6 +173,7 @@ pub async fn run(args: BootstrapArgs) -> Result<(), BootstrapError> {
         .as_ref()
         .ok_or_else(|| BootstrapError::InvalidArguments("expected --config <path>".to_string()))?;
     let config = load_runtime_config(config_path).map_err(BootstrapError::Config)?;
+    validate_llm_payload_trace_mode(&config)?;
     init_json_observability(config.logging.level.as_str());
 
     let listener = bind_listener(&config).await?;
@@ -839,10 +840,75 @@ fn build_llm_handler(
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
     let metadata_mode = config.response_envelope.pokrov_metadata.mode;
-    let handler = LLMProxyHandler::new(evaluator, metrics, routes, metadata_mode)
+    #[cfg(feature = "llm_payload_trace")]
+    let payload_trace_sink = build_llm_payload_trace_sink(config)?;
+
+    let handler = LLMProxyHandler::new(
+        evaluator,
+        metrics,
+        routes,
+        metadata_mode,
+        #[cfg(feature = "llm_payload_trace")]
+        payload_trace_sink,
+    )
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
     Ok(Some(handler))
+}
+
+#[cfg(not(feature = "llm_payload_trace"))]
+fn validate_llm_payload_trace_mode(config: &RuntimeConfig) -> Result<(), BootstrapError> {
+    if !config.observability.llm_payload_trace.enabled {
+        return Ok(());
+    }
+
+    Err(BootstrapError::Security(
+        "observability.llm_payload_trace.enabled requires runtime feature 'llm_payload_trace'"
+            .to_string(),
+    ))
+}
+
+#[cfg(feature = "llm_payload_trace")]
+fn validate_llm_payload_trace_mode(config: &RuntimeConfig) -> Result<(), BootstrapError> {
+    if !config.observability.llm_payload_trace.enabled {
+        return Ok(());
+    }
+
+    if !cfg!(debug_assertions) {
+        return Err(BootstrapError::Security(
+            "observability.llm_payload_trace.enabled is forbidden in release builds".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "llm_payload_trace")]
+fn build_llm_payload_trace_sink(
+    config: &RuntimeConfig,
+) -> Result<Option<pokrov_proxy_llm::trace::LlmPayloadTraceSink>, BootstrapError> {
+    if !config.observability.llm_payload_trace.enabled {
+        return Ok(None);
+    }
+
+    let sink = pokrov_proxy_llm::trace::LlmPayloadTraceSink::new(
+        &config.observability.llm_payload_trace.output_path,
+    )
+    .map_err(|error| {
+        BootstrapError::Security(format!(
+            "failed to initialize llm payload trace sink at '{}': {error}",
+            config.observability.llm_payload_trace.output_path
+        ))
+    })?;
+
+    info!(
+        component = "runtime",
+        action = "llm_payload_trace_enabled",
+        output_path = %config.observability.llm_payload_trace.output_path,
+        "llm payload trace sink enabled for debug build"
+    );
+
+    Ok(Some(sink))
 }
 
 #[derive(Serialize)]

@@ -7,6 +7,7 @@ license = "Apache-2.0"
 [features]
 default = []
 ner = ["pokrov-core/ner", "pokrov-config/ner", "pokrov-ner"]
+llm_payload_trace = ["pokrov-proxy-llm/llm_payload_trace"]
 
 [dependencies]
 axum = { workspace = true }

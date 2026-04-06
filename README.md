@@ -112,6 +112,17 @@ With NER enabled:
 cargo run -p pokrov-runtime --features ner -- --config ./config/pokrov.example.yaml
 ```
 
+### WARNING: Debug Payload Trace
+
+`observability.llm_payload_trace` is a sensitive debug mechanism that writes outbound
+LLM payloads to a local file. Treat this as development-only instrumentation.
+
+- Must be explicitly enabled in config (`enabled: true`).
+- Requires build feature `llm_payload_trace`.
+- Runtime refuses startup when enabled in release builds.
+- Never enable it in production environments or with real secrets.
+- Do not build production artifacts with `--features llm_payload_trace`.
+
 Probe checks:
 
 ```bash

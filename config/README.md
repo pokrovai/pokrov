@@ -8,6 +8,7 @@ sanitization profiles for `POST /v1/sanitize/evaluate` and LLM routing for
 
 - `server.host`, `server.port`
 - `logging.level`, `logging.format=json`
+- `observability.llm_payload_trace` (optional, debug-only)
 - `shutdown.drain_timeout_ms`, `shutdown.grace_period_ms`
 - `security.api_keys[*].key` and `security.api_keys[*].profile`
 - `auth.upstream_auth_mode`
@@ -26,6 +27,19 @@ fail-fast startup when at least one LLM provider auth reference cannot be resolv
 - `static`: provider credentials are loaded from runtime config references.
 - `passthrough`: provider credentials are read from request `Authorization` header,
   while gateway access is validated independently via `X-Pokrov-Api-Key` or bearer token.
+
+`observability.llm_payload_trace` is an opt-in debug mechanism for tracing sanitized
+payloads sent to upstream LLM providers:
+- `enabled=false` by default.
+- Requires runtime build feature `llm_payload_trace`.
+- Refuses startup in release builds when enabled.
+- Writes newline-delimited JSON records to `output_path`.
+
+WARNING:
+- This feature records exact outbound payload bodies.
+- Use only in local/dev debugging with synthetic data.
+- Keep it disabled for production and shared staging environments.
+- Do not build production binaries with `--features llm_payload_trace`.
 
 `identity.resolution_order` defines deterministic identity extraction priority with:
 - `gateway_auth_subject`

@@ -21,6 +21,8 @@ use crate::{
     },
     upstream::UpstreamClient,
 };
+#[cfg(feature = "llm_payload_trace")]
+use crate::trace::LlmPayloadTraceSink;
 use support::{
     attach_pokrov_metadata, attach_request_id, max_action, mode_as_str, ResponseMetadataContext,
     TerminalEvent,
@@ -57,12 +59,17 @@ impl LLMProxyHandler {
         metrics: SharedRuntimeMetricsHooks,
         routes: ProviderRouteTable,
         response_metadata_mode: ResponseMetadataMode,
+        #[cfg(feature = "llm_payload_trace")] payload_trace_sink: Option<LlmPayloadTraceSink>,
     ) -> Result<Self, LLMProxyError> {
+        let upstream = UpstreamClient::new()?;
+        #[cfg(feature = "llm_payload_trace")]
+        let upstream = upstream.with_payload_trace_sink(payload_trace_sink);
+
         Ok(Self {
             evaluator,
             metrics,
             routes: Arc::new(routes),
-            upstream: UpstreamClient::new()?,
+            upstream,
             response_metadata_mode,
         })
     }

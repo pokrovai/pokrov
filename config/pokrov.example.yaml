@@ -7,6 +7,11 @@ logging:
   format: json
   component: runtime
 
+observability:
+  llm_payload_trace:
+    enabled: false
+    output_path: /tmp/pokrov-llm-payload-trace.ndjson
+
 shutdown:
   drain_timeout_ms: 5000
   grace_period_ms: 10000

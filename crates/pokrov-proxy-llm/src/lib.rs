@@ -4,5 +4,7 @@ pub mod handler;
 pub mod normalize;
 pub mod routing;
 pub mod stream;
+#[cfg(feature = "llm_payload_trace")]
+pub mod trace;
 pub mod types;
 pub mod upstream;

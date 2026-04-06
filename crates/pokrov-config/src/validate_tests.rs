@@ -7,9 +7,9 @@ use crate::model::{
     ApiKeyBinding, AuthConfig, CategoryActionsConfig, CustomRuleConfig, DeterministicPatternConfig,
     DeterministicRecognizerConfig, IdentityConfig, IdentitySource, LlmConfig, LlmDefaultsConfig,
     LlmProviderAuthConfig, LlmProviderConfig, LlmRouteConfig, LogFormat, LogLevel, LoggingConfig,
-    McpConfig, McpDefaultsConfig, McpServerDefinition, McpToolPolicy, RuntimeConfig,
-    SanitizationConfig, SanitizationProfile, SanitizationProfiles, SecurityConfig, ServerConfig,
-    ShutdownConfig, TlsServerConfig, ToolArgumentConstraints, UpstreamAuthMode,
+    McpConfig, McpDefaultsConfig, McpServerDefinition, McpToolPolicy, ObservabilityConfig,
+    RuntimeConfig, SanitizationConfig, SanitizationProfile, SanitizationProfiles, SecurityConfig,
+    ServerConfig, ShutdownConfig, TlsServerConfig, ToolArgumentConstraints, UpstreamAuthMode,
 };
 
 fn valid_config() -> RuntimeConfig {
@@ -24,6 +24,7 @@ fn valid_config() -> RuntimeConfig {
             format: LogFormat::Json,
             component: "runtime".to_string(),
         },
+        observability: ObservabilityConfig::default(),
         shutdown: ShutdownConfig { drain_timeout_ms: 5000, grace_period_ms: 10000 },
         security: SecurityConfig {
             fail_on_unresolved_api_keys: false,
