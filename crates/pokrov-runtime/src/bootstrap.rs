@@ -795,8 +795,8 @@ fn init_ner_engine(
     let mut ner_profile_fail_modes = std::collections::HashMap::<String, NerFailMode>::new();
     for (profile_id, profile_cfg) in &ner_config.profiles {
         let fail_mode = match profile_cfg.fail_mode {
-            pokrov_config::NerFailMode::FailOpen => NerFailMode::FailOpen,
-            pokrov_config::NerFailMode::FailClosed => NerFailMode::FailClosed,
+            pokrov_config::model::NerFailMode::FailOpen => NerFailMode::FailOpen,
+            pokrov_config::model::NerFailMode::FailClosed => NerFailMode::FailClosed,
         };
         ner_profile_fail_modes.insert(profile_id.clone(), fail_mode);
 

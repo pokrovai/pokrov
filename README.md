@@ -3,6 +3,30 @@
 Pokrov.AI v1 is a self-hosted, security-first proxy for a safe `AI agent -> LLM/MCP -> AI agent` flow.
 The service receives agent traffic, applies sanitization and validation policies before any upstream call, and returns only safe results.
 
+## Table of Contents
+
+- [Project Status](#project-status)
+- [Purpose](#purpose)
+- [Implemented in v1](#implemented-in-v1)
+- [Runtime Endpoints](#runtime-endpoints)
+- [Architecture (Workspace Crates)](#architecture-workspace-crates)
+- [Out of Scope for v1](#out-of-scope-for-v1)
+- [Prerequisites](#prerequisites)
+- [Quick Start (Local)](#quick-start-local)
+- [NER (Named Entity Recognition)](#ner-named-entity-recognition)
+- [Container Run](#container-run)
+- [OpenCode Setup with Pokrov](#opencode-setup-with-pokrov)
+- [Codex Setup with Pokrov](#codex-setup-with-pokrov)
+- [Quality Checks](#quality-checks)
+- [Security Policy](#security-policy)
+- [Contributing](#contributing)
+
+## Project Status
+
+- Current scope: Pokrov.AI v1 runtime focused on sanitization-first LLM/MCP proxying.
+- Maturity: actively developed; interfaces and config are stable within documented v1 boundaries.
+- Roadmap and verification artifacts live in `specs/` and `docs/verification/`.
+
 ## Purpose
 
 Pokrov is a single control point for coding/AI agents to:
@@ -45,9 +69,33 @@ Pokrov is a single control point for coding/AI agents to:
 - `POST /v1/mcp/tool-call`
 - `POST /v1/mcp/tools/{toolName}/invoke`
 
+## Architecture (Workspace Crates)
+
+- `pokrov-core`: detection, traversal, transformation, policy evaluation, dry-run decisions.
+- `pokrov-api`: HTTP routes, middleware, auth/rate-limit entrypoint wiring.
+- `pokrov-proxy-llm`: OpenAI-compatible LLM mediation and upstream routing.
+- `pokrov-proxy-mcp`: MCP tool mediation, allowlist/validation, output sanitization.
+- `pokrov-config`: YAML model/loading/validation and environment secret resolution.
+- `pokrov-metrics`: runtime metrics hooks and Prometheus registry integration.
+- `pokrov-runtime`: process bootstrap, lifecycle, readiness/shutdown, release evidence.
+- `pokrov-ner` (optional feature): ONNX-backed multilingual NER adapter.
+
 ## Out of Scope for v1
 
 Per `docs/PRD.md`, v1 intentionally excludes: A2A proxy, RBAC/IAM, SIEM export, web UI/admin panel, heavy ML NER (beyond lightweight ONNX models), response caching, and a full control plane.
+
+## Prerequisites
+
+- Rust stable toolchain (workspace targets Rust 2021 edition).
+- Minimum baseline from project specs: `rustc 1.85+`.
+- Newer stable compilers are expected to work (current local environment example: `rustc 1.94.1`).
+- `cargo` in `PATH`.
+- `jq` for quick response inspection in the curl examples.
+- `rg` (ripgrep) for metrics probe examples.
+- Provider credential for upstream LLM calls (for example `OPENAI_API_KEY` in `static` mode).
+- Optional NER setup only if you enable `--features ner`:
+  - Python 3 + `pip`.
+  - `torch`, `transformers`, `optimum` to export/download ONNX model assets.
 
 ## Quick Start (Local)
 
@@ -154,7 +202,7 @@ Or download a single model:
 
 ```bash
 ./scripts/download-ner-model.sh dslim/bert-base-NER models/bert-base-NER
-./scripts/download-ner-model.sh cointegrated/rubert-tiny2-ner models/ner-rubert-tiny-news
+./scripts/download-ner-model.sh r1char9/ner-rubert-tiny-news models/ner-rubert-tiny-news
 ```
 
 Default model locations:
@@ -162,7 +210,7 @@ Default model locations:
 | Language | Model | Directory |
 |----------|-------|-----------|
 | EN | `dslim/bert-base-NER` | `models/bert-base-NER/` |
-| RU | `cointegrated/rubert-tiny2-ner` | `models/ner-rubert-tiny-news/` |
+| RU | `r1char9/ner-rubert-tiny-news` | `models/ner-rubert-tiny-news/` |
 
 ### Configuration
 
@@ -326,7 +374,7 @@ The `ner.profiles` section controls which entity types each sanitization profile
 ### Performance
 
 - EN model (`dslim/bert-base-NER`): ~20-50ms per batch, PER F1=0.91.
-- RU model (`cointegrated/rubert-tiny2-ner`): ~15-30ms per batch.
+- RU model (`r1char9/ner-rubert-tiny-news`): ~15-30ms per batch.
 - Batch inference with automatic text deduplication — identical strings across JSON fields
   are inferred only once.
 - P95 sanitization + NER overhead stays within the 50ms latency budget.
@@ -339,6 +387,21 @@ docker run --rm -p 8080:8080 \
   -e POKROV_API_KEY='dev-runtime-key' \
   -e OPENAI_API_KEY='provider-dev-key' \
   pokrov-runtime:latest
+```
+
+Container build args for NER models:
+
+- Use local pre-converted models only (skip network download in Docker build):
+
+```bash
+docker build -t pokrov-runtime:latest --build-arg SKIP_NER_DOWNLOAD=true .
+```
+
+- Override RU model source used when `models/ner-rubert-tiny-news/` is missing:
+
+```bash
+docker build -t pokrov-runtime:latest \
+  --build-arg RU_NER_MODEL_ID=r1char9/ner-rubert-tiny-news .
 ```
 
 ## OpenCode Setup with Pokrov
@@ -509,9 +572,11 @@ Expected:
 ## Quality Checks
 
 See [docs/configuration.md](docs/configuration.md) for the complete configuration reference with all fields, defaults, and examples.
+See [config/README.md](config/README.md) for config directory usage notes.
 
 ```bash
 cargo check --workspace
+cargo fmt --check
 cargo test --workspace
 cargo clippy --all-targets --all-features
 ```
@@ -525,3 +590,11 @@ cargo run -p pokrov-runtime -- \
   --artifact ./config/pokrov.example.yaml \
   --artifact ./config/release/verification-checklist.md
 ```
+
+## Security Policy
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and response guidelines.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution workflow, coding expectations, and pull request guidance.
