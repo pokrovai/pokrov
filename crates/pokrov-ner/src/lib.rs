@@ -7,4 +7,4 @@ pub mod model;
 
 pub use engine::NerEngine;
 pub use error::NerError;
-pub use model::{NerConfig, NerEntityType, NerHit};
+pub use model::{NerConfig, NerEntityType, NerExecutionMode, NerHit, NerMergeStrategy};

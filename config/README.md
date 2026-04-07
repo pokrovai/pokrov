@@ -8,6 +8,7 @@ sanitization profiles for `POST /v1/sanitize/evaluate` and LLM routing for
 
 - `server.host`, `server.port`
 - `logging.level`, `logging.format=json`
+- `observability.llm_payload_trace` (optional, debug-only)
 - `shutdown.drain_timeout_ms`, `shutdown.grace_period_ms`
 - `security.api_keys[*].key` and `security.api_keys[*].profile`
 - `auth.upstream_auth_mode`
@@ -26,6 +27,19 @@ fail-fast startup when at least one LLM provider auth reference cannot be resolv
 - `static`: provider credentials are loaded from runtime config references.
 - `passthrough`: provider credentials are read from request `Authorization` header,
   while gateway access is validated independently via `X-Pokrov-Api-Key` or bearer token.
+
+`observability.llm_payload_trace` is an opt-in debug mechanism for tracing sanitized
+payloads sent to upstream LLM providers:
+- `enabled=false` by default.
+- Requires runtime build feature `llm_payload_trace`.
+- Refuses startup in release builds when enabled.
+- Writes newline-delimited JSON records to `output_path`.
+
+WARNING:
+- This feature records exact outbound payload bodies.
+- Use only in local/dev debugging with synthetic data.
+- Keep it disabled for production and shared staging environments.
+- Do not build production binaries with `--features llm_payload_trace`.
 
 `identity.resolution_order` defines deterministic identity extraction priority with:
 - `gateway_auth_subject`
@@ -62,6 +76,12 @@ fail-fast startup when at least one LLM provider auth reference cannot be resolv
 - `deterministic_recognizers[*].patterns[*].expression` must compile as a regular expression.
 - `allowlist_exact` and `denylist_exact` entries must be non-empty exact-match values.
 - `context.window` must be greater than zero when context is configured.
+
+### NER Throughput Guard
+
+- `ner.skip_llm_tools_and_system=true` (default) excludes LLM `tools` payloads and
+  `system` message content from NER candidate collection to avoid inference timeouts
+  on large schemas/prompts.
 
 ## Local Run
 
@@ -110,10 +130,13 @@ curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
 ## LLM Routing Section
 
 - `llm.providers[*].id` must be unique and referenced by `llm.routes[*].provider_id`.
+- `llm.providers[*].profile_id` (optional) sets provider-level profile fallback.
 - Provider secrets must use `env:` or `file:` references in `llm.providers[*].auth.api_key`.
 - Only enabled providers and enabled routes are loaded into the runtime route table.
 - `llm.defaults.profile_id` controls fallback profile selection when payload metadata
   does not specify a valid profile.
+- Effective LLM profile precedence is: request `metadata.profile` -> provider `profile_id` ->
+  gateway/API key profile binding -> `llm.defaults.profile_id`.
 - `llm.routes[*].output_sanitization` overrides `llm.defaults.output_sanitization`
   per model route.
 - `llm.defaults.stream_sanitization_max_buffer_bytes` limits buffered SSE body size

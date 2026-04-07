@@ -7,6 +7,7 @@ license = "Apache-2.0"
 [features]
 default = []
 ner = ["pokrov-core/ner", "pokrov-config/ner", "pokrov-ner"]
+llm_payload_trace = ["pokrov-proxy-llm/llm_payload_trace"]
 
 [dependencies]
 axum = { workspace = true }
@@ -19,6 +20,7 @@ pokrov-ner = { path = "../pokrov-ner", optional = true }
 pokrov-metrics = { path = "../pokrov-metrics" }
 pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
 pokrov-proxy-mcp = { path = "../pokrov-proxy-mcp" }
+regex = { workspace = true }
 rustls = { version = "0.23.31", features = ["ring"] }
 rustls-pemfile = "2.2.0"
 serde = { workspace = true }

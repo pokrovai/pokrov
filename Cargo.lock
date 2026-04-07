@@ -1531,6 +1531,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "time",
  "tracing",
 ]
 
@@ -1571,6 +1572,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tracing",
 ]
@@ -1587,6 +1589,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tracing",
 ]
@@ -1606,6 +1609,7 @@ dependencies = [
  "pokrov-ner",
  "pokrov-proxy-llm",
  "pokrov-proxy-mcp",
+ "regex",
  "rustls",
  "rustls-pemfile",
  "serde",

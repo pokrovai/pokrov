@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+[features]
+default = []
+llm_payload_trace = []
+
 [dependencies]
 bytes = { workspace = true }
 futures-util = { workspace = true }
@@ -17,3 +21,4 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+time = { workspace = true }

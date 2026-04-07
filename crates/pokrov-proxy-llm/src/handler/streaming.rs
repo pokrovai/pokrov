@@ -39,7 +39,7 @@ impl LLMProxyHandler {
         estimated_token_units: u32,
         auth_mode: UpstreamAuthMode,
         credential_origin: UpstreamCredentialOrigin,
-        upstream_credential: String,
+        upstream_credential: Option<String>,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
@@ -47,7 +47,7 @@ impl LLMProxyHandler {
                 &request_id,
                 &route,
                 &sanitized_payload,
-                Some(upstream_credential.as_str()),
+                upstream_credential.as_deref(),
             )
             .await;
 
@@ -172,6 +172,13 @@ impl LLMProxyHandler {
             if endpoint == RESPONSES_ENDPOINT {
                 stream_body = convert_chat_sse_to_responses_sse(&request_id, &stream_body)?;
             }
+            #[cfg(feature = "llm_payload_trace")]
+            self.upstream.emit_response_trace(
+                &request_id,
+                &route,
+                endpoint,
+                &Value::String(stream_body.clone()),
+            );
 
             self.emit_terminal_event(TerminalEvent {
                 request_id: &request_id,

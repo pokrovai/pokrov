@@ -173,6 +173,7 @@ pub async fn run(args: BootstrapArgs) -> Result<(), BootstrapError> {
         .as_ref()
         .ok_or_else(|| BootstrapError::InvalidArguments("expected --config <path>".to_string()))?;
     let config = load_runtime_config(config_path).map_err(BootstrapError::Config)?;
+    validate_llm_payload_trace_mode(&config)?;
     init_json_observability(config.logging.level.as_str());
 
     let listener = bind_listener(&config).await?;
@@ -755,6 +756,8 @@ fn init_ner_engine(
         return Ok(engine);
     }
 
+    let num_models = ner_config.models.len();
+
     let ner_engine = pokrov_ner::NerEngine::new(pokrov_ner::NerConfig {
         models: ner_config
             .models
@@ -766,10 +769,13 @@ fn init_ner_engine(
                 priority: m.priority,
             })
             .collect(),
+        default_language: ner_config.default_language.clone(),
         fallback_language: ner_config.fallback_language.clone(),
         timeout_ms: ner_config.timeout_ms,
         max_seq_length: ner_config.max_seq_length,
         confidence_threshold: ner_config.confidence_threshold,
+        execution: ner_config.execution,
+        merge_strategy: ner_config.merge_strategy,
     })
     .map_err(|e| {
         BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
@@ -787,6 +793,8 @@ fn init_ner_engine(
                 pokrov_ner::NerEntityType::Organization,
             ],
             timeout_ms: ner_config.timeout_ms,
+            execution_mode: ner_config.execution,
+            num_models,
         },
     ));
 
@@ -810,10 +818,58 @@ fn init_ner_engine(
         }
     }
 
-    Ok(engine
+    let mut engine = engine
         .with_ner(adapter)
         .with_ner_profiles(ner_profile_types)
-        .with_ner_fail_modes(ner_profile_fail_modes))
+        .with_ner_fail_modes(ner_profile_fail_modes)
+        .with_ner_llm_skip_filter(ner_config.skip_llm_tools_and_system);
+
+    if !ner_config.skip_fields.is_empty() {
+        let patterns: Result<Vec<regex::Regex>, _> = ner_config
+            .skip_fields
+            .iter()
+            .map(|p| {
+                regex::Regex::new(p).map_err(|e| {
+                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+                        "NER skip_fields pattern invalid: {e}"
+                    )))
+                })
+            })
+            .collect();
+        engine = engine.with_ner_skip_fields(patterns?);
+    }
+
+    if !ner_config.strip_values.is_empty() {
+        let patterns: Result<Vec<regex::Regex>, _> = ner_config
+            .strip_values
+            .iter()
+            .map(|p| {
+                regex::Regex::new(p).map_err(|e| {
+                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+                        "NER strip_values pattern invalid: {e}"
+                    )))
+                })
+            })
+            .collect();
+        engine = engine.with_ner_strip_values(patterns?);
+    }
+
+    if !ner_config.exclude_entity_patterns.is_empty() {
+        let patterns: Result<Vec<regex::Regex>, _> = ner_config
+            .exclude_entity_patterns
+            .iter()
+            .map(|p| {
+                regex::Regex::new(p).map_err(|e| {
+                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+                        "NER exclude_entity_patterns pattern invalid: {e}"
+                    )))
+                })
+            })
+            .collect();
+        engine = engine.with_ner_exclude_entity_patterns(patterns?);
+    }
+
+    Ok(engine)
 }
 
 fn is_llm_enabled(config: &RuntimeConfig) -> bool {
@@ -839,10 +895,75 @@ fn build_llm_handler(
         .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
     let metadata_mode = config.response_envelope.pokrov_metadata.mode;
-    let handler = LLMProxyHandler::new(evaluator, metrics, routes, metadata_mode)
-        .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
+    #[cfg(feature = "llm_payload_trace")]
+    let payload_trace_sink = build_llm_payload_trace_sink(config)?;
+
+    let handler = LLMProxyHandler::new(
+        evaluator,
+        metrics,
+        routes,
+        metadata_mode,
+        #[cfg(feature = "llm_payload_trace")]
+        payload_trace_sink,
+    )
+    .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
     Ok(Some(handler))
+}
+
+#[cfg(not(feature = "llm_payload_trace"))]
+fn validate_llm_payload_trace_mode(config: &RuntimeConfig) -> Result<(), BootstrapError> {
+    if !config.observability.llm_payload_trace.enabled {
+        return Ok(());
+    }
+
+    Err(BootstrapError::Security(
+        "observability.llm_payload_trace.enabled requires runtime feature 'llm_payload_trace'"
+            .to_string(),
+    ))
+}
+
+#[cfg(feature = "llm_payload_trace")]
+fn validate_llm_payload_trace_mode(config: &RuntimeConfig) -> Result<(), BootstrapError> {
+    if !config.observability.llm_payload_trace.enabled {
+        return Ok(());
+    }
+
+    if !cfg!(debug_assertions) {
+        return Err(BootstrapError::Security(
+            "observability.llm_payload_trace.enabled is forbidden in release builds".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "llm_payload_trace")]
+fn build_llm_payload_trace_sink(
+    config: &RuntimeConfig,
+) -> Result<Option<pokrov_proxy_llm::trace::LlmPayloadTraceSink>, BootstrapError> {
+    if !config.observability.llm_payload_trace.enabled {
+        return Ok(None);
+    }
+
+    let sink = pokrov_proxy_llm::trace::LlmPayloadTraceSink::new(
+        &config.observability.llm_payload_trace.output_path,
+    )
+    .map_err(|error| {
+        BootstrapError::Security(format!(
+            "failed to initialize llm payload trace sink at '{}': {error}",
+            config.observability.llm_payload_trace.output_path
+        ))
+    })?;
+
+    info!(
+        component = "runtime",
+        action = "llm_payload_trace_enabled",
+        output_path = %config.observability.llm_payload_trace.output_path,
+        "llm payload trace sink enabled for debug build"
+    );
+
+    Ok(Some(sink))
 }
 
 #[derive(Serialize)]

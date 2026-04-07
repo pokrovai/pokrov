@@ -21,6 +21,8 @@ use crate::{
     },
     upstream::UpstreamClient,
 };
+#[cfg(feature = "llm_payload_trace")]
+use crate::trace::LlmPayloadTraceSink;
 use support::{
     attach_pokrov_metadata, attach_request_id, max_action, mode_as_str, ResponseMetadataContext,
     TerminalEvent,
@@ -57,12 +59,17 @@ impl LLMProxyHandler {
         metrics: SharedRuntimeMetricsHooks,
         routes: ProviderRouteTable,
         response_metadata_mode: ResponseMetadataMode,
+        #[cfg(feature = "llm_payload_trace")] payload_trace_sink: Option<LlmPayloadTraceSink>,
     ) -> Result<Self, LLMProxyError> {
+        let upstream = UpstreamClient::new()?;
+        #[cfg(feature = "llm_payload_trace")]
+        let upstream = upstream.with_payload_trace_sink(payload_trace_sink);
+
         Ok(Self {
             evaluator,
             metrics,
             routes: Arc::new(routes),
-            upstream: UpstreamClient::new()?,
+            upstream,
             response_metadata_mode,
         })
     }
@@ -110,10 +117,54 @@ impl LLMProxyHandler {
         let started = Instant::now();
         let envelope = normalize_request(&request_id, payload)?;
         let estimated_token_units = estimate_token_units(&envelope.original_payload);
+        let normalized_model_key = normalize_model_key(&envelope.model);
+        let route = match self.routes.resolve(&request_id, &envelope.model) {
+            Ok(route) => {
+                self.metrics.on_model_resolution();
+                route
+            }
+            Err(error) => {
+                self.metrics.on_model_resolution_failed();
+                tracing::info!(
+                    component = "llm_proxy",
+                    action = "model_resolution",
+                    request_id = %request_id,
+                    route = %endpoint,
+                    input_model_key = %envelope.model,
+                    normalized_model_key = %normalized_model_key,
+                    resolution_status = %error.code().as_str(),
+                );
+                return Err(error);
+            }
+        };
+        tracing::info!(
+            component = "llm_proxy",
+            action = "model_resolution",
+            request_id = %request_id,
+            route = %endpoint,
+            input_model_key = %envelope.model,
+            normalized_model_key = %normalized_model_key,
+            canonical_model = %route.canonical_model,
+            resolved_model = %route.canonical_model,
+            provider_id = %route.provider_id,
+            resolved_via_alias = route.resolved_via_alias,
+            resolution_status = "resolved",
+        );
         let profile_id = resolve_profile_id(
             envelope.profile_hint.as_deref(),
             api_key_profile,
+            route.provider_profile_id.as_deref(),
             self.default_profile_id(),
+        );
+        tracing::info!(
+            component = "llm_proxy",
+            action = "request_received",
+            request_id = %request_id,
+            endpoint = %endpoint,
+            model = %envelope.model,
+            provider_id = %route.provider_id,
+            profile_id = %profile_id,
+            stream = envelope.stream,
         );
 
         let mut final_action = PolicyAction::Allow;
@@ -177,52 +228,23 @@ impl LLMProxyHandler {
 
             if let Some(sanitized) = input_eval.transform.sanitized_payload {
                 sanitized_payload = sanitized;
+                restore_tool_definitions(&envelope.original_payload, &mut sanitized_payload);
             }
         }
 
-        let normalized_model_key = normalize_model_key(&envelope.model);
-        let route = match self.routes.resolve(&request_id, &envelope.model) {
-            Ok(route) => {
-                self.metrics.on_model_resolution();
-                route
-            }
-            Err(error) => {
-                self.metrics.on_model_resolution_failed();
-                tracing::info!(
-                    component = "llm_proxy",
-                    action = "model_resolution",
-                    request_id = %request_id,
-                    route = %endpoint,
-                    input_model_key = %envelope.model,
-                    normalized_model_key = %normalized_model_key,
-                    resolution_status = %error.code().as_str(),
-                );
-                return Err(error);
-            }
-        };
-        tracing::info!(
-            component = "llm_proxy",
-            action = "model_resolution",
-            request_id = %request_id,
-            route = %endpoint,
-            input_model_key = %envelope.model,
-            normalized_model_key = %normalized_model_key,
-            canonical_model = %route.canonical_model,
-            resolved_model = %route.canonical_model,
-            provider_id = %route.provider_id,
-            resolved_via_alias = route.resolved_via_alias,
-            resolution_status = "resolved",
-        );
         override_payload_model(&mut sanitized_payload, &route.canonical_model);
-        let selected_credential =
-            select_upstream_credential(auth_mode, &route, upstream_credential).ok_or_else(
-                || {
-                    LLMProxyError::invalid_request(
-                        request_id.clone(),
-                        "upstream credential is required in passthrough mode",
-                    )
-                },
-            )?;
+        let selected_credential = select_upstream_credential(auth_mode, &route, upstream_credential);
+        if selected_credential.is_none() && matches!(auth_mode, UpstreamAuthMode::Passthrough) {
+            return Err(LLMProxyError::invalid_request(
+                request_id.clone(),
+                "upstream credential is required in passthrough mode",
+            ));
+        }
+        let credential_origin = selected_credential
+            .as_ref()
+            .map(|credential| credential.origin)
+            .unwrap_or(UpstreamCredentialOrigin::Config);
+        let upstream_credential = selected_credential.map(|credential| credential.token);
 
         if envelope.stream {
             return self
@@ -239,8 +261,8 @@ impl LLMProxyHandler {
                     sanitized_input,
                     estimated_token_units,
                     auth_mode,
-                    selected_credential.origin,
-                    selected_credential.token,
+                    credential_origin,
+                    upstream_credential.clone(),
                 )
                 .await;
         }
@@ -258,8 +280,8 @@ impl LLMProxyHandler {
             sanitized_input,
             estimated_token_units,
             auth_mode,
-            selected_credential.origin,
-            selected_credential.token,
+            credential_origin,
+            upstream_credential,
         )
         .await
     }
@@ -300,7 +322,7 @@ impl LLMProxyHandler {
         estimated_token_units: u32,
         auth_mode: UpstreamAuthMode,
         credential_origin: UpstreamCredentialOrigin,
-        upstream_credential: String,
+        upstream_credential: Option<String>,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
@@ -308,7 +330,7 @@ impl LLMProxyHandler {
                 &request_id,
                 &route,
                 &sanitized_payload,
-                Some(upstream_credential.as_str()),
+                upstream_credential.as_deref(),
             )
             .await;
 
@@ -405,6 +427,8 @@ impl LLMProxyHandler {
                 &mut body,
             )?;
         }
+        #[cfg(feature = "llm_payload_trace")]
+        self.upstream.emit_response_trace(&request_id, &route, endpoint, &body);
 
         self.emit_terminal_event(TerminalEvent {
             request_id: &request_id,
@@ -480,4 +504,63 @@ fn override_payload_model(payload: &mut Value, canonical_model: &str) {
         return;
     };
     object.insert("model".to_string(), Value::String(canonical_model.to_string()));
+}
+
+/// Preserves original tool definitions so sanitization cannot break tool-calling contracts.
+///
+/// Tool schemas and names must remain byte-stable for upstream function-calling validation.
+fn restore_tool_definitions(original_payload: &Value, sanitized_payload: &mut Value) {
+    let Some(original_object) = original_payload.as_object() else {
+        return;
+    };
+    let Some(sanitized_object) = sanitized_payload.as_object_mut() else {
+        return;
+    };
+
+    if let Some(original_tools) = original_object.get("tools") {
+        sanitized_object.insert("tools".to_string(), original_tools.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::restore_tool_definitions;
+
+    #[test]
+    fn restore_tool_definitions_keeps_original_tools_payload() {
+        let original = json!({
+            "model": "qwen3.5:9b",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "context7_resolve-library-id",
+                        "parameters": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema"
+                        }
+                    }
+                }
+            ]
+        });
+        let mut sanitized = json!({
+            "model": "qwen3.5:9b",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "***********************y-id",
+                        "parameters": {
+                            "$schema": "***********************************ema#"
+                        }
+                    }
+                }
+            ]
+        });
+
+        restore_tool_definitions(&original, &mut sanitized);
+
+        assert_eq!(sanitized["tools"], original["tools"]);
+    }
 }

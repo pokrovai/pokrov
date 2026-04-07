@@ -25,12 +25,22 @@ const PERSON_NAME_FIELD_SUFFIXES: &[&str] = &[
     "/user/name",
 ];
 
-pub(super) const BUILTIN_RULES: [BuiltinRuleSpec; 22] = [
+pub(super) const BUILTIN_RULES: [BuiltinRuleSpec; 23] = [
     BuiltinRuleSpec {
         rule_id: "builtin.secrets.bearer_token",
         category: DetectionCategory::Secrets,
         priority: 470,
         pattern: r"(?i)\bbearer\s+(?:gh[pousr]_[a-z0-9]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[A-Za-z0-9._\-]{24,})\b",
+        validator: DeterministicValidatorKind::None,
+        normalization: DeterministicNormalizationMode::Preserve,
+        deterministic_context: None,
+        field_gate: None,
+    },
+    BuiltinRuleSpec {
+        rule_id: "builtin.secrets.basic_token",
+        category: DetectionCategory::Secrets,
+        priority: 469,
+        pattern: r"(?i)\bauthorization\s*:\s*basic\s+[A-Za-z0-9+/=]{8,}",
         validator: DeterministicValidatorKind::None,
         normalization: DeterministicNormalizationMode::Preserve,
         deterministic_context: None,

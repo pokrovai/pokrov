@@ -752,6 +752,15 @@ fn validate_llm_provider(
         ));
     }
 
+    if let Some(profile_id) = provider.profile_id.as_deref() {
+        if !matches!(profile_id, "minimal" | "strict" | "custom") {
+            issues.push(ValidationIssue::new(
+                format!("{provider_path}.profile_id"),
+                "must be one of minimal|strict|custom",
+            ));
+        }
+    }
+
     if let Some(upstream_path) = provider.upstream_path.as_ref() {
         if !is_valid_upstream_path(upstream_path) {
             issues.push(ValidationIssue::new(
@@ -761,10 +770,11 @@ fn validate_llm_provider(
         }
     }
 
-    if SecretRef::parse(&provider.auth.api_key).is_none() {
+    let auth_api_key = provider.auth.api_key.trim();
+    if !auth_api_key.is_empty() && SecretRef::parse(auth_api_key).is_none() {
         issues.push(ValidationIssue::new(
             format!("{provider_path}.auth.api_key"),
-            "must use env:VAR or file:/path format",
+            "must use env:VAR or file:/path format when provided",
         ));
     }
 

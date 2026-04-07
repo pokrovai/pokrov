@@ -12,7 +12,10 @@ pub struct LlmProviderConfig {
     pub id: String,
     pub base_url: String,
     #[serde(default)]
+    pub profile_id: Option<String>,
+    #[serde(default)]
     pub upstream_path: Option<String>,
+    #[serde(default)]
     pub auth: LlmProviderAuthConfig,
     #[serde(default = "default_llm_timeout_ms")]
     pub timeout_ms: u64,
@@ -23,7 +26,14 @@ pub struct LlmProviderConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LlmProviderAuthConfig {
+    #[serde(default)]
     pub api_key: String,
+}
+
+impl Default for LlmProviderAuthConfig {
+    fn default() -> Self {
+        Self { api_key: String::new() }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

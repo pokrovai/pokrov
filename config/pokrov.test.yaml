@@ -3,14 +3,14 @@ server:
   port: 8080
 
 logging:
-  level: info
+  level: trace
   format: json
   component: runtime
 
 observability:
   llm_payload_trace:
-    enabled: false
-    output_path: /tmp/pokrov-llm-payload-trace.ndjson
+    enabled: true
+    output_path: ./tmp/pokrov-llm-payload-trace.ndjson
 
 shutdown:
   drain_timeout_ms: 5000
@@ -21,7 +21,7 @@ security:
   fail_on_unresolved_provider_keys: false
   api_keys:
     - key: env:POKROV_API_KEY
-      profile: strict
+      profile: custom
 
 auth:
   upstream_auth_mode: static
@@ -45,14 +45,14 @@ rate_limit:
   profiles:
     strict:
       requests_per_minute: 120
-      token_units_per_minute: 24000
+      token_units_per_minute: 24000000
       burst_multiplier: 1.5
       enforcement_mode: enforce
     custom:
       requests_per_minute: 240
-      token_units_per_minute: 48000
+      token_units_per_minute: 4800000
       burst_multiplier: 1.0
-      enforcement_mode: dry_run
+      enforcement_mode: enforce
 
 sanitization:
   enabled: true
@@ -98,15 +98,28 @@ sanitization:
             negative_terms: ["example", "demo"]
             window: 32
             suppress_on_negative: false
+#    custom:
+#      mode_default: enforce
+#      categories:
+#        secrets: allow
+#        pii: allow
+#        corporate_markers: allow
+#        custom: allow
+#      mask_visible_suffix: 4
+#      max_hits_per_request: 4096
+#      ner_enabled: false
+#      custom_rules: [ ]
+#      deterministic_recognizers: [ ]
+#      allow_empty_matches: false
     custom:
-      mode_default: dry_run
+      mode_default: enforce
       categories:
         secrets: redact
         pii: mask
         corporate_markers: mask
       mask_visible_suffix: 4
       max_hits_per_request: 4096
-      ner_enabled: false
+      ner_enabled: true
       custom_rules:
         - id: custom.project_andromeda
           category: corporate_markers
@@ -117,12 +130,9 @@ sanitization:
 
 ner:
   enabled: true
-  default_language: ""
-  execution: auto              # auto | sequential | parallel
-  merge_strategy: union        # union | highest_score
   skip_llm_tools_and_system: true
-  skip_fields: []
-  strip_values: []
+  execution: parallel      # auto | sequential | parallel
+  merge_strategy: union    # union | highest_score
   models:
     - language: en
       model_path: "./models/bert-base-NER/model.onnx"
@@ -132,10 +142,19 @@ ner:
       model_path: "./models/ner-rubert-tiny-news/model.onnx"
       tokenizer_path: "./models/ner-rubert-tiny-news/tokenizer.json"
       priority: 100
-  fallback_language: en
-  timeout_ms: 2000
-  confidence_threshold: 0.7
-  max_seq_length: 512
+  fallback_language: ru
+  default_language: ru
+#  exclude_entity_patterns:
+#    - '"^_[A-Z]+_"'
+#  strip_values:
+#    - '"__typename"'
+#    - '"_[A-Z]_\w+"'
+#  skip_fields:
+#      - "^__"           # пропускает __typename, __id, __ref и т.д.
+#      - "^_E_"          # пропускает _E_Types и прочие GraphQL entity markers
+  timeout_ms: 200000
+  confidence_threshold: 0.8
+  max_seq_length: 1024
   profiles:
     strict:
       fail_mode: fail_closed
@@ -143,23 +162,22 @@ ner:
     minimal:
       fail_mode: fail_open
       entity_types: [person]
-
+    custom:
+      fail_mode: fail_open
+      entity_types: [person]
 llm:
   providers:
-    - id: openai
-      base_url: https://api.openai.com/v1
-      upstream_path: /chat/completions
-      auth:
-        api_key: env:OPENAI_API_KEY
+    - id: ollama
+      base_url: http://127.0.0.1:11434/v1
       timeout_ms: 30000
       retry_budget: 1
       enabled: true
+      profile_id: custom
   routes:
-    - model: gpt-4o-mini
-      provider_id: openai
+    - model: qwen3.5:9b
+      provider_id: ollama
       aliases:
-        - openai/gpt-4o-mini
-        - team-default-mini
+        - ollama/qwen3.5:9b
       output_sanitization: true
       enabled: true
   defaults:

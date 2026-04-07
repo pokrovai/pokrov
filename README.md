@@ -112,6 +112,17 @@ With NER enabled:
 cargo run -p pokrov-runtime --features ner -- --config ./config/pokrov.example.yaml
 ```
 
+### WARNING: Debug Payload Trace
+
+`observability.llm_payload_trace` is a sensitive debug mechanism that writes outbound
+LLM payloads to a local file. Treat this as development-only instrumentation.
+
+- Must be explicitly enabled in config (`enabled: true`).
+- Requires build feature `llm_payload_trace`.
+- Runtime refuses startup when enabled in release builds.
+- Never enable it in production environments or with real secrets.
+- Do not build production artifacts with `--features llm_payload_trace`.
+
 Probe checks:
 
 ```bash
@@ -221,6 +232,8 @@ on each sanitization profile that should use NER detection.
 ```yaml
 ner:
   enabled: true
+  default_language: ""
+  skip_fields: []
   models:
     - language: en
       model_path: "./models/bert-base-NER/model.onnx"
@@ -501,6 +514,9 @@ auth:
 ### Routing UX Notes
 
 - `llm.providers[].upstream_path` lets you override the provider upstream endpoint path.
+- `llm.providers[].auth.api_key` is optional for local/no-auth upstreams in `auth.upstream_auth_mode: static`.
+  - Set it to `env:VAR`/`file:/path` when upstream requires bearer auth.
+  - Leave it empty to call upstream without `Authorization` header.
 - `llm.routes[].aliases` lets you expose additional model ids that map to the same canonical route.
 - `response_envelope.pokrov_metadata.mode` supports:
   - `enabled` (default): include `pokrov` metadata in successful LLM responses

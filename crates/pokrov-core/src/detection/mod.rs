@@ -79,6 +79,26 @@ mod tests {
     }
 
     #[test]
+    fn detects_authorization_basic_tokens() {
+        let profile = strict_profile();
+        let custom = compile_custom_rules(&profile).expect("rules should compile");
+        let payload = json!({
+            "content": "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ=="
+        });
+
+        let hits = detect_payload(&payload, &profile, &custom, &[]);
+
+        assert!(
+            hits.iter().any(|hit| hit.rule_id == "builtin.secrets.basic_token"),
+            "authorization basic token should be detected as a secret family hit"
+        );
+        assert!(
+            hits.iter().any(|hit| hit.category == DetectionCategory::Secrets),
+            "authorization basic token should produce a secret-category hit"
+        );
+    }
+
+    #[test]
     fn detects_generic_standalone_sk_api_key_tokens() {
         let profile = strict_profile();
         let custom = compile_custom_rules(&profile).expect("rules should compile");

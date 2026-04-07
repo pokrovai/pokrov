@@ -20,6 +20,8 @@ pub struct NerAdapterConfig {
     pub fail_mode: NerFailMode,
     pub entity_types: Vec<pokrov_ner::NerEntityType>,
     pub timeout_ms: u64,
+    pub execution_mode: pokrov_ner::NerExecutionMode,
+    pub num_models: usize,
 }
 
 impl std::fmt::Debug for NerAdapter {
@@ -83,20 +85,25 @@ impl NerAdapter {
             let _ = tx.send(result);
         });
 
-        rx.recv_timeout(Duration::from_millis(timeout_ms))
-            .map_err(|error| match error {
-                mpsc::RecvTimeoutError::Timeout => NerAdapterError::Timeout(timeout_ms),
-                mpsc::RecvTimeoutError::Disconnected => {
-                    NerAdapterError::EngineFailed("NER worker disconnected".to_string())
-                }
-            })?
+        rx.recv_timeout(Duration::from_millis(timeout_ms)).map_err(|error| match error {
+            mpsc::RecvTimeoutError::Timeout => NerAdapterError::Timeout(timeout_ms),
+            mpsc::RecvTimeoutError::Disconnected => {
+                NerAdapterError::EngineFailed("NER worker disconnected".to_string())
+            }
+        })?
     }
 
     fn effective_timeout_ms(&self, texts_len: usize) -> u64 {
-        // NerEngine evaluates batches in 32-item chunks. Scale timeout to preserve
-        // the configured per-chunk budget on large payloads.
         let chunks = ((texts_len + 31) / 32).max(1) as u64;
-        self.config.timeout_ms.saturating_mul(chunks)
+        let base = self.config.timeout_ms.saturating_mul(chunks);
+        // Sequential mode runs all models one after another, so scale by model count.
+        // Parallel runs concurrently, so no scaling needed (latency ≈ max model time).
+        match self.config.execution_mode {
+            pokrov_ner::NerExecutionMode::Sequential => {
+                base.saturating_mul(self.config.num_models as u64)
+            }
+            pokrov_ner::NerExecutionMode::Parallel | pokrov_ner::NerExecutionMode::Auto => base,
+        }
     }
 }
 
@@ -114,36 +121,36 @@ fn recognize_and_normalize_batch(
         .map_err(|e| NerAdapterError::EngineFailed(e.to_string()))?;
 
     Ok(results
-            .into_iter()
-            .map(|(text, hits)| {
-                let normalized: Vec<NormalizedHit> = hits
-                    .into_iter()
-                    .map(|hit| NormalizedHit {
-                        rule_id: format!("ner.{}.{}", hit.entity.as_str(), hit.language),
-                        category: match hit.entity {
-                            pokrov_ner::NerEntityType::Person => DetectionCategory::Pii,
-                            pokrov_ner::NerEntityType::Organization => {
-                                DetectionCategory::CorporateMarkers
-                            }
-                        },
-                        location_kind: HitLocationKind::JsonPointer,
-                        json_pointer: String::new(),
-                        start: hit.start,
-                        end: hit.end,
-                        action_hint: PolicyAction::Redact,
-                        final_score: (hit.score * 100.0) as i32,
-                        family_priority: 200,
-                        priority: 200,
-                        evidence_class: EvidenceClass::RemoteRecognizer,
-                        validation_status: ValidationStatus::Candidate,
-                        suppression_status: SuppressionStatus::None,
-                        reason_codes: vec![format!("ner:{}", hit.entity.as_str())],
-                        replacement_template_present: false,
-                    })
-                    .collect();
-                (text, normalized)
-            })
-            .collect())
+        .into_iter()
+        .map(|(text, hits)| {
+            let normalized: Vec<NormalizedHit> = hits
+                .into_iter()
+                .map(|hit| NormalizedHit {
+                    rule_id: format!("ner.{}.{}", hit.entity.as_str(), hit.language),
+                    category: match hit.entity {
+                        pokrov_ner::NerEntityType::Person => DetectionCategory::Pii,
+                        pokrov_ner::NerEntityType::Organization => {
+                            DetectionCategory::CorporateMarkers
+                        }
+                    },
+                    location_kind: HitLocationKind::JsonPointer,
+                    json_pointer: String::new(),
+                    start: hit.start,
+                    end: hit.end,
+                    action_hint: PolicyAction::Redact,
+                    final_score: (hit.score * 100.0) as i32,
+                    family_priority: 200,
+                    priority: 200,
+                    evidence_class: EvidenceClass::RemoteRecognizer,
+                    validation_status: ValidationStatus::Candidate,
+                    suppression_status: SuppressionStatus::None,
+                    reason_codes: vec![format!("ner:{}", hit.entity.as_str())],
+                    replacement_template_present: false,
+                })
+                .collect();
+            (text, normalized)
+        })
+        .collect())
 }
 
 #[derive(Debug, thiserror::Error)]

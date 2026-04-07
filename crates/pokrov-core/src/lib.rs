@@ -15,8 +15,7 @@ use crate::types::{
     DegradedSummary, EvaluateDecision, EvaluateError, EvaluateRequest, EvaluateResult,
     EvaluatorConfig, ExecutedSummary, FoundationExecutionTrace, FoundationTransformResult,
     NormalizedHit, PolicyAction, PolicyProfile, ResolvedHit, ResolvedLocationKind,
-    ResolvedLocationRecord,
-    ResolvedSpan, TransformPlan,
+    ResolvedLocationRecord, ResolvedSpan, TransformPlan,
 };
 
 pub mod audit;
@@ -26,6 +25,7 @@ pub mod policy;
 pub mod transform;
 pub mod traversal;
 pub mod types;
+pub mod util;
 
 #[cfg(feature = "ner")]
 pub mod ner_adapter;
@@ -64,6 +64,14 @@ pub struct SanitizationEngine {
     ner_profile_entity_types: std::collections::HashMap<String, Vec<pokrov_ner::NerEntityType>>,
     #[cfg(feature = "ner")]
     ner_profile_fail_modes: std::collections::HashMap<String, NerFailMode>,
+    #[cfg(feature = "ner")]
+    skip_llm_tools_and_system_for_ner: bool,
+    #[cfg(feature = "ner")]
+    ner_skip_fields: Vec<regex::Regex>,
+    #[cfg(feature = "ner")]
+    ner_strip_values: Vec<regex::Regex>,
+    #[cfg(feature = "ner")]
+    ner_exclude_entity_patterns: Vec<regex::Regex>,
 }
 
 impl SanitizationEngine {
@@ -99,6 +107,14 @@ impl SanitizationEngine {
             ner_profile_entity_types: std::collections::HashMap::new(),
             #[cfg(feature = "ner")]
             ner_profile_fail_modes: std::collections::HashMap::new(),
+            #[cfg(feature = "ner")]
+            skip_llm_tools_and_system_for_ner: true,
+            #[cfg(feature = "ner")]
+            ner_skip_fields: Vec::new(),
+            #[cfg(feature = "ner")]
+            ner_strip_values: Vec::new(),
+            #[cfg(feature = "ner")]
+            ner_exclude_entity_patterns: Vec::new(),
         })
     }
 
@@ -126,12 +142,43 @@ impl SanitizationEngine {
         self
     }
 
+    #[cfg(feature = "ner")]
+    pub fn with_ner_llm_skip_filter(mut self, enabled: bool) -> Self {
+        self.skip_llm_tools_and_system_for_ner = enabled;
+        self
+    }
+
+    /// Appends regex patterns for JSON pointer paths that NER should skip.
+    #[cfg(feature = "ner")]
+    pub fn with_ner_skip_fields(mut self, patterns: Vec<regex::Regex>) -> Self {
+        self.ner_skip_fields = patterns;
+        self
+    }
+
+    /// Appends regex patterns for text content that NER should strip
+    /// (replace with spaces) before inference. Detected spans are remapped
+    /// back to the original text offsets.
+    #[cfg(feature = "ner")]
+    pub fn with_ner_strip_values(mut self, patterns: Vec<regex::Regex>) -> Self {
+        self.ner_strip_values = patterns;
+        self
+    }
+
+    /// Sets regex patterns that exclude NER hits whose recognized text
+    /// matches (e.g., `^_E_` skips GraphQL entity type markers).
+    #[cfg(feature = "ner")]
+    pub fn with_ner_exclude_entity_patterns(mut self, patterns: Vec<regex::Regex>) -> Self {
+        self.ner_exclude_entity_patterns = patterns;
+        self
+    }
+
     /// Collects NER hits from string leaves and appends them to the detection hit list.
     /// Deduplicates texts via HashSet to avoid redundant inference on identical values.
     #[cfg(feature = "ner")]
     fn apply_ner_detection(
         &self,
         payload: &serde_json::Value,
+        path_class: crate::types::PathClass,
         profile_id: &str,
         ner: &Arc<NerAdapter>,
         hits: &mut Vec<crate::types::DetectionHit>,
@@ -140,6 +187,20 @@ impl SanitizationEngine {
 
         let mut items: Vec<(String, String)> = Vec::new();
         traversal::visit_string_leaves(payload, &mut |pointer, text| {
+            if should_skip_ner_pointer(
+                self.skip_llm_tools_and_system_for_ner,
+                path_class,
+                payload,
+                pointer,
+            ) {
+                return;
+            }
+            if !self.ner_skip_fields.is_empty() {
+                let segments: Vec<&str> = pointer.split('/').collect();
+                if segments.iter().any(|s| self.ner_skip_fields.iter().any(|re| re.is_match(s))) {
+                    return;
+                }
+            }
             if text.len() >= 3 && looks_like_ner_candidate(text) {
                 items.push((pointer.to_string(), text.to_string()));
             }
@@ -160,13 +221,28 @@ impl SanitizationEngine {
             text_to_indices.entry(text.clone()).or_default().push(idx);
         }
 
-        let refs: Vec<(String, &str)> =
-            unique_texts.iter().map(|t| (t.clone(), t.as_str())).collect();
+        let stripped_texts: Vec<String> = if self.ner_strip_values.is_empty() {
+            unique_texts.clone()
+        } else {
+            unique_texts
+                .iter()
+                .map(|text| strip_regex_regions(text, &self.ner_strip_values))
+                .collect()
+        };
+
+        let Some(compiled_profile) = self.profiles.get(profile_id) else {
+            return Ok(());
+        };
+        let category_actions = &compiled_profile.profile.category_actions;
+
+        let stripped_refs: Vec<(String, &str)> =
+            stripped_texts.iter().map(|t| (t.clone(), t.as_str())).collect();
+
         let batch_results =
             if let Some(profile_types) = self.ner_profile_entity_types.get(profile_id) {
-                ner.recognize_batch_sync_with_types(&refs, profile_types)
+                ner.recognize_batch_sync_with_types(&stripped_refs, profile_types)
             } else {
-                ner.recognize_batch_sync(&refs)
+                ner.recognize_batch_sync(&stripped_refs)
             };
 
         let batch_results = batch_results?;
@@ -176,14 +252,31 @@ impl SanitizationEngine {
             if let Some(indices) = text_to_indices.get(unique_text) {
                 for &item_idx in indices {
                     let pointer = &items[item_idx].0;
+                    let source_text = &items[item_idx].1;
                     for nh in normalized {
+                        if !self.ner_exclude_entity_patterns.is_empty() {
+                            let entity_text = &source_text[nh.start..nh.end.min(source_text.len())];
+                            let trimmed = entity_text.trim_matches('"');
+                            if self
+                                .ner_exclude_entity_patterns
+                                .iter()
+                                .any(|re| re.is_match(trimmed))
+                            {
+                                continue;
+                            }
+                        }
+                        let Some((start, end)) =
+                            normalize_ner_span_bounds(source_text, nh.start, nh.end)
+                        else {
+                            continue;
+                        };
                         hits.push(crate::types::DetectionHit {
                             rule_id: nh.rule_id.clone(),
                             category: nh.category,
                             json_pointer: pointer.clone(),
-                            start: nh.start,
-                            end: nh.end,
-                            action: nh.action_hint,
+                            start,
+                            end,
+                            action: category_actions.action_for(nh.category),
                             priority: nh.priority,
                             replacement_template: if nh.replacement_template_present {
                                 Some(String::new())
@@ -201,10 +294,7 @@ impl SanitizationEngine {
 
     #[cfg(feature = "ner")]
     fn ner_fail_mode_for_profile(&self, profile_id: &str, ner: &NerAdapter) -> NerFailMode {
-        self.ner_profile_fail_modes
-            .get(profile_id)
-            .copied()
-            .unwrap_or_else(|| ner.fail_mode())
+        self.ner_profile_fail_modes.get(profile_id).copied().unwrap_or_else(|| ner.fail_mode())
     }
 
     #[cfg(feature = "ner")]
@@ -319,9 +409,13 @@ impl SanitizationEngine {
         {
             if let Some(ref ner) = self.ner {
                 if compiled_profile.profile.ner_enabled {
-                    if let Err(error) =
-                        self.apply_ner_detection(&request.payload, &profile_id, ner, &mut hits)
-                    {
+                    if let Err(error) = self.apply_ner_detection(
+                        &request.payload,
+                        request.path_class,
+                        &profile_id,
+                        ner,
+                        &mut hits,
+                    ) {
                         tracing::warn!(
                             error = %error,
                             profile_id = %profile_id,
@@ -545,6 +639,131 @@ fn logical_field_path(pointer: &str) -> String {
 }
 
 #[cfg(feature = "ner")]
+fn should_skip_ner_pointer(
+    skip_llm_tools_and_system_for_ner: bool,
+    path_class: crate::types::PathClass,
+    payload: &serde_json::Value,
+    pointer: &str,
+) -> bool {
+    if !skip_llm_tools_and_system_for_ner {
+        return false;
+    }
+
+    if path_class != crate::types::PathClass::Llm {
+        return false;
+    }
+
+    if pointer == "/tools" || pointer.starts_with("/tools/") {
+        return true;
+    }
+
+    let Some(rest) = pointer.strip_prefix("/messages/") else {
+        return false;
+    };
+    let mut parts = rest.split('/');
+    let Some(idx_segment) = parts.next() else {
+        return false;
+    };
+    let Ok(message_idx) = idx_segment.parse::<usize>() else {
+        return false;
+    };
+    let Some(field) = parts.next() else {
+        return false;
+    };
+    if field != "content" {
+        return false;
+    }
+
+    llm_message_role(payload, message_idx).is_some_and(|role| role.eq_ignore_ascii_case("system"))
+}
+
+#[cfg(feature = "ner")]
+fn llm_message_role(payload: &serde_json::Value, message_idx: usize) -> Option<&str> {
+    payload
+        .as_object()
+        .and_then(|root| root.get("messages"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|messages| messages.get(message_idx))
+        .and_then(serde_json::Value::as_object)
+        .and_then(|message| message.get("role"))
+        .and_then(serde_json::Value::as_str)
+}
+
+#[cfg(all(test, feature = "ner"))]
+mod ner_filter_tests {
+    use serde_json::json;
+
+    use crate::types::PathClass;
+
+    use super::{looks_like_ner_candidate, normalize_ner_span_bounds, should_skip_ner_pointer};
+
+    #[test]
+    fn skips_llm_tools_payload_for_ner() {
+        let payload = json!({
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [{"function": {"name": "x", "description": "long schema"}}]
+        });
+        assert!(should_skip_ner_pointer(true, PathClass::Llm, &payload, "/tools/0/function/name"));
+    }
+
+    #[test]
+    fn skips_llm_system_message_content_for_ner() {
+        let payload = json!({
+            "messages": [
+                {"role": "system", "content": "very long system prompt"},
+                {"role": "user", "content": "hello"}
+            ]
+        });
+        assert!(should_skip_ner_pointer(true, PathClass::Llm, &payload, "/messages/0/content"));
+        assert!(!should_skip_ner_pointer(true, PathClass::Llm, &payload, "/messages/1/content"));
+    }
+
+    #[test]
+    fn does_not_skip_when_filter_is_disabled() {
+        let payload = json!({
+            "messages": [{"role": "system", "content": "system prompt"}],
+            "tools": [{"function": {"description": "tool schema"}}]
+        });
+        assert!(!should_skip_ner_pointer(false, PathClass::Llm, &payload, "/messages/0/content"));
+        assert!(!should_skip_ner_pointer(false, PathClass::Llm, &payload, "/tools/0/function"));
+    }
+
+    #[test]
+    fn normalizes_partial_latin_name_span_from_ner() {
+        let text = "My Name mikhail Fedorov.";
+        let start = text.find("Fedorov").expect("name should be present");
+        let partial_end = start + "Fedoro".len();
+
+        let normalized =
+            normalize_ner_span_bounds(text, start, partial_end).expect("span should normalize");
+
+        assert_eq!(&text[normalized.0..normalized.1], "Fedorov");
+    }
+
+    #[test]
+    fn normalizes_partial_cyrillic_name_span_from_ner() {
+        let text = "Иван Петров работает в Газпроме";
+
+        let normalized = normalize_ner_span_bounds(text, 0, "И".len())
+            .expect("span should normalize to whole token");
+
+        assert_eq!(&text[normalized.0..normalized.1], "Иван");
+    }
+
+    #[test]
+    fn accepts_json_key_value_fragment_containing_name() {
+        assert!(looks_like_ner_candidate(
+            r#"sjkhsakjhdfk "name" : "Михайлов Артём Сергеевич", "__typename" : "_E_Calendar""#
+        ));
+    }
+
+    #[test]
+    fn accepts_plain_text_with_name() {
+        assert!(looks_like_ner_candidate("Михайлов Артём Сергеевич"));
+    }
+}
+
+#[cfg(feature = "ner")]
 fn looks_like_ner_candidate(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -583,6 +802,78 @@ fn looks_like_ner_candidate(text: &str) -> bool {
     }
 
     true
+}
+
+/// Replaces all regex matches in `text` with spaces, preserving byte length.
+/// Stripped text has identical byte offsets to the original, so NER spans
+/// can be applied directly without remapping.
+#[cfg(feature = "ner")]
+fn strip_regex_regions(text: &str, patterns: &[regex::Regex]) -> String {
+    let mut stripped: Vec<u8> = text.as_bytes().to_vec();
+    for re in patterns {
+        for mat in re.find_iter(text) {
+            for b in &mut stripped[mat.start()..mat.end()] {
+                *b = b' ';
+            }
+        }
+    }
+    // Only ASCII space bytes are written, so the result is always valid UTF-8.
+    String::from_utf8(stripped).expect("replacing ASCII bytes in valid UTF-8 produces valid UTF-8")
+}
+
+#[cfg(feature = "ner")]
+fn normalize_ner_span_bounds(text: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let mut start = start.min(text.len());
+    let mut end = end.min(text.len());
+    if start >= end {
+        return None;
+    }
+
+    // NER offsets must be normalized to UTF-8 boundaries before slicing.
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    while end < text.len() && !text.is_char_boundary(end) {
+        end += 1;
+    }
+    if start >= end {
+        return None;
+    }
+
+    // Some NER models return sub-token pieces for names in mixed-language text.
+    // Expand to surrounding token characters to avoid partial-redaction leaks.
+    while start > 0 {
+        let Some((prev_start, prev_char)) = text[..start].char_indices().next_back() else {
+            break;
+        };
+        if is_sensitive_token_char(prev_char) {
+            start = prev_start;
+        } else {
+            break;
+        }
+    }
+
+    while end < text.len() {
+        let Some(next_char) = text[end..].chars().next() else {
+            break;
+        };
+        if is_sensitive_token_char(next_char) {
+            end += next_char.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    (start < end).then_some((start, end))
+}
+
+#[cfg(feature = "ner")]
+fn is_sensitive_token_char(ch: char) -> bool {
+    ch.is_alphanumeric() || matches!(ch, '_' | '-' | '\'')
 }
 
 #[cfg(test)]

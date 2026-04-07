@@ -83,8 +83,8 @@ pub(super) fn resolve_request_context(
         .identity_profile_bindings
         .get(client_identity)
         .cloned()
-        .or_else(|| state.auth.fallback_policy_profile.clone())
         .or_else(|| gateway_profile.clone())
+        .or_else(|| state.auth.fallback_policy_profile.clone())
         .unwrap_or_else(|| "strict".to_string());
     let rate_limit_profile = state
         .auth

@@ -12,6 +12,8 @@ use super::{AuthConfig, IdentityConfig, LlmConfig, McpConfig, SanitizationConfig
 pub struct RuntimeConfig {
     pub server: ServerConfig,
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
     pub shutdown: ShutdownConfig,
     #[serde(default)]
     pub security: SecurityConfig,
@@ -94,6 +96,26 @@ pub enum LogFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ObservabilityConfig {
+    #[serde(default)]
+    pub llm_payload_trace: LlmPayloadTraceConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LlmPayloadTraceConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_llm_payload_trace_output_path")]
+    pub output_path: String,
+}
+
+impl Default for LlmPayloadTraceConfig {
+    fn default() -> Self {
+        Self { enabled: false, output_path: default_llm_payload_trace_output_path() }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ShutdownConfig {
     pub drain_timeout_ms: u64,
@@ -166,4 +188,8 @@ pub enum ResponseMetadataMode {
 
 fn default_component() -> String {
     "runtime".to_string()
+}
+
+fn default_llm_payload_trace_output_path() -> String {
+    "/tmp/pokrov-llm-payload-trace.ndjson".to_string()
 }
