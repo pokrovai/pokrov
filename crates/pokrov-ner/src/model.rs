@@ -54,9 +54,9 @@ impl Default for NerExecutionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NerMergeStrategy {
-    /// Collect all non-overlapping spans; when spans overlap, keep the one with the highest score.
+    /// For overlapping spans, keep only the highest-scored one.
     HighestScore,
-    /// Collect all unique spans; overlapping spans are deduplicated by byte range.
+    /// Deduplicate by exact byte range; overlapping spans with different ranges are kept.
     Union,
 }
 

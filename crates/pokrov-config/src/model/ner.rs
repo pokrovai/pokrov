@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub use pokrov_ner::{NerExecutionMode, NerMergeStrategy};
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NerConfig {
     #[serde(default = "default_true")]
@@ -49,40 +51,6 @@ pub struct NerConfig {
     pub exclude_entity_patterns: Vec<String>,
     #[serde(default)]
     pub profiles: BTreeMap<String, NerProfileConfig>,
-}
-
-/// Controls how multiple loaded NER models are invoked per text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NerExecutionMode {
-    /// Select exactly one model by detected language (current behavior).
-    Auto,
-    /// Run every loaded model one after another, merge results.
-    Sequential,
-    /// Run every loaded model concurrently, merge results.
-    Parallel,
-}
-
-impl Default for NerExecutionMode {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
-/// Controls how overlapping hits from multiple models are merged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NerMergeStrategy {
-    /// Deduplicate by exact byte range; overlapping spans with different ranges are kept.
-    Union,
-    /// For overlapping spans, keep only the highest-scored one.
-    HighestScore,
-}
-
-impl Default for NerMergeStrategy {
-    fn default() -> Self {
-        Self::Union
-    }
 }
 
 fn default_true() -> bool {

@@ -13,7 +13,7 @@ pub fn detect_language(text: &str) -> String {
         }
     }
 
-    if cyrillic_count > 0 {
+    if cyrillic_count > ascii_count {
         "ru".to_string()
     } else if ascii_count > 0 {
         "en".to_string()

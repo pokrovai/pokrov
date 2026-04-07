@@ -774,21 +774,8 @@ fn init_ner_engine(
         timeout_ms: ner_config.timeout_ms,
         max_seq_length: ner_config.max_seq_length,
         confidence_threshold: ner_config.confidence_threshold,
-        execution: match ner_config.execution {
-            pokrov_config::model::NerExecutionMode::Auto => pokrov_ner::NerExecutionMode::Auto,
-            pokrov_config::model::NerExecutionMode::Sequential => {
-                pokrov_ner::NerExecutionMode::Sequential
-            }
-            pokrov_config::model::NerExecutionMode::Parallel => {
-                pokrov_ner::NerExecutionMode::Parallel
-            }
-        },
-        merge_strategy: match ner_config.merge_strategy {
-            pokrov_config::model::NerMergeStrategy::Union => pokrov_ner::NerMergeStrategy::Union,
-            pokrov_config::model::NerMergeStrategy::HighestScore => {
-                pokrov_ner::NerMergeStrategy::HighestScore
-            }
-        },
+        execution: ner_config.execution,
+        merge_strategy: ner_config.merge_strategy,
     })
     .map_err(|e| {
         BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
@@ -806,15 +793,7 @@ fn init_ner_engine(
                 pokrov_ner::NerEntityType::Organization,
             ],
             timeout_ms: ner_config.timeout_ms,
-            execution_mode: match ner_config.execution {
-                pokrov_config::model::NerExecutionMode::Auto => pokrov_ner::NerExecutionMode::Auto,
-                pokrov_config::model::NerExecutionMode::Sequential => {
-                    pokrov_ner::NerExecutionMode::Sequential
-                }
-                pokrov_config::model::NerExecutionMode::Parallel => {
-                    pokrov_ner::NerExecutionMode::Parallel
-                }
-            },
+            execution_mode: ner_config.execution,
             num_models,
         },
     ));

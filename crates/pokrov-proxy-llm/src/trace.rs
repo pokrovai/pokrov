@@ -1,3 +1,4 @@
+use pokrov_core::util::format_unix_ms_rfc3339;
 use std::{
     fs::{create_dir_all, File, OpenOptions},
     io::{BufWriter, Write},
@@ -5,7 +6,6 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -77,7 +77,7 @@ impl LlmPayloadTraceSink {
         let line = TraceRecord {
             event,
             ts_unix_ms,
-            ts_rfc3339: format_unix_ms_rfc3339(ts_unix_ms),
+            ts_rfc3339: format_unix_ms_rfc3339(ts_unix_ms as u64),
             request_id,
             provider_id,
             endpoint,
@@ -119,15 +119,5 @@ struct TraceRecord<'a> {
 }
 
 fn now_unix_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0)
-}
-
-fn format_unix_ms_rfc3339(unix_ms: u128) -> String {
-    OffsetDateTime::from_unix_timestamp_nanos((unix_ms as i128).saturating_mul(1_000_000))
-        .ok()
-        .and_then(|ts| ts.format(&Rfc3339).ok())
-        .unwrap_or_else(|| "invalid_unix_ms".to_string())
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_millis()).unwrap_or(0)
 }

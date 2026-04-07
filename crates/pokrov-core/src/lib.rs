@@ -25,6 +25,7 @@ pub mod policy;
 pub mod transform;
 pub mod traversal;
 pub mod types;
+pub mod util;
 
 #[cfg(feature = "ner")]
 pub mod ner_adapter;
@@ -811,7 +812,8 @@ fn strip_regex_regions(text: &str, patterns: &[regex::Regex]) -> String {
             }
         }
     }
-    String::from_utf8(stripped).unwrap_or_else(|_| text.to_string())
+    // Only ASCII space bytes are written, so the result is always valid UTF-8.
+    String::from_utf8(stripped).expect("replacing ASCII bytes in valid UTF-8 produces valid UTF-8")
 }
 
 #[cfg(feature = "ner")]
