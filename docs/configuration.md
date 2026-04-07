@@ -451,7 +451,7 @@ llm:
 | `id` | `string` | _required_ | Unique provider identifier. Referenced by routes. |
 | `base_url` | `string` | _required_ | Provider API base URL. |
 | `upstream_path` | `string?` | `null` | Override upstream endpoint path. Must start with `/`. Normalized to remove trailing slashes and double slashes. |
-| `auth.api_key` | `string` | _required_ | Provider API key reference: `env:VAR_NAME` or `file:/path`. |
+| `auth.api_key` | `string` | `""` | Optional provider API key reference: `env:VAR_NAME` or `file:/path`. Leave empty for local/no-auth upstreams; Pokrov skips the upstream `Authorization` header when no key is configured. |
 | `timeout_ms` | `u64` | `30000` | Upstream request timeout (ms). |
 | `retry_budget` | `u8` | `0` | Number of retry attempts on upstream failure (5xx/network). `0` = no retries. |
 | `enabled` | `bool` | _required_ | Whether the provider is active. Disabled providers are skipped during route resolution. |

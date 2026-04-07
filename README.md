@@ -512,6 +512,9 @@ auth:
 ### Routing UX Notes
 
 - `llm.providers[].upstream_path` lets you override the provider upstream endpoint path.
+- `llm.providers[].auth.api_key` is optional for local/no-auth upstreams in `auth.upstream_auth_mode: static`.
+  - Set it to `env:VAR`/`file:/path` when upstream requires bearer auth.
+  - Leave it empty to call upstream without `Authorization` header.
 - `llm.routes[].aliases` lets you expose additional model ids that map to the same canonical route.
 - `response_envelope.pokrov_metadata.mode` supports:
   - `enabled` (default): include `pokrov` metadata in successful LLM responses
