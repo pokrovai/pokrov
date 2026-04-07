@@ -365,6 +365,9 @@ deterministic_recognizers:
 ```yaml
 ner:
   enabled: true
+  default_language: ""
+  skip_llm_tools_and_system: true
+  skip_fields: []
   models:
     - language: en
       model_path: "./models/bert-base-NER/model.onnx"
@@ -392,11 +395,15 @@ Requires the `ner` feature flag: `cargo run -p pokrov-runtime --features ner`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `true` | Global NER on/off switch. |
+| `default_language` | `string` | `""` | When non-empty, all texts are processed with this language model and auto-detection is skipped entirely. |
 | `models` | `array` | EN + RU defaults | ONNX model bindings for NER inference. |
 | `fallback_language` | `string` | `en` | Language used when auto-detection fails. |
 | `timeout_ms` | `u64` | `80` | Timeout (ms) for NER batch inference. |
 | `confidence_threshold` | `f32` | `0.7` | Minimum confidence score for entity detection (0.0-1.0). |
 | `max_seq_length` | `usize` | `512` | Maximum token sequence length. Longer texts are truncated. |
+| `skip_llm_tools_and_system` | `bool` | `true` | Skip NER over LLM `tools` and `system` message content to avoid large-schema/system-prompt inference timeouts. |
+| `skip_fields` | `array` | `[]` | List of regex patterns matched against each JSON pointer segment; matching paths are skipped by NER. Example: `["^__"]` skips `__typename`, `__id`, etc. |
+| `strip_values` | `array` | `[]` | List of regex patterns matched against text content; matched substrings are replaced with spaces before NER inference so the rest of the text is still processed. Example: `['"__typename"\\s*:\\s*"[^"]*"']` strips GraphQL type discriminators. |
 | `profiles` | `map` | `{}` | Per-profile NER configuration. Key = profile name. |
 
 ### Model fields

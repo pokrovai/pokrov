@@ -23,6 +23,7 @@ struct LoadedModel {
 
 pub struct NerEngine {
     models: Vec<LoadedModel>,
+    default_language: String,
     fallback_language: String,
     confidence_threshold: f32,
 }
@@ -36,13 +37,12 @@ impl NerEngine {
         let mut models: Vec<LoadedModel> = Vec::with_capacity(config.models.len());
 
         for binding in &config.models {
-            let (session, tokenizer, id2label, has_token_type_ids) =
-                Self::load_model(
-                    &binding.model_path,
-                    &binding.tokenizer_path,
-                    &binding.language,
-                    config.max_seq_length,
-                )?;
+            let (session, tokenizer, id2label, has_token_type_ids) = Self::load_model(
+                &binding.model_path,
+                &binding.tokenizer_path,
+                &binding.language,
+                config.max_seq_length,
+            )?;
             models.push(LoadedModel {
                 language: binding.language.clone(),
                 priority: binding.priority,
@@ -56,13 +56,15 @@ impl NerEngine {
         models.sort_by(|a, b| b.priority.cmp(&a.priority));
 
         info!(
-            "NerEngine initialized: {} models, fallback={}",
+            "NerEngine initialized: {} models, default_language={}, fallback={}",
             models.len(),
+            if config.default_language.is_empty() { "(auto)" } else { &config.default_language },
             config.fallback_language
         );
 
         Ok(Self {
             models,
+            default_language: config.default_language,
             fallback_language: config.fallback_language,
             confidence_threshold: config.confidence_threshold,
         })
@@ -95,7 +97,10 @@ impl NerEngine {
             let mut truncation = tokenizer.get_truncation().cloned().unwrap_or_default();
             truncation.max_length = max_seq_length;
             tokenizer
-                .with_truncation(Some(TruncationParams { max_length: max_seq_length, ..truncation }))
+                .with_truncation(Some(TruncationParams {
+                    max_length: max_seq_length,
+                    ..truncation
+                }))
                 .map_err(|e| NerError::TokenizationFailed(e.to_string()))?;
         }
         let id2label = load_id2label(model_path);
@@ -209,7 +214,11 @@ impl NerEngine {
         let mut by_language: std::collections::BTreeMap<String, Vec<usize>> =
             std::collections::BTreeMap::new();
         for (i, text) in texts.iter().enumerate() {
-            let lang = detect_language(text);
+            let lang = if self.default_language.is_empty() {
+                detect_language(text)
+            } else {
+                self.default_language.clone()
+            };
             by_language.entry(lang).or_default().push(i);
         }
 

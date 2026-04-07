@@ -172,6 +172,13 @@ impl LLMProxyHandler {
             if endpoint == RESPONSES_ENDPOINT {
                 stream_body = convert_chat_sse_to_responses_sse(&request_id, &stream_body)?;
             }
+            #[cfg(feature = "llm_payload_trace")]
+            self.upstream.emit_response_trace(
+                &request_id,
+                &route,
+                endpoint,
+                &Value::String(stream_body.clone()),
+            );
 
             self.emit_terminal_event(TerminalEvent {
                 request_id: &request_id,

@@ -767,6 +767,7 @@ fn init_ner_engine(
                 priority: m.priority,
             })
             .collect(),
+        default_language: ner_config.default_language.clone(),
         fallback_language: ner_config.fallback_language.clone(),
         timeout_ms: ner_config.timeout_ms,
         max_seq_length: ner_config.max_seq_length,
@@ -811,10 +812,58 @@ fn init_ner_engine(
         }
     }
 
-    Ok(engine
+    let mut engine = engine
         .with_ner(adapter)
         .with_ner_profiles(ner_profile_types)
-        .with_ner_fail_modes(ner_profile_fail_modes))
+        .with_ner_fail_modes(ner_profile_fail_modes)
+        .with_ner_llm_skip_filter(ner_config.skip_llm_tools_and_system);
+
+    if !ner_config.skip_fields.is_empty() {
+        let patterns: Result<Vec<regex::Regex>, _> = ner_config
+            .skip_fields
+            .iter()
+            .map(|p| {
+                regex::Regex::new(p).map_err(|e| {
+                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+                        "NER skip_fields pattern invalid: {e}"
+                    )))
+                })
+            })
+            .collect();
+        engine = engine.with_ner_skip_fields(patterns?);
+    }
+
+    if !ner_config.strip_values.is_empty() {
+        let patterns: Result<Vec<regex::Regex>, _> = ner_config
+            .strip_values
+            .iter()
+            .map(|p| {
+                regex::Regex::new(p).map_err(|e| {
+                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+                        "NER strip_values pattern invalid: {e}"
+                    )))
+                })
+            })
+            .collect();
+        engine = engine.with_ner_strip_values(patterns?);
+    }
+
+    if !ner_config.exclude_entity_patterns.is_empty() {
+        let patterns: Result<Vec<regex::Regex>, _> = ner_config
+            .exclude_entity_patterns
+            .iter()
+            .map(|p| {
+                regex::Regex::new(p).map_err(|e| {
+                    BootstrapError::Sanitization(EvaluateError::RuntimeFailure(format!(
+                        "NER exclude_entity_patterns pattern invalid: {e}"
+                    )))
+                })
+            })
+            .collect();
+        engine = engine.with_ner_exclude_entity_patterns(patterns?);
+    }
+
+    Ok(engine)
 }
 
 fn is_llm_enabled(config: &RuntimeConfig) -> bool {
@@ -851,7 +900,7 @@ fn build_llm_handler(
         #[cfg(feature = "llm_payload_trace")]
         payload_trace_sink,
     )
-        .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
+    .map_err(|error| BootstrapError::LlmProxy(error.to_string()))?;
 
     Ok(Some(handler))
 }

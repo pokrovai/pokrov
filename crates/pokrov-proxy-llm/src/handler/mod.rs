@@ -427,6 +427,8 @@ impl LLMProxyHandler {
                 &mut body,
             )?;
         }
+        #[cfg(feature = "llm_payload_trace")]
+        self.upstream.emit_response_trace(&request_id, &route, endpoint, &body);
 
         self.emit_terminal_event(TerminalEvent {
             request_id: &request_id,

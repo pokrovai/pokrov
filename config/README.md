@@ -77,6 +77,12 @@ WARNING:
 - `allowlist_exact` and `denylist_exact` entries must be non-empty exact-match values.
 - `context.window` must be greater than zero when context is configured.
 
+### NER Throughput Guard
+
+- `ner.skip_llm_tools_and_system=true` (default) excludes LLM `tools` payloads and
+  `system` message content from NER candidate collection to avoid inference timeouts
+  on large schemas/prompts.
+
 ## Local Run
 
 ```bash

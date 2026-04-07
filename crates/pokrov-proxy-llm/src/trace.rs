@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -36,9 +37,47 @@ impl LlmPayloadTraceSink {
         attempt: u8,
         payload: &Value,
     ) {
+        self.emit_payload(
+            "llm_upstream_payload",
+            request_id,
+            provider_id,
+            endpoint,
+            attempt,
+            payload,
+        );
+    }
+
+    pub fn emit_response_payload(
+        &self,
+        request_id: &str,
+        provider_id: &str,
+        endpoint: &str,
+        payload: &Value,
+    ) {
+        self.emit_payload(
+            "llm_final_response_payload",
+            request_id,
+            provider_id,
+            endpoint,
+            0,
+            payload,
+        );
+    }
+
+    fn emit_payload(
+        &self,
+        event: &'static str,
+        request_id: &str,
+        provider_id: &str,
+        endpoint: &str,
+        attempt: u8,
+        payload: &Value,
+    ) {
+        let ts_unix_ms = now_unix_ms();
         let line = TraceRecord {
-            event: "llm_upstream_payload",
-            ts_unix_ms: now_unix_ms(),
+            event,
+            ts_unix_ms,
+            ts_rfc3339: format_unix_ms_rfc3339(ts_unix_ms),
             request_id,
             provider_id,
             endpoint,
@@ -71,6 +110,7 @@ impl LlmPayloadTraceSink {
 struct TraceRecord<'a> {
     event: &'static str,
     ts_unix_ms: u128,
+    ts_rfc3339: String,
     request_id: &'a str,
     provider_id: &'a str,
     endpoint: &'a str,
@@ -83,4 +123,11 @@ fn now_unix_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or(0)
+}
+
+fn format_unix_ms_rfc3339(unix_ms: u128) -> String {
+    OffsetDateTime::from_unix_timestamp_nanos((unix_ms as i128).saturating_mul(1_000_000))
+        .ok()
+        .and_then(|ts| ts.format(&Rfc3339).ok())
+        .unwrap_or_else(|| "invalid_unix_ms".to_string())
 }

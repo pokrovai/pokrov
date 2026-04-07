@@ -1,5 +1,6 @@
 use pokrov_core::types::PolicyAction;
 use serde::Serialize;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::types::UpstreamCredentialOrigin;
 
@@ -82,6 +83,7 @@ pub struct LLMRateLimitAuditEvent {
 
 impl LLMRateLimitAuditEvent {
     pub fn emit(&self) {
+        let reset_at_rfc3339 = format_unix_ms_rfc3339(self.reset_at_unix_ms);
         tracing::info!(
             component = "llm_proxy",
             action = "rate_limit_decision",
@@ -91,7 +93,15 @@ impl LLMRateLimitAuditEvent {
             retry_after_ms = self.retry_after_ms,
             limit = self.limit,
             remaining = self.remaining,
-            reset_at_unix_ms = self.reset_at_unix_ms
+            reset_at_unix_ms = self.reset_at_unix_ms,
+            reset_at_rfc3339 = %reset_at_rfc3339
         );
     }
+}
+
+fn format_unix_ms_rfc3339(unix_ms: u64) -> String {
+    OffsetDateTime::from_unix_timestamp_nanos((unix_ms as i128).saturating_mul(1_000_000))
+        .ok()
+        .and_then(|ts| ts.format(&Rfc3339).ok())
+        .unwrap_or_else(|| "invalid_unix_ms".to_string())
 }

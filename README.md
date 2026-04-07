@@ -232,6 +232,8 @@ on each sanitization profile that should use NER detection.
 ```yaml
 ner:
   enabled: true
+  default_language: ""
+  skip_fields: []
   models:
     - language: en
       model_path: "./models/bert-base-NER/model.onnx"

@@ -117,6 +117,10 @@ sanitization:
 
 ner:
   enabled: true
+  default_language: ""
+  skip_llm_tools_and_system: true
+  skip_fields: []
+  strip_values: []
   models:
     - language: en
       model_path: "./models/bert-base-NER/model.onnx"

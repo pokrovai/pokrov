@@ -35,6 +35,10 @@ fn default_binding_priority() -> u16 {
 pub struct NerConfig {
     #[serde(default = "default_models")]
     pub models: Vec<NerModelBinding>,
+    /// When non-empty, all texts are processed with this language model
+    /// and `detect_language` is skipped entirely.
+    #[serde(default)]
+    pub default_language: String,
     #[serde(default = "default_fallback_language")]
     pub fallback_language: String,
     #[serde(default = "default_timeout_ms")]
@@ -83,6 +87,7 @@ impl Default for NerConfig {
     fn default() -> Self {
         Self {
             models: default_models(),
+            default_language: String::new(),
             fallback_language: default_fallback_language(),
             timeout_ms: default_timeout_ms(),
             max_seq_length: default_max_seq_length(),

@@ -197,6 +197,19 @@ impl UpstreamClient {
             sink.emit_request_payload(request_id, &route.provider_id, endpoint, attempt, payload);
         }
     }
+
+    #[cfg(feature = "llm_payload_trace")]
+    pub fn emit_response_trace(
+        &self,
+        request_id: &str,
+        route: &RouteResolution,
+        endpoint: &str,
+        payload: &Value,
+    ) {
+        if let Some(sink) = self.payload_trace_sink.as_ref() {
+            sink.emit_response_payload(request_id, &route.provider_id, endpoint, payload);
+        }
+    }
 }
 
 fn build_endpoint(base_url: &str, upstream_path: &str) -> String {
