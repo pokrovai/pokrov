@@ -1,11 +1,78 @@
-# Pokrov Runtime
+# Pokrov.AI
 
-Pokrov.AI v1 is a self-hosted, security-first proxy for a safe `AI agent -> LLM/MCP -> AI agent` flow.
-The service receives agent traffic, applies sanitization and validation policies before any upstream call, and returns only safe results.
+```
+ ____   ___  _  ______   _____     __   _    ___ 
+|  _ \ / _ \| |/ /  _ \ / _ \ \   / /  / \  |_ _|
+| |_) | | | | ' /| |_) | | | \ \ / /  / _ \  | | 
+|  __/| |_| | . \|  _ <| |_| |\ V /_ / ___ \ | | 
+|_|    \___/|_|\_\_| \_\\___/  \_/(_)_/   \_\___|
+```
+
+**Rust 1.85+** | **Apache 2.0** | **Docker** | [![Build](https://github.com/pokrovai/pokrov/actions/workflows/rust.yml/badge.svg)](https://github.com/pokrovai/pokrov/actions/workflows/rust.yml)
+
+**Pokrov.AI** is a self-hosted, security-first proxy that sits between AI coding agents and external LLM/MCP providers.
+It sanitizes prompts, tool arguments, and model responses in real time — preventing secrets, PII, and corporate markers from leaving your infrastructure.
+
+Built in Rust for low-latency inline processing, Pokrov works transparently with OpenCode, Codex, Cursor, Cline, and any OpenAI-compatible agent or autonomous AI system.
+
+## Quick Start
+
+```bash
+export POKROV_API_KEY='dev-runtime-key'
+export OPENAI_API_KEY='provider-dev-key'
+cargo run -p pokrov-runtime -- --config ./config/pokrov.example.yaml
+```
+
+Pokrov is now running at `http://127.0.0.1:8080`. Point your agent's OpenAI-compatible base URL there.
+See [Quick Start (Local)](#quick-start-local) for full setup, or [Container Run](#container-run) for Docker.
+
+## How It Works
+
+```
+  AI Agent (Cursor / Codex / OpenCode / Cline / any OpenAI-compatible)
+       |
+       |  OpenAI-compatible request
+       v
+  +-------------------------------------------+
+  |             Pokrov.AI Gateway             |
+  |                                           |
+  |  1. Authenticate (API key / mTLS)         |
+  |  2. Select policy profile (per-key)       |
+  |  3. Sanitize input (regex + NER + rules)  |
+  |  4. Enforce tool allowlist (MCP)          |
+  |  5. Proxy to upstream LLM / MCP server    |
+  |  6. Sanitize response (optional)          |
+  |  7. Emit metadata-only audit event        |
+  +-------------------------------------------+
+       |
+       |  Safe response
+       v
+  AI Agent
+```
+
+## Who Is This For
+
+| Segment | Why Pokrov |
+|---------|-----------|
+| **AI / Developer Platform Teams** | Single reusable layer for agent-to-LLM and agent-to-MCP traffic; no per-agent guardrails needed |
+| **Security / AppSec** | Centralized enforcement point, metadata-only audit trail, Prometheus metrics, dry-run mode for safe policy rollout |
+| **Teams using coding agents** | Stop API keys, credentials, and internal URLs from leaking into external LLMs via prompts or tool outputs |
+| **Compliance-driven organizations** | On-prem deployment, no raw payloads in logs, supports 152-FZ / GDPR alignment |
+
+## Why Pokrov
+
+Pokrov occupies a focused niche: **a sanitization-first interaction layer**, not a generic AI gateway.
+
+| Compared to | Pokrov difference |
+|-------------|-------------------|
+| **LiteLLM, Portkey, OpenRouter** | Sanitization is the core feature, not an add-on plugin |
+| **Kong AI/MCP Gateway** | Lighter, developer-first; focused on content hygiene, not enterprise control-plane breadth |
+| **Nightfall MCP Security** | Open-source, self-hosted, no vendor lock-in |
+| **HelloVeil / Microsoft Presidio** | Proxy-aware runtime with MCP tool control and policy engine, not just a client-side SDK |
+| **Solo / Agentgateway** | Sanitization-first, not identity/auth-first |
 
 ## Table of Contents
 
-- [Project Status](#project-status)
 - [Purpose](#purpose)
 - [Implemented in v1](#implemented-in-v1)
 - [Runtime Endpoints](#runtime-endpoints)
@@ -34,10 +101,43 @@ Pokrov is a single control point for coding/AI agents to:
 
 - prevent leakage of secrets, PII, and corporate markers to LLM/MCP systems;
 - enforce centralized `allow/mask/redact/block` policies;
+- validate MCP tool calls against per-server and per-tool allowlists;
 - separate `enforce` and `dry_run` modes for safe rollout;
-- keep metadata-only audit records (no raw payloads).
+- keep metadata-only audit records (no raw payloads in logs).
 
-## Implemented in v1
+## What Pokrov Detects
+
+All detection is deterministic (regex + NER), runs in-memory, and never stores raw content.
+
+| Category | Examples | Default Action |
+|----------|----------|----------------|
+| **Secrets & credentials** | `sk-...`, `AKIA...`, `ghp_...`, private keys, passwords, tokens | block |
+| **PII** | Email addresses, phone numbers, credit card numbers (Luhn), passport numbers, IBAN | redact |
+| **Corporate markers** | Internal URLs (`*.internal.corp`), project codes, custom keywords from config | mask / redact |
+| **Named entities** (NER, optional) | Person names, organization names (English + Russian) | redact |
+
+**Before Pokrov:**
+```json
+{
+  "messages": [
+    {"role": "user", "content": "Connect to db using sk-prod-abc123, contact admin@corp.internal"}
+  ]
+}
+```
+
+**After Pokrov (strict profile, enforce mode):**
+```json
+{
+  "messages": [
+    {"role": "user", "content": "Connect to db using [REDACTED], contact [REDACTED]"}
+  ]
+}
+```
+
+The decision (allow / mask / redact / block) is configurable per policy profile.
+Use `mode: "dry_run"` to preview what would be changed without enforcing.
+
+## Key Features
 
 - Sanitization core with recursive JSON processing (`POST /v1/sanitize/evaluate`).
 - LLM proxy path (OpenAI-compatible `chat/completions`) with:
