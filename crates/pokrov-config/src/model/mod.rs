@@ -8,7 +8,7 @@ mod sanitization;
 mod ner;
 
 #[cfg(feature = "ner")]
-pub use ner::{NerConfig, NerFailMode, NerProfileConfig};
+pub use ner::{NerConfig, NerExecutionMode, NerFailMode, NerMergeStrategy, NerProfileConfig};
 
 pub use auth::{
     AuthConfig, GatewayAuthMode, IdentityConfig, IdentitySource, InternalMtlsAuthConfig,
@@ -21,10 +21,9 @@ pub use mcp::{
     McpConfig, McpDefaultsConfig, McpServerDefinition, McpToolPolicy, ToolArgumentConstraints,
 };
 pub use runtime::{
-    ApiKeyBinding, LlmPayloadTraceConfig, LogFormat, LogLevel, LoggingConfig,
-    ObservabilityConfig, ResponseEnvelopeConfig, ResponseEnvelopeMetadataConfig,
-    ResponseMetadataMode, RuntimeConfig, SecretRef, SecurityConfig, ServerConfig, ShutdownConfig,
-    TlsServerConfig,
+    ApiKeyBinding, LlmPayloadTraceConfig, LogFormat, LogLevel, LoggingConfig, ObservabilityConfig,
+    ResponseEnvelopeConfig, ResponseEnvelopeMetadataConfig, ResponseMetadataMode, RuntimeConfig,
+    SecretRef, SecurityConfig, ServerConfig, ShutdownConfig, TlsServerConfig,
 };
 pub use sanitization::{
     CategoryActionsConfig, CustomRuleConfig, DeterministicContextConfig,

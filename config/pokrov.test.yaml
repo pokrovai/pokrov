@@ -131,6 +131,8 @@ sanitization:
 ner:
   enabled: true
   skip_llm_tools_and_system: true
+  execution: parallel      # auto | sequential | parallel
+  merge_strategy: union    # union | highest_score
   models:
     - language: en
       model_path: "./models/bert-base-NER/model.onnx"

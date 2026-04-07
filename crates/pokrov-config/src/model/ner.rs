@@ -22,6 +22,14 @@ pub struct NerConfig {
     pub max_seq_length: usize,
     #[serde(default = "default_skip_llm_tools_and_system")]
     pub skip_llm_tools_and_system: bool,
+    /// Whether to run all loaded models per text or auto-select by language.
+    /// `auto` preserves the current single-model behavior (backward compatible).
+    #[serde(default)]
+    pub execution: NerExecutionMode,
+    /// Strategy for merging overlapping hits when multiple models produce results.
+    /// Only used when `execution` is not `auto`.
+    #[serde(default)]
+    pub merge_strategy: NerMergeStrategy,
     /// List of regex patterns matched against each JSON pointer segment;
     /// matching paths are skipped by NER.
     /// Example: ["^__"] skips all fields starting with double underscore.
@@ -41,6 +49,40 @@ pub struct NerConfig {
     pub exclude_entity_patterns: Vec<String>,
     #[serde(default)]
     pub profiles: BTreeMap<String, NerProfileConfig>,
+}
+
+/// Controls how multiple loaded NER models are invoked per text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NerExecutionMode {
+    /// Select exactly one model by detected language (current behavior).
+    Auto,
+    /// Run every loaded model one after another, merge results.
+    Sequential,
+    /// Run every loaded model concurrently, merge results.
+    Parallel,
+}
+
+impl Default for NerExecutionMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+/// Controls how overlapping hits from multiple models are merged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NerMergeStrategy {
+    /// Deduplicate by exact byte range; overlapping spans with different ranges are kept.
+    Union,
+    /// For overlapping spans, keep only the highest-scored one.
+    HighestScore,
+}
+
+impl Default for NerMergeStrategy {
+    fn default() -> Self {
+        Self::Union
+    }
 }
 
 fn default_true() -> bool {

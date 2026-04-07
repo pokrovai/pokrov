@@ -13,6 +13,11 @@ Complete reference for all YAML configuration fields in `pokrov.example.yaml`.
 - [rate_limit](#rate_limit)
 - [sanitization](#sanitization)
 - [ner](#ner)
+  - [Multi-model execution](#multi-model-execution)
+  - [Merge strategies](#merge-strategies)
+  - [Timeout scaling](#timeout-scaling)
+  - [Model fields](#model-fields)
+  - [NER profile fields](#ner-profile-fields)
 - [llm](#llm)
 - [mcp](#mcp)
 - [response_envelope](#response_envelope)
@@ -366,8 +371,12 @@ deterministic_recognizers:
 ner:
   enabled: true
   default_language: ""
+  execution: auto              # auto | sequential | parallel
+  merge_strategy: union        # union | highest_score
   skip_llm_tools_and_system: true
   skip_fields: []
+  strip_values: []
+  exclude_entity_patterns: []
   models:
     - language: en
       model_path: "./models/bert-base-NER/model.onnx"
@@ -392,18 +401,53 @@ ner:
 
 Requires the `ner` feature flag: `cargo run -p pokrov-runtime --features ner`.
 
+### Multi-model execution
+
+The `execution` field controls how loaded NER models are invoked when processing a batch of texts.
+
+| Mode | Behavior | Latency | CPU |
+|------|----------|---------|-----|
+| `auto` | Select exactly one model per text by detected language (or `default_language`). Fallback to `fallback_language` on mismatch. | Single model time | 1x |
+| `sequential` | Run **every** loaded model on each text, one after another. Collects all hits, then merges. | Sum of all model times | 1x |
+| `parallel` | Run **every** loaded model on each text concurrently via `std::thread::scope`. Each thread locks a different model's ONNX session (zero contention). | Max single model time | Nx (N = number of models) |
+
+Default is `auto` — fully backward compatible with previous behavior.
+
+### Merge strategies
+
+When `execution` is `sequential` or `parallel`, multiple models may produce overlapping entity spans for the same text. The `merge_strategy` field controls how these overlaps are resolved.
+
+| Strategy | Behavior |
+|----------|----------|
+| `union` | Collect all non-overlapping spans. When two models detect the exact same byte range, keep the one with the higher confidence score. Spans with different ranges are all kept. |
+| `highest_score` | Greedy non-overlapping selection: sort all hits by confidence (descending), then iterate and keep a hit only if it does not overlap any already-selected hit. Overlap is defined as `(a.start < b.end) && (b.start < a.end)`. |
+
+Default is `union`.
+
+### Timeout scaling
+
+The adapter automatically adjusts the effective timeout based on the execution mode:
+
+- `auto` / `parallel`: `timeout_ms × ceil(texts / 32)` — scales only by batch chunk count.
+- `sequential`: `timeout_ms × ceil(texts / 32) × num_models` — additionally scales by model count since models run one after another.
+
+### Field reference
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `true` | Global NER on/off switch. |
 | `default_language` | `string` | `""` | When non-empty, all texts are processed with this language model and auto-detection is skipped entirely. |
+| `execution` | `enum` | `auto` | Multi-model execution mode: `auto`, `sequential`, `parallel`. See [Multi-model execution](#multi-model-execution). |
+| `merge_strategy` | `enum` | `union` | Strategy for merging overlapping hits from multiple models: `union`, `highest_score`. Only applies when `execution` is not `auto`. See [Merge strategies](#merge-strategies). |
 | `models` | `array` | EN + RU defaults | ONNX model bindings for NER inference. |
-| `fallback_language` | `string` | `en` | Language used when auto-detection fails. |
-| `timeout_ms` | `u64` | `80` | Timeout (ms) for NER batch inference. |
+| `fallback_language` | `string` | `en` | Language used when auto-detection fails (auto mode) or when no model matches. |
+| `timeout_ms` | `u64` | `80` | Timeout (ms) per batch chunk for NER inference. See [Timeout scaling](#timeout-scaling). |
 | `confidence_threshold` | `f32` | `0.7` | Minimum confidence score for entity detection (0.0-1.0). |
 | `max_seq_length` | `usize` | `512` | Maximum token sequence length. Longer texts are truncated. |
 | `skip_llm_tools_and_system` | `bool` | `true` | Skip NER over LLM `tools` and `system` message content to avoid large-schema/system-prompt inference timeouts. |
 | `skip_fields` | `array` | `[]` | List of regex patterns matched against each JSON pointer segment; matching paths are skipped by NER. Example: `["^__"]` skips `__typename`, `__id`, etc. |
 | `strip_values` | `array` | `[]` | List of regex patterns matched against text content; matched substrings are replaced with spaces before NER inference so the rest of the text is still processed. Example: `['"__typename"\\s*:\\s*"[^"]*"']` strips GraphQL type discriminators. |
+| `exclude_entity_patterns` | `array` | `[]` | List of regex patterns; NER hits whose recognized text matches are discarded. Example: `["^_E_"]` skips GraphQL entity type markers. |
 | `profiles` | `map` | `{}` | Per-profile NER configuration. Key = profile name. |
 
 ### Model fields

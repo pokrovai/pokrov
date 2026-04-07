@@ -20,6 +20,8 @@ pub struct NerAdapterConfig {
     pub fail_mode: NerFailMode,
     pub entity_types: Vec<pokrov_ner::NerEntityType>,
     pub timeout_ms: u64,
+    pub execution_mode: pokrov_ner::NerExecutionMode,
+    pub num_models: usize,
 }
 
 impl std::fmt::Debug for NerAdapter {
@@ -92,10 +94,16 @@ impl NerAdapter {
     }
 
     fn effective_timeout_ms(&self, texts_len: usize) -> u64 {
-        // NerEngine evaluates batches in 32-item chunks. Scale timeout to preserve
-        // the configured per-chunk budget on large payloads.
         let chunks = ((texts_len + 31) / 32).max(1) as u64;
-        self.config.timeout_ms.saturating_mul(chunks)
+        let base = self.config.timeout_ms.saturating_mul(chunks);
+        // Sequential mode runs all models one after another, so scale by model count.
+        // Parallel runs concurrently, so no scaling needed (latency ≈ max model time).
+        match self.config.execution_mode {
+            pokrov_ner::NerExecutionMode::Sequential => {
+                base.saturating_mul(self.config.num_models as u64)
+            }
+            pokrov_ner::NerExecutionMode::Parallel | pokrov_ner::NerExecutionMode::Auto => base,
+        }
     }
 }
 

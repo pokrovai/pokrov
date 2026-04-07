@@ -31,6 +31,41 @@ fn default_binding_priority() -> u16 {
     100
 }
 
+/// Controls how multiple loaded NER models are invoked per text.
+///
+/// - `Auto`: current behavior — select exactly one model by detected language.
+/// - `Sequential`: run every loaded model one after another, merge results.
+/// - `Parallel`: run every loaded model concurrently via `std::thread::scope`, merge results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NerExecutionMode {
+    Auto,
+    Sequential,
+    Parallel,
+}
+
+impl Default for NerExecutionMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+/// Controls how overlapping hits from multiple models are merged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NerMergeStrategy {
+    /// Collect all non-overlapping spans; when spans overlap, keep the one with the highest score.
+    HighestScore,
+    /// Collect all unique spans; overlapping spans are deduplicated by byte range.
+    Union,
+}
+
+impl Default for NerMergeStrategy {
+    fn default() -> Self {
+        Self::Union
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NerConfig {
     #[serde(default = "default_models")]
@@ -47,6 +82,13 @@ pub struct NerConfig {
     pub max_seq_length: usize,
     #[serde(default = "default_confidence_threshold")]
     pub confidence_threshold: f32,
+    /// Whether to run all loaded models per text or auto-select by language.
+    /// `Auto` preserves the current single-model behavior (backward compatible).
+    #[serde(default)]
+    pub execution: NerExecutionMode,
+    /// Strategy for merging overlapping hits when multiple models produce results.
+    #[serde(default)]
+    pub merge_strategy: NerMergeStrategy,
 }
 
 fn default_timeout_ms() -> u64 {
@@ -92,6 +134,8 @@ impl Default for NerConfig {
             timeout_ms: default_timeout_ms(),
             max_seq_length: default_max_seq_length(),
             confidence_threshold: default_confidence_threshold(),
+            execution: NerExecutionMode::default(),
+            merge_strategy: NerMergeStrategy::default(),
         }
     }
 }
@@ -126,6 +170,36 @@ mod tests {
         assert_eq!(config.timeout_ms, 80);
         assert_eq!(config.max_seq_length, 512);
         assert!((config.confidence_threshold - 0.7).abs() < f32::EPSILON);
+        assert_eq!(config.execution, NerExecutionMode::Auto);
+        assert_eq!(config.merge_strategy, NerMergeStrategy::Union);
+    }
+
+    #[test]
+    fn execution_mode_deserializes() {
+        assert_eq!(
+            serde_yaml::from_str::<NerExecutionMode>("auto").unwrap(),
+            NerExecutionMode::Auto
+        );
+        assert_eq!(
+            serde_yaml::from_str::<NerExecutionMode>("sequential").unwrap(),
+            NerExecutionMode::Sequential
+        );
+        assert_eq!(
+            serde_yaml::from_str::<NerExecutionMode>("parallel").unwrap(),
+            NerExecutionMode::Parallel
+        );
+    }
+
+    #[test]
+    fn merge_strategy_deserializes() {
+        assert_eq!(
+            serde_yaml::from_str::<NerMergeStrategy>("union").unwrap(),
+            NerMergeStrategy::Union
+        );
+        assert_eq!(
+            serde_yaml::from_str::<NerMergeStrategy>("highest_score").unwrap(),
+            NerMergeStrategy::HighestScore
+        );
     }
 
     #[test]
