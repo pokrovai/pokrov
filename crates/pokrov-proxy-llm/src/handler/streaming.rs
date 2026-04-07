@@ -39,7 +39,7 @@ impl LLMProxyHandler {
         estimated_token_units: u32,
         auth_mode: UpstreamAuthMode,
         credential_origin: UpstreamCredentialOrigin,
-        upstream_credential: String,
+        upstream_credential: Option<String>,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
@@ -47,7 +47,7 @@ impl LLMProxyHandler {
                 &request_id,
                 &route,
                 &sanitized_payload,
-                Some(upstream_credential.as_str()),
+                upstream_credential.as_deref(),
             )
             .await;
 

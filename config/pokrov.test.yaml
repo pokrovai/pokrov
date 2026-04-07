@@ -1,0 +1,197 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+
+logging:
+  level: info
+  format: json
+  component: runtime
+
+observability:
+  llm_payload_trace:
+    enabled: false
+    output_path: /tmp/pokrov-llm-payload-trace.ndjson
+
+shutdown:
+  drain_timeout_ms: 5000
+  grace_period_ms: 10000
+
+security:
+  fail_on_unresolved_api_keys: false
+  fail_on_unresolved_provider_keys: false
+  api_keys:
+    - key: env:POKROV_API_KEY
+      profile: strict
+
+auth:
+  upstream_auth_mode: static
+
+identity:
+  resolution_order:
+    - gateway_auth_subject
+    - x_pokrov_client_id
+    - ingress_identity
+  profile_bindings:
+    tenant-a: minimal
+  rate_limit_bindings:
+    tenant-a: strict
+  required_for_policy: false
+  required_for_rate_limit: false
+  fallback_policy_profile: strict
+
+rate_limit:
+  enabled: true
+  default_profile: strict
+  profiles:
+    strict:
+      requests_per_minute: 120
+      token_units_per_minute: 24000
+      burst_multiplier: 1.5
+      enforcement_mode: enforce
+    custom:
+      requests_per_minute: 240
+      token_units_per_minute: 48000
+      burst_multiplier: 1.0
+      enforcement_mode: dry_run
+
+sanitization:
+  enabled: true
+  default_profile: strict
+  profiles:
+    minimal:
+      mode_default: enforce
+      categories:
+        secrets: mask
+        pii: allow
+        corporate_markers: allow
+      mask_visible_suffix: 4
+      max_hits_per_request: 4096
+      ner_enabled: false
+    strict:
+      mode_default: enforce
+      categories:
+        secrets: block
+        pii: redact
+        corporate_markers: mask
+      mask_visible_suffix: 4
+      max_hits_per_request: 4096
+      ner_enabled: true
+      deterministic_recognizers:
+        - id: payment_card
+          category: secrets
+          action: block
+          family_priority: 600
+          enabled: true
+          patterns:
+            - id: pan
+              expression: "\\b\\d(?:[ -]?\\d){12,15}\\b"
+              base_score: 200
+              normalization: alnum_lowercase
+              validator:
+                kind: luhn
+          allowlist_exact:
+            - "4111 1111 1111 1111"
+          denylist_exact:
+            - "9999 0000 0000 0000"
+          context:
+            positive_terms: ["card", "payment", "cvv"]
+            negative_terms: ["example", "demo"]
+            window: 32
+            suppress_on_negative: false
+    custom:
+      mode_default: dry_run
+      categories:
+        secrets: redact
+        pii: mask
+        corporate_markers: mask
+      mask_visible_suffix: 4
+      max_hits_per_request: 4096
+      ner_enabled: false
+      custom_rules:
+        - id: custom.project_andromeda
+          category: corporate_markers
+          pattern: "(?i)project\\s+andromeda"
+          action: redact
+          priority: 900
+          enabled: true
+
+ner:
+  enabled: true
+  models:
+    - language: en
+      model_path: "./models/bert-base-NER/model.onnx"
+      tokenizer_path: "./models/bert-base-NER/tokenizer.json"
+      priority: 100
+    - language: ru
+      model_path: "./models/ner-rubert-tiny-news/model.onnx"
+      tokenizer_path: "./models/ner-rubert-tiny-news/tokenizer.json"
+      priority: 100
+  fallback_language: en
+  timeout_ms: 2000
+  confidence_threshold: 0.7
+  max_seq_length: 512
+  profiles:
+    strict:
+      fail_mode: fail_closed
+      entity_types: [person, organization]
+    minimal:
+      fail_mode: fail_open
+      entity_types: [person]
+
+llm:
+  providers:
+    - id: openai
+      base_url: https://api.openai.com/v1
+      upstream_path: /chat/completions
+      auth:
+        api_key: env:OPENAI_API_KEY
+      timeout_ms: 30000
+      retry_budget: 1
+      enabled: true
+  routes:
+    - model: gpt-4o-mini
+      provider_id: openai
+      aliases:
+        - openai/gpt-4o-mini
+        - team-default-mini
+      output_sanitization: true
+      enabled: true
+  defaults:
+    profile_id: strict
+    output_sanitization: true
+    stream_sanitization_max_buffer_bytes: 1048576
+
+response_envelope:
+  pokrov_metadata:
+    mode: enabled
+
+mcp:
+  defaults:
+    profile_id: strict
+    upstream_timeout_ms: 10000
+    output_sanitization: true
+  servers:
+    - id: repo-tools
+      endpoint: http://repo-tools.internal
+      enabled: true
+      allowed_tools:
+        - read_file
+        - grep
+      blocked_tools:
+        - write_file
+      tools:
+        read_file:
+          enabled: true
+          output_sanitization: true
+          argument_constraints:
+            required_keys:
+              - path
+            forbidden_keys:
+              - command
+            allowed_path_prefixes:
+              - src/
+              - docs/
+            max_string_length: 512
+        grep:
+          enabled: true
+          output_sanitization: true

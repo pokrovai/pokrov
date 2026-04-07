@@ -221,15 +221,18 @@ impl LLMProxyHandler {
             resolution_status = "resolved",
         );
         override_payload_model(&mut sanitized_payload, &route.canonical_model);
-        let selected_credential =
-            select_upstream_credential(auth_mode, &route, upstream_credential).ok_or_else(
-                || {
-                    LLMProxyError::invalid_request(
-                        request_id.clone(),
-                        "upstream credential is required in passthrough mode",
-                    )
-                },
-            )?;
+        let selected_credential = select_upstream_credential(auth_mode, &route, upstream_credential);
+        if selected_credential.is_none() && matches!(auth_mode, UpstreamAuthMode::Passthrough) {
+            return Err(LLMProxyError::invalid_request(
+                request_id.clone(),
+                "upstream credential is required in passthrough mode",
+            ));
+        }
+        let credential_origin = selected_credential
+            .as_ref()
+            .map(|credential| credential.origin)
+            .unwrap_or(UpstreamCredentialOrigin::Config);
+        let upstream_credential = selected_credential.map(|credential| credential.token);
 
         if envelope.stream {
             return self
@@ -246,8 +249,8 @@ impl LLMProxyHandler {
                     sanitized_input,
                     estimated_token_units,
                     auth_mode,
-                    selected_credential.origin,
-                    selected_credential.token,
+                    credential_origin,
+                    upstream_credential.clone(),
                 )
                 .await;
         }
@@ -265,8 +268,8 @@ impl LLMProxyHandler {
             sanitized_input,
             estimated_token_units,
             auth_mode,
-            selected_credential.origin,
-            selected_credential.token,
+            credential_origin,
+            upstream_credential,
         )
         .await
     }
@@ -307,7 +310,7 @@ impl LLMProxyHandler {
         estimated_token_units: u32,
         auth_mode: UpstreamAuthMode,
         credential_origin: UpstreamCredentialOrigin,
-        upstream_credential: String,
+        upstream_credential: Option<String>,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
         let upstream = self
             .upstream
@@ -315,7 +318,7 @@ impl LLMProxyHandler {
                 &request_id,
                 &route,
                 &sanitized_payload,
-                Some(upstream_credential.as_str()),
+                upstream_credential.as_deref(),
             )
             .await;
 

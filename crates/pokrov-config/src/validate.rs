@@ -761,10 +761,11 @@ fn validate_llm_provider(
         }
     }
 
-    if SecretRef::parse(&provider.auth.api_key).is_none() {
+    let auth_api_key = provider.auth.api_key.trim();
+    if !auth_api_key.is_empty() && SecretRef::parse(auth_api_key).is_none() {
         issues.push(ValidationIssue::new(
             format!("{provider_path}.auth.api_key"),
-            "must use env:VAR or file:/path format",
+            "must use env:VAR or file:/path format when provided",
         ));
     }
 

@@ -65,7 +65,7 @@ pub struct RouteResolution {
     pub effective_upstream_path: String,
     pub canonical_model: String,
     pub resolved_via_alias: bool,
-    pub api_key: String,
+    pub api_key: Option<String>,
     pub timeout_ms: u64,
     pub retry_budget: u8,
     pub output_sanitization: bool,

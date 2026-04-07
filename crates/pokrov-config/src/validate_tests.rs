@@ -234,6 +234,30 @@ fn accepts_valid_llm_configuration() {
 }
 
 #[test]
+fn accepts_llm_provider_without_auth_api_key() {
+    let mut config = valid_config();
+    let mut llm = valid_llm_config();
+    llm.providers[0].auth.api_key = String::new();
+    config.llm = Some(llm);
+
+    validate_runtime_config(&config, Path::new("config.yaml"))
+        .expect("llm provider without auth.api_key should be valid");
+}
+
+#[test]
+fn rejects_llm_provider_with_invalid_auth_api_key_format() {
+    let mut config = valid_config();
+    let mut llm = valid_llm_config();
+    llm.providers[0].auth.api_key = "plaintext".to_string();
+    config.llm = Some(llm);
+
+    let error = validate_runtime_config(&config, Path::new("config.yaml"))
+        .expect_err("llm provider auth.api_key with invalid format must fail validation");
+    assert!(error.to_string().contains("llm.providers[0].auth.api_key"));
+    assert!(error.to_string().contains("must use env:VAR or file:/path format when provided"));
+}
+
+#[test]
 fn rejects_route_bound_to_disabled_provider() {
     let mut config = valid_config();
     let mut llm = valid_llm_config();

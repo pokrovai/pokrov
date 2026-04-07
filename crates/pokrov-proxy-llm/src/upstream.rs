@@ -50,16 +50,17 @@ impl UpstreamClient {
         upstream_credential: Option<&str>,
     ) -> Result<UpstreamJsonResponse, LLMProxyError> {
         let endpoint = build_endpoint(&route.base_url, &route.effective_upstream_path);
-        let bearer = upstream_credential.unwrap_or(&route.api_key);
+        let bearer = upstream_credential.or(route.api_key.as_deref());
 
         for attempt in 0..=route.retry_budget {
             #[cfg(feature = "llm_payload_trace")]
             self.emit_payload_trace(request_id, route, &endpoint, attempt, payload);
 
-            let response = self
-                .client
-                .post(&endpoint)
-                .bearer_auth(bearer)
+            let mut request = self.client.post(&endpoint);
+            if let Some(token) = bearer {
+                request = request.bearer_auth(token);
+            }
+            let response = request
                 .timeout(Duration::from_millis(route.timeout_ms))
                 .json(payload)
                 .send()
@@ -124,16 +125,17 @@ impl UpstreamClient {
         upstream_credential: Option<&str>,
     ) -> Result<UpstreamStreamResponse, LLMProxyError> {
         let endpoint = build_endpoint(&route.base_url, &route.effective_upstream_path);
-        let bearer = upstream_credential.unwrap_or(&route.api_key);
+        let bearer = upstream_credential.or(route.api_key.as_deref());
 
         for attempt in 0..=route.retry_budget {
             #[cfg(feature = "llm_payload_trace")]
             self.emit_payload_trace(request_id, route, &endpoint, attempt, payload);
 
-            let response = self
-                .client
-                .post(&endpoint)
-                .bearer_auth(bearer)
+            let mut request = self.client.post(&endpoint);
+            if let Some(token) = bearer {
+                request = request.bearer_auth(token);
+            }
+            let response = request
                 .timeout(Duration::from_millis(route.timeout_ms))
                 .json(payload)
                 .send()
