@@ -156,6 +156,16 @@ impl LLMProxyHandler {
             route.provider_profile_id.as_deref(),
             self.default_profile_id(),
         );
+        tracing::info!(
+            component = "llm_proxy",
+            action = "request_received",
+            request_id = %request_id,
+            endpoint = %endpoint,
+            model = %envelope.model,
+            provider_id = %route.provider_id,
+            profile_id = %profile_id,
+            stream = envelope.stream,
+        );
 
         let mut final_action = PolicyAction::Allow;
         let mut total_hits = 0u32;
@@ -218,6 +228,7 @@ impl LLMProxyHandler {
 
             if let Some(sanitized) = input_eval.transform.sanitized_payload {
                 sanitized_payload = sanitized;
+                restore_tool_definitions(&envelope.original_payload, &mut sanitized_payload);
             }
         }
 
@@ -491,4 +502,63 @@ fn override_payload_model(payload: &mut Value, canonical_model: &str) {
         return;
     };
     object.insert("model".to_string(), Value::String(canonical_model.to_string()));
+}
+
+/// Preserves original tool definitions so sanitization cannot break tool-calling contracts.
+///
+/// Tool schemas and names must remain byte-stable for upstream function-calling validation.
+fn restore_tool_definitions(original_payload: &Value, sanitized_payload: &mut Value) {
+    let Some(original_object) = original_payload.as_object() else {
+        return;
+    };
+    let Some(sanitized_object) = sanitized_payload.as_object_mut() else {
+        return;
+    };
+
+    if let Some(original_tools) = original_object.get("tools") {
+        sanitized_object.insert("tools".to_string(), original_tools.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::restore_tool_definitions;
+
+    #[test]
+    fn restore_tool_definitions_keeps_original_tools_payload() {
+        let original = json!({
+            "model": "qwen3.5:9b",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "context7_resolve-library-id",
+                        "parameters": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema"
+                        }
+                    }
+                }
+            ]
+        });
+        let mut sanitized = json!({
+            "model": "qwen3.5:9b",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "***********************y-id",
+                        "parameters": {
+                            "$schema": "***********************************ema#"
+                        }
+                    }
+                }
+            ]
+        });
+
+        restore_tool_definitions(&original, &mut sanitized);
+
+        assert_eq!(sanitized["tools"], original["tools"]);
+    }
 }

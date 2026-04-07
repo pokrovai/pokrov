@@ -93,10 +93,6 @@ pub fn resolve_profile_id(
         }
     }
 
-    if is_known_profile(api_key_profile) {
-        return api_key_profile.to_string();
-    }
-
     if let Some(provider_profile) = provider_profile
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -104,6 +100,10 @@ pub fn resolve_profile_id(
         if is_known_profile(provider_profile) {
             return provider_profile.to_string();
         }
+    }
+
+    if is_known_profile(api_key_profile) {
+        return api_key_profile.to_string();
     }
 
     default_profile.to_string()
@@ -371,6 +371,12 @@ mod tests {
     fn resolve_profile_uses_provider_profile_before_default() {
         let profile = resolve_profile_id(None, "unknown", Some("custom"), "strict");
         assert_eq!(profile, "custom");
+    }
+
+    #[test]
+    fn resolve_profile_uses_provider_profile_before_api_key_profile() {
+        let profile = resolve_profile_id(None, "strict", Some("minimal"), "custom");
+        assert_eq!(profile, "minimal");
     }
 
     #[test]

@@ -129,8 +129,8 @@ curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
 - Only enabled providers and enabled routes are loaded into the runtime route table.
 - `llm.defaults.profile_id` controls fallback profile selection when payload metadata
   does not specify a valid profile.
-- Effective LLM profile precedence is: request `metadata.profile` -> gateway/API key profile
-  binding -> provider `profile_id` -> `llm.defaults.profile_id`.
+- Effective LLM profile precedence is: request `metadata.profile` -> provider `profile_id` ->
+  gateway/API key profile binding -> `llm.defaults.profile_id`.
 - `llm.routes[*].output_sanitization` overrides `llm.defaults.output_sanitization`
   per model route.
 - `llm.defaults.stream_sanitization_max_buffer_bytes` limits buffered SSE body size

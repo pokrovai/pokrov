@@ -481,8 +481,8 @@ llm:
 Effective profile is selected in this order:
 
 1. Request `metadata.profile` (when valid).
-2. Gateway/API key profile binding.
-3. `llm.providers[].profile_id` for the resolved provider.
+2. `llm.providers[].profile_id` for the resolved provider.
+3. Gateway/API key profile binding.
 4. `llm.defaults.profile_id`.
 
 ---
