@@ -230,6 +230,11 @@ impl SanitizationEngine {
                 .collect()
         };
 
+        let Some(compiled_profile) = self.profiles.get(profile_id) else {
+            return Ok(());
+        };
+        let category_actions = &compiled_profile.profile.category_actions;
+
         let stripped_refs: Vec<(String, &str)> =
             stripped_texts.iter().map(|t| (t.clone(), t.as_str())).collect();
 
@@ -271,7 +276,7 @@ impl SanitizationEngine {
                             json_pointer: pointer.clone(),
                             start,
                             end,
-                            action: nh.action_hint,
+                            action: category_actions.action_for(nh.category),
                             priority: nh.priority,
                             replacement_template: if nh.replacement_template_present {
                                 Some(String::new())
