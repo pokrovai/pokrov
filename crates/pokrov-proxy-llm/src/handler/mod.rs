@@ -117,9 +117,43 @@ impl LLMProxyHandler {
         let started = Instant::now();
         let envelope = normalize_request(&request_id, payload)?;
         let estimated_token_units = estimate_token_units(&envelope.original_payload);
+        let normalized_model_key = normalize_model_key(&envelope.model);
+        let route = match self.routes.resolve(&request_id, &envelope.model) {
+            Ok(route) => {
+                self.metrics.on_model_resolution();
+                route
+            }
+            Err(error) => {
+                self.metrics.on_model_resolution_failed();
+                tracing::info!(
+                    component = "llm_proxy",
+                    action = "model_resolution",
+                    request_id = %request_id,
+                    route = %endpoint,
+                    input_model_key = %envelope.model,
+                    normalized_model_key = %normalized_model_key,
+                    resolution_status = %error.code().as_str(),
+                );
+                return Err(error);
+            }
+        };
+        tracing::info!(
+            component = "llm_proxy",
+            action = "model_resolution",
+            request_id = %request_id,
+            route = %endpoint,
+            input_model_key = %envelope.model,
+            normalized_model_key = %normalized_model_key,
+            canonical_model = %route.canonical_model,
+            resolved_model = %route.canonical_model,
+            provider_id = %route.provider_id,
+            resolved_via_alias = route.resolved_via_alias,
+            resolution_status = "resolved",
+        );
         let profile_id = resolve_profile_id(
             envelope.profile_hint.as_deref(),
             api_key_profile,
+            route.provider_profile_id.as_deref(),
             self.default_profile_id(),
         );
 
@@ -187,39 +221,6 @@ impl LLMProxyHandler {
             }
         }
 
-        let normalized_model_key = normalize_model_key(&envelope.model);
-        let route = match self.routes.resolve(&request_id, &envelope.model) {
-            Ok(route) => {
-                self.metrics.on_model_resolution();
-                route
-            }
-            Err(error) => {
-                self.metrics.on_model_resolution_failed();
-                tracing::info!(
-                    component = "llm_proxy",
-                    action = "model_resolution",
-                    request_id = %request_id,
-                    route = %endpoint,
-                    input_model_key = %envelope.model,
-                    normalized_model_key = %normalized_model_key,
-                    resolution_status = %error.code().as_str(),
-                );
-                return Err(error);
-            }
-        };
-        tracing::info!(
-            component = "llm_proxy",
-            action = "model_resolution",
-            request_id = %request_id,
-            route = %endpoint,
-            input_model_key = %envelope.model,
-            normalized_model_key = %normalized_model_key,
-            canonical_model = %route.canonical_model,
-            resolved_model = %route.canonical_model,
-            provider_id = %route.provider_id,
-            resolved_via_alias = route.resolved_via_alias,
-            resolution_status = "resolved",
-        );
         override_payload_model(&mut sanitized_payload, &route.canonical_model);
         let selected_credential = select_upstream_credential(auth_mode, &route, upstream_credential);
         if selected_credential.is_none() && matches!(auth_mode, UpstreamAuthMode::Passthrough) {

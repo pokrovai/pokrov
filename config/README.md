@@ -124,10 +124,13 @@ curl -sS -X POST http://127.0.0.1:8080/v1/chat/completions \
 ## LLM Routing Section
 
 - `llm.providers[*].id` must be unique and referenced by `llm.routes[*].provider_id`.
+- `llm.providers[*].profile_id` (optional) sets provider-level profile fallback.
 - Provider secrets must use `env:` or `file:` references in `llm.providers[*].auth.api_key`.
 - Only enabled providers and enabled routes are loaded into the runtime route table.
 - `llm.defaults.profile_id` controls fallback profile selection when payload metadata
   does not specify a valid profile.
+- Effective LLM profile precedence is: request `metadata.profile` -> gateway/API key profile
+  binding -> provider `profile_id` -> `llm.defaults.profile_id`.
 - `llm.routes[*].output_sanitization` overrides `llm.defaults.output_sanitization`
   per model route.
 - `llm.defaults.stream_sanitization_max_buffer_bytes` limits buffered SSE body size

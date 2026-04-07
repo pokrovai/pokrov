@@ -16,6 +16,7 @@ use crate::{
 #[derive(Debug, Clone)]
 struct ProviderRecord {
     id: String,
+    profile_id: Option<String>,
     base_url: String,
     effective_upstream_path: String,
     api_key: Option<String>,
@@ -108,6 +109,7 @@ impl ProviderRouteTable {
 
         Ok(RouteResolution {
             provider_id: provider.id.clone(),
+            provider_profile_id: provider.profile_id.clone(),
             base_url: provider.base_url.clone(),
             effective_upstream_path: provider.effective_upstream_path.clone(),
             canonical_model: route.canonical_model.clone(),
@@ -142,6 +144,7 @@ fn build_provider_map(
             provider.id.clone(),
             ProviderRecord {
                 id: provider.id.clone(),
+                profile_id: provider.profile_id.clone(),
                 base_url: provider.base_url.trim_end_matches('/').to_string(),
                 effective_upstream_path: provider
                     .upstream_path
@@ -309,6 +312,7 @@ mod tests {
             providers: vec![LlmProviderConfig {
                 id: "openai".to_string(),
                 base_url: "https://api.openai.com/v1".to_string(),
+                profile_id: None,
                 upstream_path: Some("/chat/completions".to_string()),
                 auth: LlmProviderAuthConfig { api_key: "env:OPENAI_API_KEY".to_string() },
                 timeout_ms: 30000,
@@ -390,6 +394,7 @@ mod tests {
     fn selects_static_credential_from_route() {
         let route = RouteResolution {
             provider_id: "openai".to_string(),
+            provider_profile_id: None,
             base_url: "https://api.openai.com/v1".to_string(),
             effective_upstream_path: "/chat/completions".to_string(),
             canonical_model: "gpt-4o-mini".to_string(),
@@ -411,6 +416,7 @@ mod tests {
     fn selects_passthrough_credential_from_request() {
         let route = RouteResolution {
             provider_id: "openai".to_string(),
+            provider_profile_id: None,
             base_url: "https://api.openai.com/v1".to_string(),
             effective_upstream_path: "/chat/completions".to_string(),
             canonical_model: "gpt-4o-mini".to_string(),
@@ -436,6 +442,7 @@ mod tests {
     fn passthrough_returns_none_when_request_credential_is_missing() {
         let route = RouteResolution {
             provider_id: "openai".to_string(),
+            provider_profile_id: None,
             base_url: "https://api.openai.com/v1".to_string(),
             effective_upstream_path: "/chat/completions".to_string(),
             canonical_model: "gpt-4o-mini".to_string(),
@@ -457,6 +464,7 @@ mod tests {
     fn static_mode_allows_missing_config_credential() {
         let route = RouteResolution {
             provider_id: "local".to_string(),
+            provider_profile_id: None,
             base_url: "http://localhost:1234/v1".to_string(),
             effective_upstream_path: "/chat/completions".to_string(),
             canonical_model: "local-model".to_string(),

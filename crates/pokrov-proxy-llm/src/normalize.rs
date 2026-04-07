@@ -84,6 +84,7 @@ pub fn normalize_responses_payload(
 pub fn resolve_profile_id(
     profile_hint: Option<&str>,
     api_key_profile: &str,
+    provider_profile: Option<&str>,
     default_profile: &str,
 ) -> String {
     if let Some(hint) = profile_hint.map(str::trim).filter(|value| !value.is_empty()) {
@@ -94,6 +95,15 @@ pub fn resolve_profile_id(
 
     if is_known_profile(api_key_profile) {
         return api_key_profile.to_string();
+    }
+
+    if let Some(provider_profile) = provider_profile
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if is_known_profile(provider_profile) {
+            return provider_profile.to_string();
+        }
     }
 
     default_profile.to_string()
@@ -346,14 +356,21 @@ mod tests {
         assert_eq!(normalized.model, "gpt-4o-mini");
         assert_eq!(normalized.messages.len(), 1);
 
-        let profile = resolve_profile_id(normalized.profile_hint.as_deref(), "strict", "custom");
+        let profile =
+            resolve_profile_id(normalized.profile_hint.as_deref(), "strict", None, "custom");
         assert_eq!(profile, "minimal");
     }
 
     #[test]
     fn resolve_profile_falls_back_when_hint_is_invalid() {
-        let profile = resolve_profile_id(Some("unknown"), "strict", "custom");
+        let profile = resolve_profile_id(Some("unknown"), "strict", None, "custom");
         assert_eq!(profile, "strict");
+    }
+
+    #[test]
+    fn resolve_profile_uses_provider_profile_before_default() {
+        let profile = resolve_profile_id(None, "unknown", Some("custom"), "strict");
+        assert_eq!(profile, "custom");
     }
 
     #[test]

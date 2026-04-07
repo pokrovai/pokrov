@@ -12,6 +12,8 @@ pub struct LlmProviderConfig {
     pub id: String,
     pub base_url: String,
     #[serde(default)]
+    pub profile_id: Option<String>,
+    #[serde(default)]
     pub upstream_path: Option<String>,
     #[serde(default)]
     pub auth: LlmProviderAuthConfig,

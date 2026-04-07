@@ -121,6 +121,7 @@ fn valid_llm_config() -> LlmConfig {
         providers: vec![LlmProviderConfig {
             id: "openai".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
+            profile_id: None,
             upstream_path: Some("/chat/completions".to_string()),
             auth: LlmProviderAuthConfig { api_key: "env:OPENAI_API_KEY".to_string() },
             timeout_ms: 30_000,
@@ -255,6 +256,19 @@ fn rejects_llm_provider_with_invalid_auth_api_key_format() {
         .expect_err("llm provider auth.api_key with invalid format must fail validation");
     assert!(error.to_string().contains("llm.providers[0].auth.api_key"));
     assert!(error.to_string().contains("must use env:VAR or file:/path format when provided"));
+}
+
+#[test]
+fn rejects_llm_provider_with_unknown_profile_id() {
+    let mut config = valid_config();
+    let mut llm = valid_llm_config();
+    llm.providers[0].profile_id = Some("unknown".to_string());
+    config.llm = Some(llm);
+
+    let error = validate_runtime_config(&config, Path::new("config.yaml"))
+        .expect_err("llm provider profile_id with unknown value must fail validation");
+    assert!(error.to_string().contains("llm.providers[0].profile_id"));
+    assert!(error.to_string().contains("must be one of minimal|strict|custom"));
 }
 
 #[test]

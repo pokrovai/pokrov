@@ -426,6 +426,7 @@ llm:
   providers:
     - id: openai
       base_url: https://api.openai.com/v1
+      profile_id: strict
       upstream_path: /chat/completions
       auth:
         api_key: env:OPENAI_API_KEY
@@ -450,6 +451,7 @@ llm:
 |-------|------|---------|-------------|
 | `id` | `string` | _required_ | Unique provider identifier. Referenced by routes. |
 | `base_url` | `string` | _required_ | Provider API base URL. |
+| `profile_id` | `string?` | `null` | Optional provider-level fallback profile for LLM sanitization. Must be one of `minimal`, `strict`, `custom`. |
 | `upstream_path` | `string?` | `null` | Override upstream endpoint path. Must start with `/`. Normalized to remove trailing slashes and double slashes. |
 | `auth.api_key` | `string` | `""` | Optional provider API key reference: `env:VAR_NAME` or `file:/path`. Leave empty for local/no-auth upstreams; Pokrov skips the upstream `Authorization` header when no key is configured. |
 | `timeout_ms` | `u64` | `30000` | Upstream request timeout (ms). |
@@ -473,6 +475,15 @@ llm:
 | `profile_id` | `string` | _required_ | Default sanitization profile for LLM input/output. |
 | `output_sanitization` | `bool` | `true` | Whether to sanitize LLM responses. |
 | `stream_sanitization_max_buffer_bytes` | `usize` | `1048576` | Max buffer size (bytes) for SSE stream sanitization. Range: `1024..=16777216` (1KB-16MB). |
+
+### LLM profile resolution precedence
+
+Effective profile is selected in this order:
+
+1. Request `metadata.profile` (when valid).
+2. Gateway/API key profile binding.
+3. `llm.providers[].profile_id` for the resolved provider.
+4. `llm.defaults.profile_id`.
 
 ---
 

@@ -61,6 +61,7 @@ pub struct ContentBlock {
 #[derive(Debug, Clone)]
 pub struct RouteResolution {
     pub provider_id: String,
+    pub provider_profile_id: Option<String>,
     pub base_url: String,
     pub effective_upstream_path: String,
     pub canonical_model: String,
