@@ -85,6 +85,9 @@ impl LlmPayloadTraceSink {
             payload,
         };
 
+        // On mutex poisoning (thread panic), discard any buffered data via into_inner()
+        // since it may be in an inconsistent state. This is acceptable for trace data
+        // where integrity is preferred over completeness.
         let mut writer = match self.writer.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),

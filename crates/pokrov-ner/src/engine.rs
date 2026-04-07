@@ -18,7 +18,7 @@ struct LoadedModel {
     priority: u16,
     // `ort::Session::run` requires `&mut self` in 2.0.0-rc.12.
     // Wrapping in `Mutex` allows concurrent access from parallel multi-model threads
-    // (each thread locks a different model — zero contention).
+    // (each thread locks a different model — no cross-model contention).
     session: Mutex<Session>,
     tokenizer: Tokenizer,
     id2label: HashMap<usize, String>,
