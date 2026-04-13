@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{env, fs, time::Duration};
 
 use http::StatusCode;
 use serde_json::Value;
@@ -20,14 +20,21 @@ pub struct UpstreamClient {
 
 impl UpstreamClient {
     pub fn new() -> Result<Self, LLMProxyError> {
-        let client =
-            reqwest::Client::builder().pool_max_idle_per_host(16).build().map_err(|error| {
-                LLMProxyError::upstream_unavailable(
-                    "system",
-                    None,
-                    format!("failed to initialize upstream client: {error}"),
-                )
-            })?;
+        let builder = reqwest::Client::builder().pool_max_idle_per_host(16);
+        let builder = apply_standard_tls_env(builder).map_err(|error| {
+            LLMProxyError::upstream_unavailable(
+                "system",
+                None,
+                format!("failed to initialize upstream client TLS trust: {error}"),
+            )
+        })?;
+        let client = builder.build().map_err(|error| {
+            LLMProxyError::upstream_unavailable(
+                "system",
+                None,
+                format!("failed to initialize upstream client: {error}"),
+            )
+        })?;
 
         Ok(Self {
             client,
@@ -81,23 +88,91 @@ impl UpstreamClient {
                         return Ok(UpstreamJsonResponse { status: to_status_code(status), body });
                     }
 
-                    if should_retry_status(response.status()) && attempt < route.retry_budget {
-                        let delay =
-                            compute_retry_delay(response.status(), response.headers(), attempt);
+                    let status = response.status();
+                    let headers = response.headers().clone();
+                    let will_retry = should_retry_status(status) && attempt < route.retry_budget;
+                    let base_summary = UpstreamErrorSummary::from_headers(&headers);
+                    tracing::warn!(
+                        component = "llm_proxy",
+                        action = "upstream_status_error",
+                        request_id = request_id,
+                        provider_id = %route.provider_id,
+                        endpoint = endpoint,
+                        attempt = attempt,
+                        retry_budget = route.retry_budget,
+                        timeout_ms = route.timeout_ms,
+                        status = status.as_u16(),
+                        will_retry = will_retry,
+                        credential_present = bearer.is_some(),
+                        upstream_content_type = ?base_summary.content_type,
+                        upstream_request_id = ?base_summary.request_id,
+                    );
+
+                    if will_retry {
+                        let delay = compute_retry_delay(status, &headers, attempt);
                         if !delay.is_zero() {
                             sleep(delay).await;
                         }
                         continue;
                     }
 
+                    let summary = summarize_upstream_error_response(response).await;
+                    tracing::warn!(
+                        component = "llm_proxy",
+                        action = "upstream_status_error_detail",
+                        request_id = request_id,
+                        provider_id = %route.provider_id,
+                        endpoint = endpoint,
+                        attempt = attempt,
+                        retry_budget = route.retry_budget,
+                        timeout_ms = route.timeout_ms,
+                        status = status.as_u16(),
+                        credential_present = bearer.is_some(),
+                        upstream_content_type = ?summary.content_type,
+                        upstream_request_id = ?summary.request_id,
+                        upstream_error_type = ?summary.error_type,
+                        upstream_error_code = ?summary.error_code,
+                        upstream_error_param = ?summary.error_param,
+                        upstream_error_message_present = summary.error_message_present,
+                        upstream_error_message_len = ?summary.error_message_len,
+                        upstream_top_level_keys = ?summary.top_level_keys,
+                        upstream_error_object_keys = ?summary.error_object_keys,
+                        upstream_body_bytes = summary.body_bytes,
+                        upstream_body_format = summary.body_format,
+                        response_read_error = ?summary.response_read_error,
+                    );
+
                     return Err(map_upstream_status_error(
                         request_id,
                         route.provider_id.clone(),
-                        response.status(),
+                        status,
                     ));
                 }
                 Err(error) => {
-                    if attempt < route.retry_budget && (error.is_timeout() || error.is_connect()) {
+                    let is_timeout = error.is_timeout();
+                    let is_connect = error.is_connect();
+                    let will_retry = attempt < route.retry_budget && (is_timeout || is_connect);
+                    let transport_error_class = classify_transport_error(&error);
+                    let error_sources = format_error_sources(&error);
+                    tracing::warn!(
+                        component = "llm_proxy",
+                        action = "upstream_transport_error",
+                        request_id = request_id,
+                        provider_id = %route.provider_id,
+                        endpoint = endpoint,
+                        attempt = attempt,
+                        retry_budget = route.retry_budget,
+                        timeout_ms = route.timeout_ms,
+                        is_timeout = is_timeout,
+                        is_connect = is_connect,
+                        transport_error_class = transport_error_class,
+                        will_retry = will_retry,
+                        credential_present = bearer.is_some(),
+                        error_sources = error_sources,
+                        error = %error,
+                    );
+
+                    if will_retry {
                         continue;
                     }
 
@@ -148,23 +223,91 @@ impl UpstreamClient {
                         return Ok(UpstreamStreamResponse { status, body: response });
                     }
 
-                    if should_retry_status(response.status()) && attempt < route.retry_budget {
-                        let delay =
-                            compute_retry_delay(response.status(), response.headers(), attempt);
+                    let status = response.status();
+                    let headers = response.headers().clone();
+                    let will_retry = should_retry_status(status) && attempt < route.retry_budget;
+                    let base_summary = UpstreamErrorSummary::from_headers(&headers);
+                    tracing::warn!(
+                        component = "llm_proxy",
+                        action = "upstream_status_error",
+                        request_id = request_id,
+                        provider_id = %route.provider_id,
+                        endpoint = endpoint,
+                        attempt = attempt,
+                        retry_budget = route.retry_budget,
+                        timeout_ms = route.timeout_ms,
+                        status = status.as_u16(),
+                        will_retry = will_retry,
+                        credential_present = bearer.is_some(),
+                        upstream_content_type = ?base_summary.content_type,
+                        upstream_request_id = ?base_summary.request_id,
+                    );
+
+                    if will_retry {
+                        let delay = compute_retry_delay(status, &headers, attempt);
                         if !delay.is_zero() {
                             sleep(delay).await;
                         }
                         continue;
                     }
 
+                    let summary = summarize_upstream_error_response(response).await;
+                    tracing::warn!(
+                        component = "llm_proxy",
+                        action = "upstream_status_error_detail",
+                        request_id = request_id,
+                        provider_id = %route.provider_id,
+                        endpoint = endpoint,
+                        attempt = attempt,
+                        retry_budget = route.retry_budget,
+                        timeout_ms = route.timeout_ms,
+                        status = status.as_u16(),
+                        credential_present = bearer.is_some(),
+                        upstream_content_type = ?summary.content_type,
+                        upstream_request_id = ?summary.request_id,
+                        upstream_error_type = ?summary.error_type,
+                        upstream_error_code = ?summary.error_code,
+                        upstream_error_param = ?summary.error_param,
+                        upstream_error_message_present = summary.error_message_present,
+                        upstream_error_message_len = ?summary.error_message_len,
+                        upstream_top_level_keys = ?summary.top_level_keys,
+                        upstream_error_object_keys = ?summary.error_object_keys,
+                        upstream_body_bytes = summary.body_bytes,
+                        upstream_body_format = summary.body_format,
+                        response_read_error = ?summary.response_read_error,
+                    );
+
                     return Err(map_upstream_status_error(
                         request_id,
                         route.provider_id.clone(),
-                        response.status(),
+                        status,
                     ));
                 }
                 Err(error) => {
-                    if attempt < route.retry_budget && (error.is_timeout() || error.is_connect()) {
+                    let is_timeout = error.is_timeout();
+                    let is_connect = error.is_connect();
+                    let will_retry = attempt < route.retry_budget && (is_timeout || is_connect);
+                    let transport_error_class = classify_transport_error(&error);
+                    let error_sources = format_error_sources(&error);
+                    tracing::warn!(
+                        component = "llm_proxy",
+                        action = "upstream_transport_error",
+                        request_id = request_id,
+                        provider_id = %route.provider_id,
+                        endpoint = endpoint,
+                        attempt = attempt,
+                        retry_budget = route.retry_budget,
+                        timeout_ms = route.timeout_ms,
+                        is_timeout = is_timeout,
+                        is_connect = is_connect,
+                        transport_error_class = transport_error_class,
+                        will_retry = will_retry,
+                        credential_present = bearer.is_some(),
+                        error_sources = error_sources,
+                        error = %error,
+                    );
+
+                    if will_retry {
                         continue;
                     }
 
@@ -210,6 +353,66 @@ impl UpstreamClient {
             sink.emit_response_payload(request_id, &route.provider_id, endpoint, payload);
         }
     }
+}
+
+fn apply_standard_tls_env(
+    mut builder: reqwest::ClientBuilder,
+) -> Result<reqwest::ClientBuilder, String> {
+    let Some(path_raw) = env::var_os("SSL_CERT_FILE") else {
+        return Ok(builder);
+    };
+    let path = path_raw.to_string_lossy().trim().to_string();
+    if path.is_empty() {
+        return Ok(builder);
+    }
+
+    let pem = fs::read(&path)
+        .map_err(|error| format!("cannot read SSL_CERT_FILE '{}': {error}", path))?;
+    let certificates = parse_pem_certificates(&pem);
+    if certificates.is_empty() {
+        return Err(format!(
+            "SSL_CERT_FILE '{}' does not contain any PEM certificate blocks",
+            path
+        ));
+    }
+
+    for certificate_pem in &certificates {
+        let certificate = reqwest::Certificate::from_pem(certificate_pem.as_bytes()).map_err(
+            |error| format!("invalid certificate in SSL_CERT_FILE '{}': {error}", path),
+        )?;
+        builder = builder.add_root_certificate(certificate);
+    }
+
+    tracing::info!(
+        component = "llm_proxy",
+        action = "upstream_tls_custom_ca_loaded",
+        source = "SSL_CERT_FILE",
+        ssl_cert_file = %path,
+        cert_count = certificates.len(),
+    );
+
+    Ok(builder)
+}
+
+fn parse_pem_certificates(pem: &[u8]) -> Vec<String> {
+    let content = String::from_utf8_lossy(pem);
+    let begin_marker = "-----BEGIN CERTIFICATE-----";
+    let end_marker = "-----END CERTIFICATE-----";
+    let mut certificates = Vec::new();
+    let mut offset = 0usize;
+
+    while let Some(begin) = content[offset..].find(begin_marker) {
+        let start = offset + begin;
+        let search_from = start + begin_marker.len();
+        let Some(end_rel) = content[search_from..].find(end_marker) else {
+            break;
+        };
+        let end = search_from + end_rel + end_marker.len();
+        certificates.push(content[start..end].to_string());
+        offset = end;
+    }
+
+    certificates
 }
 
 fn build_endpoint(base_url: &str, upstream_path: &str) -> String {
@@ -285,6 +488,157 @@ fn map_upstream_transport_error(
 
 fn to_status_code(status: reqwest::StatusCode) -> StatusCode {
     StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY)
+}
+
+fn classify_transport_error(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        return "timeout";
+    }
+    if error.is_connect() {
+        return "connect";
+    }
+    if error.is_request() {
+        return "request";
+    }
+    if error.is_body() {
+        return "body";
+    }
+    if error.is_decode() {
+        return "decode";
+    }
+    "unknown"
+}
+
+fn format_error_sources(error: &reqwest::Error) -> String {
+    use std::error::Error as _;
+
+    let mut chain = Vec::new();
+    let mut current = error.source();
+    while let Some(source) = current {
+        chain.push(source.to_string());
+        current = source.source();
+    }
+
+    if chain.is_empty() {
+        "none".to_string()
+    } else {
+        chain.join(" | caused_by: ")
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct UpstreamErrorSummary {
+    content_type: Option<String>,
+    request_id: Option<String>,
+    error_type: Option<String>,
+    error_code: Option<String>,
+    error_param: Option<String>,
+    error_message_present: bool,
+    error_message_len: Option<usize>,
+    top_level_keys: Vec<String>,
+    error_object_keys: Vec<String>,
+    body_bytes: usize,
+    body_format: &'static str,
+    response_read_error: Option<String>,
+}
+
+impl UpstreamErrorSummary {
+    fn from_headers(headers: &reqwest::header::HeaderMap) -> Self {
+        Self {
+            content_type: headers
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string),
+            request_id: headers
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string),
+            body_format: "unknown",
+            ..Self::default()
+        }
+    }
+}
+
+async fn summarize_upstream_error_response(response: reqwest::Response) -> UpstreamErrorSummary {
+    let headers = response.headers().clone();
+    let mut summary = UpstreamErrorSummary::from_headers(&headers);
+
+    let body = match response.bytes().await {
+        Ok(body) => body,
+        Err(error) => {
+            summary.response_read_error = Some(error.to_string());
+            return summary;
+        }
+    };
+
+    summary.body_bytes = body.len();
+    if body.is_empty() {
+        summary.body_format = "empty";
+        return summary;
+    }
+
+    let parsed_json = serde_json::from_slice::<Value>(&body);
+    let Ok(json) = parsed_json else {
+        summary.body_format = "non_json";
+        return summary;
+    };
+    summary.body_format = "json";
+
+    let error_root = json.get("error").unwrap_or(&json);
+    if let Value::Object(object) = &json {
+        summary.top_level_keys = object.keys().cloned().collect();
+    }
+    if let Value::Object(object) = error_root {
+        summary.error_object_keys = object.keys().cloned().collect();
+    }
+
+    summary.error_type = extract_string_field(error_root, &["type", "error_type", "reason"])
+        .or_else(|| extract_string_field(&json, &["type", "error_type", "reason"]));
+    summary.error_code = extract_string_or_number_field(error_root, &["code", "error_code"])
+        .or_else(|| extract_string_or_number_field(&json, &["code", "error_code", "status"]));
+    summary.error_param = extract_string_field(error_root, &["param", "error_param", "field"])
+        .or_else(|| extract_string_field(&json, &["param", "error_param", "field"]));
+    let message = extract_string_field(error_root, &["message", "error_description", "detail"])
+        .or_else(|| extract_string_field(&json, &["message", "error_description", "detail"]));
+    summary.error_message_present = message.is_some();
+    summary.error_message_len = message.as_ref().map(|value| value.len());
+    if summary.request_id.is_none() {
+        summary.request_id = extract_string_field(&json, &["request_id", "id"]);
+    }
+
+    summary
+}
+
+fn extract_string_field(root: &Value, field_names: &[&str]) -> Option<String> {
+    let Value::Object(object) = root else {
+        return None;
+    };
+
+    for field in field_names {
+        if let Some(Value::String(value)) = object.get(*field) {
+            if !value.trim().is_empty() {
+                return Some(value.clone());
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_string_or_number_field(root: &Value, field_names: &[&str]) -> Option<String> {
+    let Value::Object(object) = root else {
+        return None;
+    };
+
+    for field in field_names {
+        match object.get(*field) {
+            Some(Value::String(value)) if !value.trim().is_empty() => return Some(value.clone()),
+            Some(Value::Number(number)) => return Some(number.to_string()),
+            _ => {}
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

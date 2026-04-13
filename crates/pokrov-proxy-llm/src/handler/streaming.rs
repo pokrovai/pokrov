@@ -66,6 +66,8 @@ impl LLMProxyHandler {
                         final_action,
                         total_hits,
                         upstream_status: error.upstream_status(),
+                        auth_mode: mode_as_str(auth_mode),
+                        credential_origin,
                     },
                     &error,
                 );
@@ -96,6 +98,8 @@ impl LLMProxyHandler {
                             final_action,
                             total_hits,
                             upstream_status: Some(status.as_u16()),
+                            auth_mode: mode_as_str(auth_mode),
+                            credential_origin,
                         },
                         &cause,
                     );
@@ -134,6 +138,8 @@ impl LLMProxyHandler {
                                     final_action,
                                     total_hits,
                                     upstream_status: Some(status.as_u16()),
+                                    auth_mode: mode_as_str(auth_mode),
+                                    credential_origin,
                                 },
                                 &error,
                             );
@@ -157,6 +163,8 @@ impl LLMProxyHandler {
                                     final_action,
                                     total_hits,
                                     upstream_status: Some(status.as_u16()),
+                                    auth_mode: mode_as_str(auth_mode),
+                                    credential_origin,
                                 },
                                 &error,
                             );

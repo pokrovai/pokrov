@@ -42,6 +42,8 @@ struct ErrorEventContext<'a> {
     final_action: PolicyAction,
     total_hits: u32,
     upstream_status: Option<u16>,
+    auth_mode: &'a str,
+    credential_origin: UpstreamCredentialOrigin,
 }
 
 #[derive(Clone)]
@@ -349,6 +351,8 @@ impl LLMProxyHandler {
                         final_action,
                         total_hits,
                         upstream_status: error.upstream_status(),
+                        auth_mode: mode_as_str(auth_mode),
+                        credential_origin,
                     },
                     &error,
                 );
@@ -399,6 +403,8 @@ impl LLMProxyHandler {
                             final_action,
                             total_hits,
                             upstream_status: Some(status.as_u16()),
+                            auth_mode: mode_as_str(auth_mode),
+                            credential_origin,
                         },
                         &error,
                     );
@@ -464,8 +470,8 @@ impl LLMProxyHandler {
             upstream_status: context.upstream_status.or_else(|| error.upstream_status()),
             duration_ms: context.started.elapsed().as_millis() as u64,
             estimated_token_units: 0,
-            auth_mode: "unknown",
-            credential_origin: UpstreamCredentialOrigin::Config,
+            auth_mode: context.auth_mode,
+            credential_origin: context.credential_origin,
         });
     }
 

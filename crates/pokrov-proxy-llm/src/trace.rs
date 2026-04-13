@@ -75,6 +75,7 @@ impl LlmPayloadTraceSink {
     ) {
         let ts_unix_ms = now_unix_ms();
         let line = TraceRecord {
+            trace_stream: "llm_payload_trace",
             event,
             ts_unix_ms,
             ts_rfc3339: format_unix_ms_rfc3339(ts_unix_ms as u64),
@@ -111,6 +112,7 @@ impl LlmPayloadTraceSink {
 
 #[derive(Debug, Serialize)]
 struct TraceRecord<'a> {
+    trace_stream: &'static str,
     event: &'static str,
     ts_unix_ms: u128,
     ts_rfc3339: String,
