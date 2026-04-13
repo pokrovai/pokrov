@@ -10,7 +10,7 @@ logging:
 observability:
   llm_payload_trace:
     enabled: true
-    output_path: ./tmp/pokrov-llm-payload-trace.ndjson
+    output_path: ../tmp/pokrov-llm-payload-trace.ndjson
 
 shutdown:
   drain_timeout_ms: 5000
