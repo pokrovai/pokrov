@@ -134,6 +134,20 @@ auth:
 | `mesh.required_spiffe_trust_domain` | `string?` | `null` | Optional SPIFFE trust domain to validate mesh identity. |
 | `mesh.require_header` | `bool` | `true` | Whether the mesh identity header must be present. |
 
+### Upstream TLS trust via environment
+
+For outbound TLS to upstream LLM providers, Pokrov supports `SSL_CERT_FILE`.
+Use this when upstream certificates are issued by a private/corporate CA that
+is not present in default trust roots.
+
+```bash
+export SSL_CERT_FILE=/etc/pokrov/certs/corp-root-ca.pem
+```
+
+- Value must point to a PEM file.
+- File may contain multiple certificates (`BEGIN CERTIFICATE` blocks).
+- Typical failure without trusted CA: `invalid peer certificate: UnknownIssuer`.
+
 ---
 
 ## identity

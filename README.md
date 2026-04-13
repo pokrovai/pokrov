@@ -611,6 +611,21 @@ auth:
     single-bearer mode is supported: one `Authorization: Bearer ...` can be used
     for both gateway auth and upstream passthrough credential.
 
+### Upstream TLS Trust (Custom CA)
+
+When upstream LLM endpoint uses a private/corporate CA, set `SSL_CERT_FILE` for
+the Pokrov runtime process so outbound upstream TLS validation can trust that CA.
+
+```bash
+export SSL_CERT_FILE=/etc/pokrov/certs/corp-root-ca.pem
+cargo run -p pokrov-runtime -- --config ./config/pokrov.example.yaml
+```
+
+- `SSL_CERT_FILE` must point to a PEM file.
+- The file may contain one or more `BEGIN CERTIFICATE` blocks (CA chain).
+- If the CA is not trusted, upstream calls fail with connect errors such as
+  `invalid peer certificate: UnknownIssuer`.
+
 ### Routing UX Notes
 
 - `llm.providers[].upstream_path` lets you override the provider upstream endpoint path.
