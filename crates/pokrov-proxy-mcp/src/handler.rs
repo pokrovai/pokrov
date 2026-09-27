@@ -83,7 +83,7 @@ impl McpProxyHandler {
                     &request.tool,
                     &outcome.response.pokrov.profile,
                     outcome.response.pokrov.action,
-                    outcome.response.pokrov.rule_hits,
+                    counters.rule_hits_total,
                     false,
                     Some(200),
                     started.elapsed().as_millis() as u64,

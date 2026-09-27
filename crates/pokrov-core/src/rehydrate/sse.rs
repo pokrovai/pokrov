@@ -51,11 +51,16 @@ pub fn event_boundary_end(buffer: &[u8]) -> Option<usize> {
         match buffer.get(line_end) {
             Some(&b'\n') => return Some(line_end + 1),
             Some(&b'\r') => {
-                return Some(if buffer.get(line_end + 1) == Some(&b'\n') {
-                    line_end + 2
+                // A buffer-final `\r` is inconclusive: it may be the first
+                // half of a `\r\n` split across chunks. Only bytes after it
+                // can settle whether this blank line actually ended.
+                return if buffer.get(line_end + 1) == Some(&b'\n') {
+                    Some(line_end + 2)
+                } else if line_end + 1 < buffer.len() {
+                    Some(line_end + 1)
                 } else {
-                    line_end + 1
-                });
+                    None
+                };
             }
             _ => cursor = line_end,
         }
@@ -309,6 +314,13 @@ impl EventRehydrator {
     }
 }
 
+/// Length of the trailing run of CR/LF bytes — a candidate half of an event
+/// terminator that may complete only once the next chunk arrives. Kept
+/// buffered instead of flushing so split boundaries are not lost.
+fn trailing_eol_len(bytes: &[u8]) -> usize {
+    bytes.iter().rev().take_while(|b| matches!(b, b'\r' | b'\n')).count()
+}
+
 /// Whether a `/v1/responses` lifecycle event ends the text stream: terminal
 /// states and per-item `*.done` markers.
 fn is_terminal_responses_type(event_type: &str) -> bool {
@@ -346,6 +358,10 @@ fn synthesize_carry_events(carries: Vec<(CarryKey, String)>) -> Vec<String> {
 pub struct SseStreamRehydrator {
     inner: EventRehydrator,
     buffer: Vec<u8>,
+    /// Bytes before this offset are known to contain no event boundary, so
+    /// `feed` resumes the terminator scan here instead of re-scanning the
+    /// whole buffer on every chunk (quadratic on small chunks).
+    scanned: usize,
     /// After an oversized event flushed verbatim, the remainder of that same
     /// event must pass through untouched: restoring tokens inside an
     /// already-emitted partial JSON frame could inject unescaped bytes.
@@ -357,6 +373,7 @@ impl SseStreamRehydrator {
         Self {
             inner: EventRehydrator::new(map),
             buffer: Vec::new(),
+            scanned: 0,
             overflow_passthrough: false,
         }
     }
@@ -389,21 +406,37 @@ impl SseStreamRehydrator {
                 Some(end) => {
                     self.flush_passthrough(end, &mut out);
                     self.overflow_passthrough = false;
+                    self.scanned = 0;
                 }
                 // No terminator yet: stream the bytes out verbatim, keeping
-                // memory bounded by the chunk rather than the event.
+                // memory bounded by the chunk rather than the event. The
+                // trailing CR/LF run stays buffered: it may pair with the
+                // next chunk's leading bytes to complete the awaited
+                // terminator — a boundary split across this flush would
+                // otherwise be lost.
                 None => {
-                    self.flush_passthrough(self.buffer.len(), &mut out);
+                    let keep = trailing_eol_len(&self.buffer);
+                    self.flush_passthrough(self.buffer.len() - keep, &mut out);
+                    self.scanned = self.buffer.len().saturating_sub(1);
                     return out;
                 }
             }
         }
-        while let Some(end) = event_boundary_end(&self.buffer) {
+        while let Some(rel) = event_boundary_end(&self.buffer[self.scanned..]) {
+            let end = self.scanned + rel;
             let block: Vec<u8> = self.buffer.drain(..end).collect();
             self.emit_block(&block, &mut out);
+            // Remaining bytes were never scanned: the previous scan stopped
+            // at this boundary.
+            self.scanned = 0;
         }
+        // The whole buffer is boundary-free; rescan from the last byte only
+        // so a terminator split across the next chunk is still found.
+        self.scanned = self.buffer.len().saturating_sub(1);
         if self.buffer.len() > MAX_EVENT_BUFFER_BYTES {
-            self.flush_passthrough(self.buffer.len(), &mut out);
+            let keep = trailing_eol_len(&self.buffer);
+            self.flush_passthrough(self.buffer.len() - keep, &mut out);
+            self.scanned = self.buffer.len().saturating_sub(1);
             self.overflow_passthrough = true;
         }
         out
@@ -413,6 +446,7 @@ impl SseStreamRehydrator {
     /// pending-carry flushes (synthetic delta events) when any are pending.
     pub fn finish(&mut self) -> Vec<u8> {
         let tail: Vec<u8> = self.buffer.drain(..).collect();
+        self.scanned = 0;
         let mut out = Vec::new();
         if self.overflow_passthrough {
             self.inner.note_unrestored_markers(&tail);
@@ -439,6 +473,7 @@ impl SseStreamRehydrator {
     /// counted as such.
     pub fn drain(&mut self) -> Vec<u8> {
         let mut out = std::mem::take(&mut self.buffer);
+        self.scanned = 0;
         self.inner.note_unrestored_markers(&out);
         self.append_carry_flush(&mut out);
         out
@@ -787,6 +822,62 @@ mod tests {
         assert_eq!(rehydrator.delta_carry.len(), MAX_CARRY_KEYS);
         // The last (over-cap) index emitted its marker unrestored.
         assert_eq!(rehydrator.report().unrestored, 1);
+    }
+
+    #[test]
+    fn stream_rehydrator_passthrough_keeps_split_boundary() {
+        // Every terminator form is exercised with its boundary split across
+        // the passthrough flush: the oversized event's trailing EOL byte is
+        // retained, so the next event is not swallowed into passthrough.
+        for (terminator_first, terminator_rest) in [
+            ("\n", "\n"),
+            ("\r\n", "\r\n"),
+            ("\r", "\r"),
+            // CRLF split inside a single line ending.
+            ("\r\n\r", "\n"),
+        ] {
+            let (map, token) = map_with("acme-corp");
+            let mut rehydrator = SseStreamRehydrator::new(map);
+
+            // Overflow mid-event; the flood's final byte is the first half
+            // of the oversized event's terminator.
+            let mut first = vec![b'x'; MAX_EVENT_BUFFER_BYTES + 1];
+            first.extend_from_slice(terminator_first.as_bytes());
+            let out = rehydrator.feed(&first);
+            // The trailing EOL prefix must stay buffered, not flushed.
+            assert!(
+                out.len() < first.len(),
+                "terminator {terminator_first:?}{terminator_rest:?}: out {} vs first {}",
+                out.len(),
+                first.len()
+            );
+
+            let rest = format!("{}{}", terminator_rest, delta_event(&token));
+            rehydrator.feed(rest.as_bytes());
+            let out = rehydrator.feed(b"\n\n");
+            let text = String::from_utf8(out).unwrap();
+            assert!(
+                text.contains("acme-corp"),
+                "next event after overflow must restore, terminator {terminator_first:?}{terminator_rest:?}: {text}"
+            );
+            assert!(rehydrator.finish().is_empty());
+        }
+    }
+
+    #[test]
+    fn stream_rehydrator_rescans_only_appended_bytes() {
+        // Regression guard for incremental scanning: a near-limit event fed
+        // in small chunks must still terminate and restore correctly — the
+        // cursor keeps the scan linear.
+        let (map, token) = map_with("acme-corp");
+        let mut rehydrator = SseStreamRehydrator::new(map);
+        let mut out = Vec::new();
+        for _ in 0..64 {
+            out.extend(rehydrator.feed(&vec![b'x'; 1024]));
+        }
+        out.extend(rehydrator.feed(format!("{}\n\n", delta_event(&token)).as_bytes()));
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("acme-corp"));
     }
 
     #[test]

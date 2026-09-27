@@ -201,6 +201,10 @@ pub fn convert_chat_sse_to_responses_sse(
 pub struct ResponsesChunkConverter {
     request_id: String,
     pending_bytes: Vec<u8>,
+    /// Bytes before this offset are known to contain no event boundary, so
+    /// `feed` resumes the terminator scan here instead of re-scanning the
+    /// whole pending buffer on every chunk.
+    scanned: usize,
     /// After an oversized event flushed verbatim, the remainder of that same
     /// event streams through untouched until its blank-line terminator —
     /// converting a partial event already emitted would corrupt framing.
@@ -212,6 +216,7 @@ impl ResponsesChunkConverter {
         Self {
             request_id: request_id.to_string(),
             pending_bytes: Vec::new(),
+            scanned: 0,
             passthrough: false,
         }
     }
@@ -228,17 +233,31 @@ impl ResponsesChunkConverter {
                 Some(end) => {
                     out.extend(self.pending_bytes.drain(..end));
                     self.passthrough = false;
+                    self.scanned = 0;
                 }
+                // The trailing CR/LF run stays buffered: it may pair with the
+                // next chunk's leading bytes to complete the awaited
+                // terminator.
                 None => {
-                    out.extend(self.pending_bytes.drain(..));
+                    let keep = self
+                        .pending_bytes
+                        .iter()
+                        .rev()
+                        .take_while(|b| matches!(b, b'\r' | b'\n'))
+                        .count();
+                    let flush_end = self.pending_bytes.len() - keep;
+                    out.extend(self.pending_bytes.drain(..flush_end));
+                    self.scanned = self.pending_bytes.len().saturating_sub(1);
                     return out;
                 }
             }
         }
 
         let mut converted = String::new();
-        while let Some(end) = event_boundary_end(&self.pending_bytes) {
+        while let Some(rel) = event_boundary_end(&self.pending_bytes[self.scanned..]) {
+            let end = self.scanned + rel;
             let event_bytes: Vec<u8> = self.pending_bytes.drain(..end).collect();
+            self.scanned = 0;
             let event = String::from_utf8_lossy(event_bytes.as_slice());
             let converted_event = convert_single_chat_sse_event(&self.request_id, &event);
             if converted_event.is_empty() {
@@ -247,9 +266,18 @@ impl ResponsesChunkConverter {
             converted.push_str(&converted_event);
             converted.push_str("\n\n");
         }
+        self.scanned = self.pending_bytes.len().saturating_sub(1);
         out.extend_from_slice(converted.as_bytes());
         if self.pending_bytes.len() > MAX_EVENT_BUFFER_BYTES {
-            out.extend(self.pending_bytes.drain(..));
+            let keep = self
+                .pending_bytes
+                .iter()
+                .rev()
+                .take_while(|b| matches!(b, b'\r' | b'\n'))
+                .count();
+            let flush_end = self.pending_bytes.len() - keep;
+            out.extend(self.pending_bytes.drain(..flush_end));
+            self.scanned = self.pending_bytes.len().saturating_sub(1);
             self.passthrough = true;
         }
         out
@@ -259,6 +287,7 @@ impl ResponsesChunkConverter {
     /// malformed or oversized leftovers pass through verbatim.
     pub fn finish(&mut self) -> Vec<u8> {
         let tail: Vec<u8> = self.pending_bytes.drain(..).collect();
+        self.scanned = 0;
         if tail.is_empty() {
             return Vec::new();
         }
@@ -340,6 +369,8 @@ mod tests {
         },
         SanitizationEngine,
     };
+
+    use pokrov_core::rehydrate::MAX_EVENT_BUFFER_BYTES;
 
     use super::{
         convert_chat_sse_to_responses_sse, sanitize_sse_stream, ResponsesChunkConverter,
@@ -436,6 +467,33 @@ mod tests {
         assert!(converted.contains("\"request_id\":\"req-3\""));
         assert!(converted.contains("data: [DONE]"));
         assert!(converter.finish().is_empty());
+    }
+
+    #[test]
+    fn converter_passthrough_keeps_split_boundary() {
+        // An oversized event whose terminator is split across the flush must
+        // not swallow the following event into passthrough — the next chat
+        // event still converts into responses format.
+        for (first_eol, rest_eol) in [("\n", "\n"), ("\r\n", "\r\n"), ("\r", "\r"), ("\r\n\r", "\n")]
+        {
+            let mut converter = ResponsesChunkConverter::new("req-split");
+            let mut flood = vec![b'x'; MAX_EVENT_BUFFER_BYTES + 1];
+            flood.extend_from_slice(first_eol.as_bytes());
+            let out = converter.feed(&flood);
+            assert!(out.len() < flood.len(), "trailing EOL prefix retained");
+
+            converter.feed(
+                format!("{rest_eol}data: {{\"choices\":[{{\"delta\":{{\"content\":\"hi\"}}}}]}}")
+                    .as_bytes(),
+            );
+            let out = converter.feed(b"\n\n");
+            let text = String::from_utf8(out).expect("converted output should be utf-8");
+            assert!(
+                text.contains("\"type\":\"response.output_text.delta\""),
+                "terminator {first_eol:?}{rest_eol:?}: {text}"
+            );
+            assert!(converter.finish().is_empty());
+        }
     }
 
     #[test]
