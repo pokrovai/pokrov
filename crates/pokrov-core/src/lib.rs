@@ -341,10 +341,23 @@ impl SanitizationEngine {
     }
 
     /// Evaluates one payload through the current sanitization pipeline.
-    /// The rehydration map produced by `[PKV_TOKEN]` rules is discarded;
-    /// use `evaluate_with_rehydration` on paths that restore responses.
+    /// `[PKV_TOKEN]` marker rules degrade to `[REPLACED]` on this path: no
+    /// request-scoped map survives the call, so a minted token would be an
+    /// unrestorable orphan. Use `evaluate_with_rehydration` on paths that
+    /// restore responses.
     pub fn evaluate(&self, request: EvaluateRequest) -> Result<EvaluateResult, EvaluateError> {
-        self.evaluate_with_rehydration(request).map(|outcome| outcome.result)
+        let artifacts = self.evaluate_internal(&request, false)?;
+        Ok(EvaluateResult {
+            request_id: request.request_id,
+            profile_id: artifacts.profile_id,
+            mode: request.mode,
+            decision: artifacts.decision,
+            transform: artifacts.transform,
+            explain: artifacts.explain,
+            audit: artifacts.audit,
+            executed: artifacts.executed,
+            degraded: artifacts.degraded,
+        })
     }
 
     /// Evaluates one payload and returns the result together with the
@@ -353,7 +366,7 @@ impl SanitizationEngine {
         &self,
         request: EvaluateRequest,
     ) -> Result<EvaluateOutcome, EvaluateError> {
-        let artifacts = self.evaluate_internal(&request)?;
+        let artifacts = self.evaluate_internal(&request, true)?;
 
         Ok(EvaluateOutcome {
             result: EvaluateResult {
@@ -376,7 +389,7 @@ impl SanitizationEngine {
         &self,
         request: EvaluateRequest,
     ) -> Result<FoundationExecutionTrace, EvaluateError> {
-        let artifacts = self.evaluate_internal(&request)?;
+        let artifacts = self.evaluate_internal(&request, false)?;
         let resolved_hits = artifacts
             .resolved_spans
             .iter()
@@ -412,6 +425,7 @@ impl SanitizationEngine {
     fn evaluate_internal(
         &self,
         request: &EvaluateRequest,
+        mint_tokens: bool,
     ) -> Result<EvaluationArtifacts, EvaluateError> {
         if request.request_id.trim().is_empty() {
             return Err(EvaluateError::InvalidInput("request_id must not be empty".to_string()));
@@ -523,13 +537,17 @@ impl SanitizationEngine {
         }
 
         let mut rehydration_map = RehydrationMap::new();
-        // Dry-run must not mint tokens: the map is per-request and is only
-        // consumed on real upstream round-trips.
-        let rehydration_context = self
-            .token_deriver
-            .as_ref()
-            .filter(|_| is_execution_enabled(request.mode))
-            .map(|deriver| RehydrationContext { deriver, map: &mut rehydration_map });
+        // Tokens are minted only when a request-scoped map outlives the call:
+        // dry-run and map-discarding paths must degrade `[PKV_TOKEN]` to the
+        // visible `[REPLACED]` fallback instead of emitting orphan tokens.
+        let rehydration_context = if mint_tokens {
+            self.token_deriver
+                .as_ref()
+                .filter(|_| is_execution_enabled(request.mode))
+                .map(|deriver| RehydrationContext { deriver, map: &mut rehydration_map })
+        } else {
+            None
+        };
         let transform = apply_transforms(
             &request.payload,
             &resolved_spans,

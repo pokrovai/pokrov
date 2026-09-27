@@ -52,6 +52,12 @@ $defs:
         maximum: 120000
       output_sanitization:
         type: boolean
+      sanitize_arguments:
+        type: boolean
+        default: false
+        description: >-
+          Sanitize tool arguments through the active policy before upstream
+          forwarding, applying [PKV_TOKEN] pseudonyms to marker-rule hits.
 
   McpServer:
     type: object
@@ -104,6 +110,11 @@ $defs:
         $ref: '#/$defs/ArgumentConstraints'
       output_sanitization:
         type: boolean
+      sanitize_arguments:
+        type: boolean
+        description: >-
+          Per-tool override of defaults.sanitize_arguments for argument-side
+          policy sanitization.
 
   ArgumentConstraints:
     type: object

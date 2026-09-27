@@ -263,7 +263,7 @@ sanitization:
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `true` | Enable sanitization engine. |
 | `default_profile` | `string` | `strict` | Default profile used when request does not specify one. |
-| `rehydration_key` | `string?` | `null` | Secret ref (`env:VAR` or `file:PATH`) for deterministic `[PKV_TOKEN]` derivation. Required when any profile uses the reversible sentinel; startup fails closed otherwise. Never store the key in plaintext. |
+| `rehydration_key` | `string?` | `null` | Secret ref (`env:VAR` or `file:PATH`) for deterministic `[PKV_TOKEN]` derivation. Required when any profile uses the reversible sentinel; startup fails closed otherwise. Resolved material must be at least 16 bytes (32+ recommended). Never store the key in plaintext. |
 | `profiles` | _object_ | see below | Three fixed profiles: `minimal`, `strict`, `custom`. |
 
 ### Profile fields
@@ -316,8 +316,8 @@ custom_rules:
 ### Reversible tokenization (`[PKV_TOKEN]`)
 
 Rules with `action: replace` and `replacement: "[PKV_TOKEN]"` substitute the
-matched fragment with a deterministic keyed pseudonym (`__PKV_<hex12>__`,
-optionally `_c<N>` collision suffix) before the payload leaves for the LLM
+matched fragment with a deterministic keyed pseudonym (`__PKV_<hex24>__`,
+optionally `_c<hex>` collision suffix) before the payload leaves for the LLM
 provider or MCP server. On the response path the proxy restores original
 values after output policy evaluation, on all LLM response shapes (JSON,
 buffered SSE, raw SSE passthrough) and for MCP tool outputs.

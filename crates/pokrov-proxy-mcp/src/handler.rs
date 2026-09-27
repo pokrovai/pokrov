@@ -153,8 +153,18 @@ impl McpProxyHandler {
 
         // Argument sanitization is opt-in: tokenized arguments reach the
         // upstream tool as pseudonyms, so operators enable it per tool/defaults.
+        // Fail closed when the flag is set without an active sanitization
+        // engine — the alternative is forwarding raw arguments upstream.
         if resolved.sanitize_arguments {
-            if let Some(evaluator) = self.evaluator.as_ref() {
+            let Some(evaluator) = self.evaluator.as_ref() else {
+                return Err(McpProxyError::upstream_error(
+                    &request_id,
+                    &request.server,
+                    &request.tool,
+                    "sanitize_arguments requires sanitization to be enabled",
+                ));
+            };
+            {
                 let outcome = evaluator
                     .evaluate_with_rehydration(EvaluateRequest {
                         request_id: request_id.clone(),
@@ -179,8 +189,7 @@ impl McpProxyHandler {
                 let args_eval = outcome.result;
 
                 self.metrics.on_rule_hits(args_eval.decision.rule_hits_total);
-                self.metrics
-                    .on_payload_transformed(args_eval.transform.transformed_fields_count);
+                self.metrics.on_payload_transformed(args_eval.transform.transformed_fields_count);
                 if args_map.spans_total() > 0 {
                     self.metrics.on_tokenized_spans(args_map.spans_total());
                 }
@@ -204,8 +213,7 @@ impl McpProxyHandler {
         let mut upstream_context = resolved.upstream.clone();
         upstream_context.upstream_bearer_token = upstream_credential.map(str::to_string);
 
-        let mut result =
-            self.upstream.execute_tool_call(&upstream_context, &arguments).await?;
+        let mut result = self.upstream.execute_tool_call(&upstream_context, &arguments).await?;
 
         let sanitization = self.sanitize_output(
             &request_id,
@@ -232,8 +240,7 @@ impl McpProxyHandler {
         // over the argument map: tokens minted from client-sent arguments
         // resolve back, while secrets first observed in tool output stay
         // governed by the (destructive) output policy.
-        let (restored_output, report) =
-            rehydrate_value(sanitization.safe_output, &args_map);
+        let (restored_output, report) = rehydrate_value(sanitization.safe_output, &args_map);
         if report.restored > 0 {
             self.metrics.on_rehydrated_tokens(report.restored);
         }
@@ -550,5 +557,121 @@ mod tests {
             serde_json::to_string(&result.safe_output).expect("payload should serialize");
         assert!(!serialized.contains("sk-test-abcdef12"));
         assert!(!serialized.contains("sk-test-zzzz9999"));
+    }
+
+    #[tokio::test]
+    async fn sanitize_arguments_fails_closed_without_evaluator() {
+        // sanitize_arguments must never forward raw arguments upstream when no
+        // sanitization engine is active (sanitization.enabled: false).
+        let config = McpConfig {
+            defaults: McpDefaultsConfig {
+                profile_id: "strict".to_string(),
+                upstream_timeout_ms: 1000,
+                output_sanitization: false,
+                sanitize_arguments: true,
+            },
+            servers: vec![McpServerDefinition {
+                id: "repo-tools".to_string(),
+                endpoint: "http://127.0.0.1:0".to_string(),
+                enabled: true,
+                allowed_tools: vec!["read_file".to_string()],
+                blocked_tools: Vec::new(),
+                tools: BTreeMap::new(),
+            }],
+        };
+        let handler = McpProxyHandler::new(None, Arc::new(NoopRuntimeMetricsHooks), config)
+            .expect("handler should build");
+
+        let request = crate::types::McpToolCallRequest {
+            server: "repo-tools".to_string(),
+            tool: "read_file".to_string(),
+            arguments: serde_json::json!({"path": "acme-corp/notes"}),
+            metadata: Default::default(),
+        };
+        let error = handler
+            .handle_tool_call("req-fail-closed".to_string(), request, "strict", "config", None)
+            .await
+            .expect_err("call must fail closed instead of forwarding raw arguments");
+
+        assert!(error.to_string().contains("sanitize_arguments"));
+    }
+
+    #[test]
+    fn output_native_marker_degrades_to_replaced_instead_of_orphan_token() {
+        // A sensitive value first observed in tool output has no map entry on
+        // the response path, so the destructive fallback must win over an
+        // unrestorable [PKV_TOKEN].
+        let mut config = McpConfig {
+            defaults: McpDefaultsConfig {
+                profile_id: "strict".to_string(),
+                upstream_timeout_ms: 1000,
+                output_sanitization: true,
+                sanitize_arguments: false,
+            },
+            servers: vec![McpServerDefinition {
+                id: "repo-tools".to_string(),
+                endpoint: "http://127.0.0.1:0".to_string(),
+                enabled: true,
+                allowed_tools: vec!["read_file".to_string()],
+                blocked_tools: Vec::new(),
+                tools: BTreeMap::new(),
+            }],
+        };
+        config.defaults.output_sanitization = true;
+
+        let evaluator = SanitizationEngine::new(EvaluatorConfig {
+            default_profile: "strict".to_string(),
+            rehydration_key: Some("unit-test-key-material-0123456789".to_string()),
+            profiles: BTreeMap::from([(
+                "strict".to_string(),
+                PolicyProfile {
+                    profile_id: "strict".to_string(),
+                    mode_default: EvaluationMode::Enforce,
+                    category_actions: CategoryActions {
+                        secrets: PolicyAction::Allow,
+                        pii: PolicyAction::Allow,
+                        corporate_markers: PolicyAction::Allow,
+                        custom: PolicyAction::Allow,
+                    },
+                    mask_visible_suffix: 4,
+                    max_hits_per_request: 4096,
+                    custom_rules_enabled: true,
+                    custom_rules: vec![CustomRule {
+                        rule_id: "custom.corp".to_string(),
+                        category: DetectionCategory::Custom,
+                        pattern: "acme-corp".to_string(),
+                        action: PolicyAction::Replace,
+                        priority: 100,
+                        replacement_template: Some("[PKV_TOKEN]".to_string()),
+                        enabled: true,
+                        deterministic: None,
+                    }],
+                    ner_enabled: false,
+                },
+            )]),
+        })
+        .expect("evaluator should build");
+
+        let handler = McpProxyHandler::new(
+            Some(Arc::new(evaluator)),
+            Arc::new(NoopRuntimeMetricsHooks),
+            config,
+        )
+        .expect("handler should build");
+
+        let envelope = McpToolResultEnvelope {
+            content: serde_json::json!({"summary": "leak acme-corp here"}),
+            content_type: None,
+            truncated: false,
+        };
+        let result = handler
+            .sanitize_output("req-2", "strict", "repo-tools", "read_file", true, &envelope)
+            .expect("sanitization should succeed");
+
+        let serialized =
+            serde_json::to_string(&result.safe_output).expect("payload should serialize");
+        assert!(serialized.contains("[REPLACED]"));
+        assert!(!serialized.contains("__PKV_"));
+        assert!(!serialized.contains("acme-corp"));
     }
 }

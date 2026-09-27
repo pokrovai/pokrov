@@ -89,7 +89,7 @@ fn engine() -> SanitizationEngine {
         rehydration_key: None,
         profiles,
     })
-        .expect("engine should build")
+    .expect("engine should build")
 }
 
 #[test]
@@ -460,13 +460,44 @@ fn engine_fails_closed_when_marker_rule_has_no_key() {
     let result = SanitizationEngine::new(EvaluatorConfig {
         default_profile: "strict".to_string(),
         rehydration_key: None,
-        profiles: BTreeMap::from([(
-            "strict".to_string(),
-            allow_all_profile(vec![marker_rule()]),
-        )]),
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
     });
 
     assert!(result.is_err(), "marker rules without key material must fail closed");
+}
+
+#[test]
+fn evaluate_without_map_degrades_marker_to_replaced() {
+    // `evaluate` drops the rehydration map, so minting a token there would
+    // produce an unrestorable orphan; the marker must degrade visibly instead.
+    let engine = SanitizationEngine::new(EvaluatorConfig {
+        default_profile: "strict".to_string(),
+        rehydration_key: Some("unit-rehydration-key".to_string()),
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
+    })
+    .expect("engine should build with key material");
+
+    let result = engine
+        .evaluate(EvaluateRequest {
+            request_id: "r-out".to_string(),
+            profile_id: "strict".to_string(),
+            mode: EvaluationMode::Enforce,
+            payload: json!({"message": "use acme-corp-utils"}),
+            path_class: PathClass::Direct,
+            effective_language: "en".to_string(),
+            entity_scope_filters: Vec::new(),
+            recognizer_family_filters: Vec::new(),
+            allowlist_additions: Vec::new(),
+        })
+        .expect("evaluation passes");
+
+    let text = serde_json::to_string(
+        result.transform.sanitized_payload.as_ref().expect("payload transformed"),
+    )
+    .expect("payload serializes");
+    assert!(text.contains("[REPLACED]"), "orphan-safe fallback must be visible: {text}");
+    assert!(!text.contains("__PKV_"));
+    assert!(!text.contains("acme-corp"));
 }
 
 #[test]
@@ -474,10 +505,7 @@ fn evaluate_with_rehydration_round_trips_marker_fragments() {
     let engine = SanitizationEngine::new(EvaluatorConfig {
         default_profile: "strict".to_string(),
         rehydration_key: Some("unit-rehydration-key".to_string()),
-        profiles: BTreeMap::from([(
-            "strict".to_string(),
-            allow_all_profile(vec![marker_rule()]),
-        )]),
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
     })
     .expect("engine should build with key material");
 
@@ -527,10 +555,7 @@ fn evaluate_with_rehydration_restores_tokens_over_json_leaves() {
     let engine = SanitizationEngine::new(EvaluatorConfig {
         default_profile: "strict".to_string(),
         rehydration_key: Some("unit-rehydration-key".to_string()),
-        profiles: BTreeMap::from([(
-            "strict".to_string(),
-            allow_all_profile(vec![marker_rule()]),
-        )]),
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
     })
     .expect("engine should build with key material");
 
@@ -557,8 +582,7 @@ fn evaluate_with_rehydration_restores_tokens_over_json_leaves() {
     assert!(token.starts_with("__PKV_"));
 
     let upstream_echo = json!({"choices": [{"content": format!("use {token}::init")}]});
-    let (restored, report) =
-        crate::rehydrate::rehydrate_value(upstream_echo, &outcome.rehydration);
+    let (restored, report) = crate::rehydrate::rehydrate_value(upstream_echo, &outcome.rehydration);
 
     assert_eq!(restored["choices"][0]["content"], "use acme-corp::init");
     assert_eq!(report.restored, 1);

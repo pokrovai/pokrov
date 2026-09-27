@@ -32,12 +32,31 @@ struct MockState {
 
 #[derive(Debug, Clone)]
 pub enum MockProviderMode {
-    Json { status: u16, body: Value },
-    Sse { status: u16, body: String },
+    Json {
+        status: u16,
+        body: Value,
+    },
+    Sse {
+        status: u16,
+        body: String,
+    },
     /// Emits the response as separate HTTP chunks with an inter-chunk delay,
     /// so stream-boundary behavior (e.g. tokens split mid-chunk) is
     /// exercised deterministically.
-    SseChunked { status: u16, chunks: Vec<String>, delay_ms: u64 },
+    SseChunked {
+        status: u16,
+        chunks: Vec<String>,
+        delay_ms: u64,
+    },
+    /// Streams the given chunks and then fails the response body mid-flight
+    /// so the client observes a truncated stream; exercises upstream-error
+    /// tail flushing on the passthrough path. `delay_ms` separates the last
+    /// data chunk from the error so response headers reliably flush first.
+    SseAbort {
+        status: u16,
+        chunks: Vec<String>,
+        delay_ms: u64,
+    },
 }
 
 pub struct MockProviderHandle {
@@ -136,6 +155,31 @@ async fn mock_chat_completions(
                     Ok::<_, std::io::Error>(bytes::Bytes::from(chunk))
                 },
             );
+            let mut response = axum::response::Response::new(Body::from_stream(stream));
+            *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("text/event-stream"),
+            );
+            response
+        }
+        MockProviderMode::SseAbort { status, ref chunks, delay_ms } => {
+            let chunks = chunks.clone();
+            let data = futures_util::stream::iter(
+                chunks.into_iter().map(|chunk| Ok::<_, std::io::Error>(bytes::Bytes::from(chunk))),
+            );
+            // A body-stream error makes hyper abort the chunked response
+            // without a terminating chunk — the proxy sees a stream error. The
+            // delay lets headers and the first chunk flush to the client first.
+            let stream = data.chain(futures_util::stream::once(async move {
+                if delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+                Err::<bytes::Bytes, _>(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "mock upstream abort",
+                ))
+            }));
             let mut response = axum::response::Response::new(Body::from_stream(stream));
             *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
             response.headers_mut().insert(

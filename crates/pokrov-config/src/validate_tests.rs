@@ -261,7 +261,8 @@ fn accepts_pkv_token_rule_with_resolvable_rehydration_key() {
     // File refs keep the test independent of process environment.
     let key_path = std::env::temp_dir()
         .join(format!("pokrov-validate-rehydration-{}.key", std::process::id()));
-    std::fs::write(&key_path, "unit-test-key").expect("temp key file should be written");
+    std::fs::write(&key_path, "unit-test-key-material-0123456789abcdef")
+        .expect("temp key file should be written");
 
     let mut config = valid_config();
     config.sanitization.profiles.custom.custom_rules[0].action = PolicyAction::Replace;
@@ -295,6 +296,62 @@ fn accepts_missing_rehydration_key_when_no_marker_rules() {
     let config = valid_config();
     validate_runtime_config(&config, Path::new("config.yaml"))
         .expect("no marker rules means the key is optional");
+}
+
+#[test]
+fn rejects_short_rehydration_key_material() {
+    // A short HMAC key is brute-forceable from a single known fragment/token
+    // pair; validation must reject it rather than accept silently.
+    let key_path =
+        std::env::temp_dir().join(format!("pokrov-validate-weak-key-{}.key", std::process::id()));
+    std::fs::write(&key_path, "x").expect("temp key file should be written");
+
+    let mut config = valid_config();
+    config.sanitization.profiles.custom.custom_rules[0].action = PolicyAction::Replace;
+    config.sanitization.profiles.custom.custom_rules[0].replacement =
+        Some("[PKV_TOKEN]".to_string());
+    config.sanitization.rehydration_key = Some(format!("file:{}", key_path.display()));
+
+    let error = validate_runtime_config(&config, Path::new("config.yaml"))
+        .expect_err("one-byte key material must fail validation");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("sanitization.rehydration_key"));
+    assert!(rendered.contains("too short"));
+
+    std::fs::remove_file(&key_path).ok();
+}
+
+#[test]
+fn accepts_mcp_sanitize_arguments_when_sanitization_enabled() {
+    let mut config = valid_config();
+    config.mcp = Some(valid_mcp_config());
+    config.mcp.as_mut().expect("mcp config").defaults.sanitize_arguments = true;
+
+    validate_runtime_config(&config, Path::new("config.yaml"))
+        .expect("sanitize_arguments is valid while sanitization is enabled");
+}
+
+#[test]
+fn rejects_mcp_sanitize_arguments_when_sanitization_disabled() {
+    // The handler would otherwise forward raw tool arguments upstream while
+    // the operator believes pseudonymization is active — fail closed at load.
+    let mut config = valid_config();
+    config.sanitization.enabled = false;
+    config.mcp = Some(valid_mcp_config());
+    config.mcp.as_mut().expect("mcp config").defaults.sanitize_arguments = true;
+    config.mcp.as_mut().expect("mcp config").servers[0]
+        .tools
+        .get_mut("read_file")
+        .expect("tool policy")
+        .sanitize_arguments = Some(true);
+
+    let error = validate_runtime_config(&config, Path::new("config.yaml"))
+        .expect_err("sanitize_arguments without sanitization must fail");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("mcp.defaults.sanitize_arguments"));
+    assert!(rendered.contains("mcp.servers[0].tools.read_file.sanitize_arguments"));
 }
 
 #[test]

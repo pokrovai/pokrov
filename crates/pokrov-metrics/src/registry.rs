@@ -18,9 +18,6 @@ pub struct RuntimeMetricsRegistry {
     rule_hits_total: AtomicU64,
     transformed_payloads_total: AtomicU64,
     blocked_evaluations_total: AtomicU64,
-    tokenized_spans_total: AtomicU64,
-    rehydrated_tokens_total: AtomicU64,
-    unrestored_tokens_total: AtomicU64,
     llm_action_allow_total: AtomicU64,
     llm_action_mask_total: AtomicU64,
     llm_action_replace_total: AtomicU64,
@@ -44,6 +41,9 @@ pub struct RuntimeMetricsRegistry {
     model_resolution_total: IntCounter,
     model_resolution_failed_total: IntCounter,
     models_catalog_requests_total: IntCounter,
+    tokenized_spans_total: IntCounter,
+    rehydrated_tokens_total: IntCounter,
+    unrestored_tokens_total: IntCounter,
     force_render_failure: AtomicBool,
 }
 
@@ -90,6 +90,18 @@ impl RuntimeMetricsRegistry {
             "pokrov_models_catalog_requests_total",
             "Total requests to /v1/models catalog endpoint",
         )?;
+        let tokenized_spans_total = IntCounter::new(
+            "pokrov_tokenized_spans_total",
+            "Total sensitive spans replaced with reversible [PKV_TOKEN] pseudonyms",
+        )?;
+        let rehydrated_tokens_total = IntCounter::new(
+            "pokrov_rehydrated_tokens_total",
+            "Total pseudonym tokens restored to original fragments on trusted paths",
+        )?;
+        let unrestored_tokens_total = IntCounter::new(
+            "pokrov_unrestored_tokens_total",
+            "Total __PKV_ markers observed in responses without a matching token",
+        )?;
 
         prometheus_registry.register(Box::new(requests_total.clone()))?;
         prometheus_registry.register(Box::new(blocked_total.clone()))?;
@@ -100,6 +112,9 @@ impl RuntimeMetricsRegistry {
         prometheus_registry.register(Box::new(model_resolution_total.clone()))?;
         prometheus_registry.register(Box::new(model_resolution_failed_total.clone()))?;
         prometheus_registry.register(Box::new(models_catalog_requests_total.clone()))?;
+        prometheus_registry.register(Box::new(tokenized_spans_total.clone()))?;
+        prometheus_registry.register(Box::new(rehydrated_tokens_total.clone()))?;
+        prometheus_registry.register(Box::new(unrestored_tokens_total.clone()))?;
 
         requests_total.with_label_values(&["other", "runtime", "2xx", "allowed"]);
         blocked_total.with_label_values(&["other", "policy", "strict"]);
@@ -118,9 +133,9 @@ impl RuntimeMetricsRegistry {
             rule_hits_total: AtomicU64::new(0),
             transformed_payloads_total: AtomicU64::new(0),
             blocked_evaluations_total: AtomicU64::new(0),
-            tokenized_spans_total: AtomicU64::new(0),
-            rehydrated_tokens_total: AtomicU64::new(0),
-            unrestored_tokens_total: AtomicU64::new(0),
+            tokenized_spans_total,
+            rehydrated_tokens_total,
+            unrestored_tokens_total,
             llm_action_allow_total: AtomicU64::new(0),
             llm_action_mask_total: AtomicU64::new(0),
             llm_action_replace_total: AtomicU64::new(0),
@@ -170,9 +185,9 @@ impl RuntimeMetricsRegistry {
             rule_hits_total: self.rule_hits_total.load(Ordering::Relaxed),
             transformed_payloads_total: self.transformed_payloads_total.load(Ordering::Relaxed),
             blocked_evaluations_total: self.blocked_evaluations_total.load(Ordering::Relaxed),
-            tokenized_spans_total: self.tokenized_spans_total.load(Ordering::Relaxed),
-            rehydrated_tokens_total: self.rehydrated_tokens_total.load(Ordering::Relaxed),
-            unrestored_tokens_total: self.unrestored_tokens_total.load(Ordering::Relaxed),
+            tokenized_spans_total: self.tokenized_spans_total.get() as u64,
+            rehydrated_tokens_total: self.rehydrated_tokens_total.get() as u64,
+            unrestored_tokens_total: self.unrestored_tokens_total.get() as u64,
             llm_action_allow_total: self.llm_action_allow_total.load(Ordering::Relaxed),
             llm_action_mask_total: self.llm_action_mask_total.load(Ordering::Relaxed),
             llm_action_replace_total: self.llm_action_replace_total.load(Ordering::Relaxed),
@@ -243,15 +258,15 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
     }
 
     fn on_tokenized_spans(&self, count: u32) {
-        self.tokenized_spans_total.fetch_add(count as u64, Ordering::Relaxed);
+        self.tokenized_spans_total.inc_by(count as u64);
     }
 
     fn on_rehydrated_tokens(&self, count: u32) {
-        self.rehydrated_tokens_total.fetch_add(count as u64, Ordering::Relaxed);
+        self.rehydrated_tokens_total.inc_by(count as u64);
     }
 
     fn on_unrestored_tokens(&self, count: u32) {
-        self.unrestored_tokens_total.fetch_add(count as u64, Ordering::Relaxed);
+        self.unrestored_tokens_total.inc_by(count as u64);
     }
 
     fn on_llm_final_action(&self, action: PolicyAction) {
@@ -575,6 +590,21 @@ mod tests {
         assert!(rendered.contains("decision=\"errored\""));
         assert!(!rendered.contains("request_id="));
         assert!(!rendered.contains("prompt="));
+    }
+
+    #[test]
+    fn exposes_tokenization_counters_in_prometheus_render() {
+        let registry = RuntimeMetricsRegistry::default();
+        registry.on_tokenized_spans(3);
+        registry.on_rehydrated_tokens(2);
+        registry.on_unrestored_tokens(1);
+
+        let rendered = registry.render_prometheus().expect("metrics should render");
+        // /metrics must expose the new counters, not only the internal
+        // snapshot fields the hooks also feed.
+        assert!(rendered.contains("pokrov_tokenized_spans_total 3"));
+        assert!(rendered.contains("pokrov_rehydrated_tokens_total 2"));
+        assert!(rendered.contains("pokrov_unrestored_tokens_total 1"));
     }
 
     #[test]

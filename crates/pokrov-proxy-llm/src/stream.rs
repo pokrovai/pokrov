@@ -1,5 +1,5 @@
 use pokrov_core::{
-    rehydrate::{rehydrate_text, rehydrate_value, RehydrateReport, RehydrationMap},
+    rehydrate::{EventRehydrator, RehydrateReport, RehydrationMap},
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
 };
@@ -103,69 +103,35 @@ pub fn sanitize_sse_stream(
 /// Restores `[PKV_TOKEN]` pseudonyms in a fully buffered SSE body. Runs after
 /// output policy evaluation: `data:` payloads that parse as JSON are restored
 /// leaf-wise so fragments containing JSON-significant bytes stay escaped,
-/// while `data:` lines and other SSE fields are restored as plain text.
+/// `delta.content` values join a cross-event carry so a token split between
+/// two delta events resolves, and non-JSON lines restore as plain text under
+/// a newline guard that keeps SSE framing intact.
 pub fn rehydrate_sse_stream(raw_body: &str, map: &RehydrationMap) -> (String, RehydrateReport) {
     if map.is_empty() {
         return (raw_body.to_string(), RehydrateReport::default());
     }
 
-    let mut report = RehydrateReport::default();
+    let mut rehydrator = EventRehydrator::new(map.clone());
     let mut events = Vec::new();
 
     for event in raw_body.split("\n\n") {
         if event.trim().is_empty() {
             continue;
         }
-
-        let mut lines = Vec::new();
-        for line in event.lines() {
-            if let Some(data) = line.strip_prefix("data:") {
-                let payload = data.trim();
-                if payload == "[DONE]" {
-                    lines.push("data: [DONE]".to_string());
-                    continue;
-                }
-
-                match serde_json::from_str::<Value>(payload) {
-                    Ok(event_json) => {
-                        let (restored, leaf) = rehydrate_value(event_json, map);
-                        report.restored = report.restored.saturating_add(leaf.restored);
-                        report.unrestored = report.unrestored.saturating_add(leaf.unrestored);
-                        if leaf.restored == 0 {
-                            // Nothing substituted: keep the original bytes
-                            // instead of a re-serialized payload to stay
-                            // byte-faithful on token-free lines.
-                            lines.push(line.to_string());
-                        } else {
-                            match serde_json::to_string(&restored) {
-                                Ok(encoded) => lines.push(format!("data: {encoded}")),
-                                Err(_) => lines.push(line.to_string()),
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        let (restored, leaf) = rehydrate_text(line, map);
-                        report.restored = report.restored.saturating_add(leaf.restored);
-                        report.unrestored = report.unrestored.saturating_add(leaf.unrestored);
-                        lines.push(restored);
-                    }
-                }
-                continue;
-            }
-
-            let (restored, leaf) = rehydrate_text(line, map);
-            report.restored = report.restored.saturating_add(leaf.restored);
-            report.unrestored = report.unrestored.saturating_add(leaf.unrestored);
-            lines.push(restored);
-        }
-
-        events.push(lines.join("\n"));
+        events.push(rehydrator.rehydrate_event(event));
+    }
+    // A stream that ended mid-token still flushes the pending carry as a
+    // synthetic delta event rather than dropping upstream bytes.
+    if let Some(flush) = rehydrator.finish() {
+        events.push(flush);
     }
 
     let mut body = events.join("\n\n");
     if !body.is_empty() {
         body.push_str("\n\n");
     }
+
+    let report = rehydrator.report();
 
     (body, report)
 }

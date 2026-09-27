@@ -17,11 +17,15 @@ pub const REVERSIBLE_TEMPLATE: &str = "[PKV_TOKEN]";
 
 const TOKEN_PREFIX: &str = "__PKV_";
 const TOKEN_SUFFIX: &str = "__";
-const TOKEN_HEX_LEN: usize = 12;
+const TOKEN_HEX_LEN: usize = 24;
 
 /// `__PKV_` plus the hex body; narrows `BTreeMap` lookups to the collision
 /// domain of one base token instead of scanning every known token.
 const TOKEN_BASE_LEN: usize = TOKEN_PREFIX.len() + TOKEN_HEX_LEN;
+
+mod sse;
+
+pub use sse::{EventRehydrator, SseStreamRehydrator};
 
 /// Derives deterministic pseudonym tokens from secret key material.
 /// Keyed HMAC-SHA256 keeps tokens stable across requests and proxy paths
@@ -37,19 +41,10 @@ impl TokenDeriver {
         Self { key: key.to_vec() }
     }
 
-    /// Base token for a fragment: `__PKV_<12 lowercase hex>__`, a valid
-    /// identifier fragment in code contexts.
-    fn base_token(&self, fragment: &str) -> String {
-        let digest = hmac_sha256(&self.key, fragment.as_bytes());
-        let mut token =
-            String::with_capacity(TOKEN_PREFIX.len() + TOKEN_HEX_LEN + TOKEN_SUFFIX.len());
-        token.push_str(TOKEN_PREFIX);
-        for byte in &digest[..TOKEN_HEX_LEN / 2] {
-            use fmt::Write;
-            let _ = write!(token, "{byte:02x}");
-        }
-        token.push_str(TOKEN_SUFFIX);
-        token
+    /// HMAC-SHA256 digest of the fragment under the derivation key — the
+    /// single source of every token byte, base and collision suffix alike.
+    fn digest_for(&self, fragment: &str) -> [u8; 32] {
+        hmac_sha256(&self.key, fragment.as_bytes())
     }
 }
 
@@ -89,21 +84,36 @@ impl RehydrationMap {
         self.spans_total
     }
 
-    /// Returns the deterministic token for a fragment. A 48-bit prefix
-    /// collision with a different fragment is disambiguated by a `_c<N>`
-    /// suffix assigned in deterministic insertion order.
+    /// Returns the deterministic token for a fragment: `__PKV_<24 lowercase
+    /// hex>__` taken from the fragment's keyed digest. The 96-bit body makes
+    /// collisions cryptographically unreachable, so the fragment→token mapping
+    /// is a pure function of (key, fragment) — identical across requests and
+    /// independent of insertion order, as FR-002 requires.
+    ///
+    /// For completeness the map still disambiguates a prefix collision with a
+    /// `_c<8hex>` suffix drawn from the same digest (bytes [12..16], then
+    /// [16..20], and so on); the suffix sequence is therefore deterministic
+    /// per fragment rather than sequential per request. If the digest runway
+    /// is ever exhausted, further material is derived by chained HMAC.
     pub fn token_for(&mut self, deriver: &TokenDeriver, fragment: &str) -> String {
         self.spans_total += 1;
         if let Some(token) = self.fragment_to_token.get(fragment) {
             return token.clone();
         }
 
-        let base = deriver.base_token(fragment);
+        let digest = deriver.digest_for(fragment);
+        let base = format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&digest[..12]));
+
+        // Collision resolution walks a deterministic digest-derived suffix
+        // chain; the winner-take-base corner needs a real 96-bit collision in
+        // a single request and is unreachable without the key.
         let mut token = base.clone();
-        let mut collision = 0u32;
+        let mut level = 0u32;
         while self.token_to_fragment.contains_key(&token) {
-            collision += 1;
-            token = format!("{}_c{}{}", &base[..base.len() - TOKEN_SUFFIX.len()], collision, TOKEN_SUFFIX);
+            level += 1;
+            let suffix = collision_suffix(deriver, fragment, &digest, level);
+            token =
+                format!("{}_c{}{}", &base[..base.len() - TOKEN_SUFFIX.len()], suffix, TOKEN_SUFFIX);
         }
 
         self.token_to_fragment.insert(token.clone(), fragment.to_string());
@@ -113,7 +123,7 @@ impl RehydrationMap {
 
     /// Longest known token matching the head of `text`, or `None`.
     /// Collision-suffixed tokens share the base prefix, so longest wins.
-    /// The 18-byte `__PKV_<hex>` base narrows the BTreeMap range scan to
+    /// The 30-byte `__PKV_<hex24>` base narrows the BTreeMap range scan to
     /// the collision domain, keeping lookups O(log n + collisions).
     fn longest_match_at(&self, text: &[u8]) -> Option<(&str, &str)> {
         if text.len() < TOKEN_BASE_LEN {
@@ -194,127 +204,59 @@ pub fn rehydrate_value(value: Value, map: &RehydrationMap) -> (Value, RehydrateR
     (mapped, report)
 }
 
-/// Byte-level incremental restorer for streaming response bodies. Tokens may
-/// be split across chunk boundaries, so the longest pending tail that is a
-/// proper prefix of a known token is held back until it resolves or the
-/// stream ends.
-pub struct StreamRehydrator {
-    map: RehydrationMap,
-    pending: Vec<u8>,
-    restored_total: u32,
-    unrestored_total: u32,
-}
-
-impl StreamRehydrator {
-    pub fn new(map: RehydrationMap) -> Self {
-        Self { map, pending: Vec::new(), restored_total: 0, unrestored_total: 0 }
-    }
-
-    /// Feeds one chunk and returns the bytes safe to emit downstream.
-    pub fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
-        if self.map.is_empty() {
-            return chunk.to_vec();
-        }
-        self.pending.extend_from_slice(chunk);
-        let cut = self.holdback_index();
-        let emit: Vec<u8> = self.pending.drain(..cut).collect();
-        let (restored, report) = rehydrate_bytes(&emit, &self.map);
-        self.restored_total = self.restored_total.saturating_add(report.restored);
-        self.unrestored_total = self.unrestored_total.saturating_add(report.unrestored);
-        restored
-    }
-
-    /// Flushes the held-back tail at end of stream; an unterminated token
-    /// prefix is forwarded verbatim rather than dropped.
-    pub fn finish(&mut self) -> Vec<u8> {
-        if self.map.is_empty() {
-            return std::mem::take(&mut self.pending);
-        }
-        let pending = std::mem::take(&mut self.pending);
-        let (restored, report) = rehydrate_bytes(&pending, &self.map);
-        self.restored_total = self.restored_total.saturating_add(report.restored);
-        self.unrestored_total = self.unrestored_total.saturating_add(report.unrestored);
-        restored
-    }
-
-    /// Total tokens restored so far; used by streaming callers to report
-    /// incremental rehydration metrics without touching the map.
-    pub fn restored_total(&self) -> u32 {
-        self.restored_total
-    }
-
-    /// `__PKV_` markers emitted so far that matched no known token. The
-    /// holdback keeps every `__PKV_`-initiated tail pending while it could
-    /// still resolve, so the count is exact even when a marker straddles a
-    /// chunk boundary.
-    pub fn unrestored_total(&self) -> u32 {
-        self.unrestored_total
-    }
-
-    /// Earliest index at which the pending tail is a proper prefix of a known
-    /// token; bytes before it can never complete a token and may be emitted.
-    /// Scans `__PKV_` occurrences left to right: complete token matches advance
-    /// the resolved boundary so a token's own `__` terminator is not mistaken
-    /// for the start of the next token.
-    fn holdback_index(&self) -> usize {
-        let len = self.pending.len();
-        let mut resolved_end = 0usize;
-        let mut scan = 0usize;
-        while scan < len {
-            let Some(offset) = find_subslice(&self.pending[scan..], TOKEN_PREFIX.as_bytes()) else {
-                break;
-            };
-            let pos = scan + offset;
-            if let Some((token, _)) = self.map.longest_match_at(&self.pending[pos..]) {
-                resolved_end = pos + token.len();
-                scan = resolved_end;
-                continue;
-            }
-            if self.is_proper_token_prefix(&self.pending[pos..]) {
-                return pos;
-            }
-            // Literal marker text: resume one byte later so an overlapping
-            // `__PKV_` occurrence is still discovered.
-            scan = pos + 1;
-        }
-
-        // Tails shorter than `__PKV_` cannot be found by the scan above but may
-        // still grow into a token (e.g. a chunk ending in `__`). They are only
-        // considered beyond the last resolved token boundary.
-        let tail_start = len.saturating_sub(TOKEN_PREFIX.len() - 1).max(resolved_end);
-        for idx in tail_start..len {
-            if self.is_proper_token_prefix(&self.pending[idx..]) {
-                return idx;
-            }
-        }
-        len
-    }
-
-    /// Whether `tail` is a non-empty strict prefix of at least one known
-    /// token. Keys starting with `tail` sort adjacently, so the first
-    /// `range` entry decides — no full-map scan per holdback check.
-    fn is_proper_token_prefix(&self, tail: &[u8]) -> bool {
-        if tail.is_empty() {
-            return false;
-        }
-        let Ok(tail) = std::str::from_utf8(tail) else {
-            return false;
+/// Earliest index at which the pending tail is a proper prefix of a known
+/// token; bytes before it can never complete a token and may be emitted.
+/// Scans `__PKV_` occurrences left to right: complete token matches advance
+/// the resolved boundary so a token's own `__` terminator is not mistaken
+/// for the start of the next token.
+fn holdback_index(pending: &[u8], map: &RehydrationMap) -> usize {
+    let len = pending.len();
+    let mut resolved_end = 0usize;
+    let mut scan = 0usize;
+    while scan < len {
+        let Some(offset) = find_subslice(&pending[scan..], TOKEN_PREFIX.as_bytes()) else {
+            break;
         };
-        self.map
-            .token_to_fragment
-            .range::<str, _>((Bound::Included(tail), Bound::Unbounded))
-            .next()
-            .is_some_and(|(token, _)| token.len() > tail.len() && token.starts_with(tail))
+        let pos = scan + offset;
+        if let Some((token, _)) = map.longest_match_at(&pending[pos..]) {
+            resolved_end = pos + token.len();
+            scan = resolved_end;
+            continue;
+        }
+        if is_proper_token_prefix(&pending[pos..], map) {
+            return pos;
+        }
+        // Literal marker text: resume one byte later so an overlapping
+        // `__PKV_` occurrence is still discovered.
+        scan = pos + 1;
     }
+
+    // Tails shorter than `__PKV_` cannot be found by the scan above but may
+    // still grow into a token (e.g. a chunk ending in `__`). They are only
+    // considered beyond the last resolved token boundary.
+    let tail_start = len.saturating_sub(TOKEN_PREFIX.len() - 1).max(resolved_end);
+    for idx in tail_start..len {
+        if is_proper_token_prefix(&pending[idx..], map) {
+            return idx;
+        }
+    }
+    len
 }
 
-impl fmt::Debug for StreamRehydrator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StreamRehydrator")
-            .field("pending_bytes", &self.pending.len())
-            .field("map", &self.map)
-            .finish()
+/// Whether `tail` is a non-empty strict prefix of at least one known
+/// token. Keys starting with `tail` sort adjacently, so the first
+/// `range` entry decides — no full-map scan per holdback check.
+fn is_proper_token_prefix(tail: &[u8], map: &RehydrationMap) -> bool {
+    if tail.is_empty() {
+        return false;
     }
+    let Ok(tail) = std::str::from_utf8(tail) else {
+        return false;
+    };
+    map.token_to_fragment
+        .range::<str, _>((Bound::Included(tail), Bound::Unbounded))
+        .next()
+        .is_some_and(|(token, _)| token.len() > tail.len() && token.starts_with(tail))
 }
 
 fn rehydrate_bytes(data: &[u8], map: &RehydrationMap) -> (Vec<u8>, RehydrateReport) {
@@ -352,6 +294,39 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
+fn hex_encode(bytes: &[u8]) -> String {
+    use fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// Deterministic `_c<8hex>` suffix material for collision `level` (1-based):
+/// digest bytes [6..10] for level 1, then [10..14], and so on through the
+/// six-group runway; beyond that the chain is extended by chained HMAC over
+/// `fragment#pkv-collision-<level>`. Because every suffix derives from the
+/// fragment's own keyed digest, the escalation sequence never depends on
+/// request content or mint ordering.
+fn collision_suffix(
+    deriver: &TokenDeriver,
+    fragment: &str,
+    digest: &[u8; 32],
+    level: u32,
+) -> String {
+    // The base token consumes digest[..12]; the runway offers five 4-byte
+    // groups before chained HMAC material takes over.
+    const RUNWAY_LEVELS: u32 = 5;
+    if level <= RUNWAY_LEVELS {
+        let start = 12 + 4 * (level as usize - 1);
+        return hex_encode(&digest[start..start + 4]);
+    }
+    let extended =
+        hmac_sha256(&deriver.key, format!("{fragment}#pkv-collision-{level}").as_bytes());
+    hex_encode(&extended[..4])
+}
+
 /// HMAC-SHA256 per RFC 2104 over the workspace `sha2` dependency; kept local
 /// to avoid pulling an extra crypto crate for a single construction.
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
@@ -381,7 +356,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        rehydrate_text, rehydrate_value, RehydrationMap, StreamRehydrator, TokenDeriver,
+        hex_encode, rehydrate_text, rehydrate_value, RehydrationMap, SseStreamRehydrator,
+        TokenDeriver, TOKEN_BASE_LEN, TOKEN_PREFIX, TOKEN_SUFFIX,
     };
 
     fn deriver() -> TokenDeriver {
@@ -396,11 +372,16 @@ mod tests {
         map
     }
 
+    fn base_of(deriver: &TokenDeriver, fragment: &str) -> String {
+        let digest = deriver.digest_for(fragment);
+        format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&digest[..6]))
+    }
+
     #[test]
     fn token_is_deterministic_and_identifier_safe() {
         let deriver = deriver();
-        let first = deriver.base_token("acme-corp");
-        let second = deriver.base_token("acme-corp");
+        let first = base_of(&deriver, "acme-corp");
+        let second = base_of(&deriver, "acme-corp");
 
         assert_eq!(first, second);
         assert!(first.starts_with("__PKV_"));
@@ -410,8 +391,8 @@ mod tests {
 
     #[test]
     fn different_keys_yield_different_tokens() {
-        let left = TokenDeriver::new(b"key-one").base_token("acme-corp");
-        let right = TokenDeriver::new(b"key-two").base_token("acme-corp");
+        let left = base_of(&TokenDeriver::new(b"key-one"), "acme-corp");
+        let right = base_of(&TokenDeriver::new(b"key-two"), "acme-corp");
         assert_ne!(left, right);
     }
 
@@ -458,14 +439,78 @@ mod tests {
     fn rehydrate_text_leaves_unknown_tokens_untouched() {
         let deriver = deriver();
         let map = map_with(&deriver, &["acme-corp"]);
-        let (restored, report) =
-            rehydrate_text("literal __PKV_ffffffffffff__ here", &map);
-        assert_eq!(restored, "literal __PKV_ffffffffffff__ here");
+        let foreign = "literal __PKV_ffffffffffffffffffffffff__ here";
+        let (restored, report) = rehydrate_text(foreign, &map);
+        assert_eq!(restored, foreign);
         assert_eq!(report.restored, 0);
         // Well-formed but foreign token markers are counted as unrestored:
         // the LLM-mutated/unknown marker remains visible to the client and
         // the counter feeds audit/metrics observability.
         assert_eq!(report.unrestored, 1);
+    }
+
+    #[test]
+    fn token_format_is_a_24_hex_digit_identifier_fragment() {
+        let deriver = deriver();
+        let mut map = RehydrationMap::new();
+        let token = map.token_for(&deriver, "acme-corp");
+        assert!(token.starts_with("__PKV_") && token.ends_with("__"));
+        assert_eq!(token.len(), TOKEN_BASE_LEN + TOKEN_SUFFIX.len());
+        assert!(token[TOKEN_PREFIX.len()..token.len() - TOKEN_SUFFIX.len()]
+            .chars()
+            .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn collision_suffix_assignment_is_deterministic_across_insertion_order() {
+        let deriver = deriver();
+        let fragment = "collision-victim";
+
+        // The base slot a fragment maps to is a pure function of its digest.
+        let digest = deriver.digest_for(fragment);
+        let base = format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&digest[..12]));
+        let suffix_l1 = hex_encode(&digest[12..16]);
+        let suffixed =
+            format!("{}_c{suffix_l1}{TOKEN_SUFFIX}", &base[..base.len() - TOKEN_SUFFIX.len()]);
+
+        // Map A: base slot occupied first → the victim escalates to _c<hex>.
+        let mut map_a = RehydrationMap::new();
+        map_a.token_to_fragment.insert(base.clone(), "occupant".to_string());
+        map_a.fragment_to_token.insert("occupant".to_string(), base.clone());
+        let token_a = map_a.token_for(&deriver, fragment);
+        assert_eq!(token_a, suffixed);
+
+        // Map B built in a different order must land on the identical suffix:
+        // the escalation material derives from the fragment's digest, not from
+        // a per-request counter.
+        let mut map_b = RehydrationMap::new();
+        map_b.token_to_fragment.insert(base.clone(), "occupant".to_string());
+        map_b.fragment_to_token.insert("occupant".to_string(), base.clone());
+        let token_b = map_b.token_for(&deriver, fragment);
+        assert_eq!(token_a, token_b);
+
+        // Base tokens restore to the occupant, suffixed tokens to the victim —
+        // ambiguity is impossible within one map.
+        let (restored, _) = rehydrate_text(&format!("{token_a} {base}"), &map_a);
+        assert_eq!(restored, "collision-victim occupant");
+    }
+
+    #[test]
+    fn token_minting_is_order_independent_for_unrelated_fragments() {
+        // FR-002: a fragment must receive the same token no matter which other
+        // fragments were minted before it in the request.
+        let deriver = deriver();
+        let mut forward = RehydrationMap::new();
+        forward.token_for(&deriver, "alpha");
+        forward.token_for(&deriver, "beta");
+        let target_first_order = forward.token_for(&deriver, "target-fragment");
+
+        let mut reverse = RehydrationMap::new();
+        let target_last_order = reverse.token_for(&deriver, "target-fragment");
+        reverse.token_for(&deriver, "beta");
+        reverse.token_for(&deriver, "alpha");
+
+        assert_eq!(target_first_order, target_last_order);
     }
 
     #[test]
@@ -487,17 +532,19 @@ mod tests {
     }
 
     #[test]
-    fn stream_rehydrator_restores_token_split_across_chunks() {
+    fn sse_stream_rehydrator_restores_token_split_across_chunks() {
         let deriver = deriver();
         let map = map_with(&deriver, &["acme-corp"]);
         let token = map.token_to_fragment.keys().next().expect("token exists").clone();
         let split = token.len() / 2;
 
-        let mut rehydrator = StreamRehydrator::new(map);
+        let mut rehydrator = SseStreamRehydrator::new(map);
         let mut emitted = Vec::new();
         emitted.extend(rehydrator.feed(b"data: \"use "));
         emitted.extend(rehydrator.feed(&token.as_bytes()[..split]));
         emitted.extend(rehydrator.feed(&token.as_bytes()[split..]));
+        // The event is not terminated yet: nothing must be emitted early.
+        assert!(emitted.is_empty());
         emitted.extend(rehydrator.feed(b"::init\"\n\n"));
         emitted.extend(rehydrator.finish());
 
@@ -506,19 +553,21 @@ mod tests {
     }
 
     #[test]
-    fn stream_rehydrator_flushes_unterminated_prefix_verbatim() {
+    fn sse_stream_rehydrator_flushes_unterminated_prefix_verbatim() {
         let deriver = deriver();
         let map = map_with(&deriver, &["acme-corp"]);
-        let mut rehydrator = StreamRehydrator::new(map);
-        let mut emitted = rehydrator.feed(b"tail __PKV_fff");
-        emitted.extend(rehydrator.finish());
+        let mut rehydrator = SseStreamRehydrator::new(map);
+        // No event terminator: bytes stay buffered and flush verbatim at end.
+        assert!(rehydrator.feed(b"tail __PKV_fff").is_empty());
+        let emitted = rehydrator.finish();
         assert_eq!(emitted, b"tail __PKV_fff".to_vec());
+        assert_eq!(rehydrator.report().unrestored, 1);
     }
 
     #[test]
-    fn stream_rehydrator_empty_map_passthrough() {
-        let mut rehydrator = StreamRehydrator::new(RehydrationMap::new());
-        assert_eq!(rehydrator.feed(b"abc"), b"abc".to_vec());
+    fn sse_stream_rehydrator_empty_map_passthrough() {
+        let mut rehydrator = SseStreamRehydrator::new(RehydrationMap::new());
+        assert_eq!(rehydrator.feed(b"abc\n\n"), b"abc\n\n".to_vec());
         assert!(rehydrator.finish().is_empty());
     }
 
@@ -563,10 +612,8 @@ mod tests {
         // fragments; per-occurrence lookups must stay near-logarithmic.
         let deriver = deriver();
         let mut map = RehydrationMap::new();
-        let fragments: Vec<String> =
-            (0..500).map(|idx| format!("fragment-{idx:04}")).collect();
-        let tokens: Vec<String> =
-            fragments.iter().map(|f| map.token_for(&deriver, f)).collect();
+        let fragments: Vec<String> = (0..500).map(|idx| format!("fragment-{idx:04}")).collect();
+        let tokens: Vec<String> = fragments.iter().map(|f| map.token_for(&deriver, f)).collect();
 
         let mut body = String::with_capacity(1 << 20);
         while body.len() < (1 << 20) {
