@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Gate: the release checklist requires `cargo test` to pass on the
+  # release commit before any artifact is published.
+  verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+  # Static onnxruntime link keeps the binary self-contained; `--features ner`
+  # only enables the lazy init path, so parity with the Docker image is free.
+  binaries:
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - name: linux-aarch64
+            os: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            cross: true
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: macos-aarch64
+            os: macos-15
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install aarch64 cross toolchain
+        if: matrix.cross == true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-aarch64-linux-gnu
+      - name: Build pokrov-runtime
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+        run: cargo build --locked --release -p pokrov-runtime --features ner --target ${{ matrix.target }}
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg="pokrov-runtime-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "dist/$pkg"
+          cp "target/${{ matrix.target }}/release/pokrov-runtime" "dist/$pkg/"
+          cp config/pokrov.example.yaml "dist/$pkg/pokrov.example.yaml"
+          tar -C dist -czf "dist/$pkg.tar.gz" "$pkg"
+          if command -v sha256sum >/dev/null; then
+            (cd dist && sha256sum "$pkg.tar.gz" > "$pkg.tar.gz.sha256")
+          else
+            (cd dist && shasum -a 256 "$pkg.tar.gz" > "$pkg.tar.gz.sha256")
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.name }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  # Pushes ghcr.io/<owner>/pokrov:<semver> and :latest; multi-arch build runs
+  # the NER model download under QEMU for arm64, so this job is the slow one.
+  docker:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    needs: binaries
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: dist
+          merge-multiple: true
+      - name: Generate release evidence scaffold
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rt
+          tar -xzf "dist/pokrov-runtime-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz" -C /tmp/rt
+          artifacts=(dist/*.tar.gz)
+          cmd=(/tmp/rt/*/pokrov-runtime --release-evidence-output dist/release-evidence.json --release-id "$GITHUB_REF_NAME")
+          for f in "${artifacts[@]}"; do cmd+=(--artifact "$f"); done
+          "${cmd[@]}"
+          cat dist/release-evidence.json | head -20
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME" dist/*
