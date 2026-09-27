@@ -506,6 +506,30 @@ mod tests {
     }
 
     #[test]
+    fn converter_emits_event_with_terminator_split_at_any_point() {
+        // Same incremental-cursor guarantee as the rehydrator: every split
+        // position of the terminator still converts on `feed`, not at EOF.
+        for terminator in ["\r\n\r\n", "\r\r", "\n\n"] {
+            let event = format!(
+                "{delta}{terminator}",
+                delta = r#"data: {"choices":[{"delta":{"content":"hi"}}]}"#
+            );
+            for split in 0..=terminator.len() {
+                let (head, tail) = event.split_at(event.len() - terminator.len() + split);
+                let mut converter = ResponsesChunkConverter::new("req-split-ok");
+                let mut out = converter.feed(head.as_bytes());
+                out.extend(converter.feed(tail.as_bytes()));
+                let text = String::from_utf8(out).expect("converted output should be utf-8");
+                assert!(
+                    text.contains("\"type\":\"response.output_text.delta\""),
+                    "terminator {terminator:?} split at {split}: {text}"
+                );
+                converter.finish();
+            }
+        }
+    }
+
+    #[test]
     fn converter_flushes_pending_tail_at_stream_end() {
         let mut converter = ResponsesChunkConverter::new("req-4");
         // Upstream dies mid-event: the partial bytes must not be dropped.

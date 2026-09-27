@@ -874,12 +874,14 @@ mod tests {
                 let mut rehydrator = SseStreamRehydrator::new(map.clone());
                 let mut out = rehydrator.feed(head.as_bytes());
                 out.extend(rehydrator.feed(tail.as_bytes()));
-                out.extend(rehydrator.finish());
+                // The event must be emitted by `feed` as soon as the
+                // terminator completes — not delayed to `finish` at EOF.
                 let text = String::from_utf8(out).unwrap();
                 assert!(
                     text.contains("acme-corp"),
                     "terminator {terminator:?} split at {split}: {text}"
                 );
+                rehydrator.finish();
             }
         }
     }
