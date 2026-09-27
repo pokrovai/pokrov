@@ -163,9 +163,7 @@ impl SecretRef {
     /// or filesystem. Returns `None` when the source is missing or empty.
     pub fn resolve(&self) -> Option<String> {
         match self {
-            Self::Env(name) => {
-                std::env::var(name).ok().filter(|value| !value.trim().is_empty())
-            }
+            Self::Env(name) => std::env::var(name).ok().filter(|value| !value.trim().is_empty()),
             Self::File(path) => std::fs::read_to_string(path)
                 .ok()
                 .map(|content| content.trim().to_string())

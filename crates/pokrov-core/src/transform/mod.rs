@@ -55,10 +55,7 @@ pub fn apply_transforms(
         transform_metadata: if transformed_fields_count == 0 {
             vec!["pass_through".to_string()]
         } else if tokenized {
-            vec![
-                "json_string_leaf_mutation".to_string(),
-                "reversible_tokenization".to_string(),
-            ]
+            vec!["json_string_leaf_mutation".to_string(), "reversible_tokenization".to_string()]
         } else {
             vec!["json_string_leaf_mutation".to_string()]
         },

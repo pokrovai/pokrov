@@ -56,7 +56,7 @@ pub fn foundation_engine() -> SanitizationEngine {
         rehydration_key: None,
         profiles,
     })
-        .expect("foundation engine should build")
+    .expect("foundation engine should build")
 }
 
 pub fn foundation_payload() -> Value {
