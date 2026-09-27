@@ -13,8 +13,8 @@ use crate::{
     audit::LLMAuditEvent,
     errors::LLMProxyError,
     stream::{
-        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse,
-        rehydrate_sse_stream, sanitize_sse_stream,
+        convert_chat_sse_to_responses_sse, rehydrate_sse_stream, sanitize_sse_stream,
+        ResponsesChunkConverter,
     },
     types::{
         LLMProxyBody, LLMProxyResponse, RouteResolution, SseBodyStream, UpstreamCredentialOrigin,
@@ -243,8 +243,6 @@ impl LLMProxyHandler {
         }
 
         if endpoint == RESPONSES_ENDPOINT {
-            let mut pending_bytes = Vec::new();
-            let request_id_for_stream = request_id.clone();
             let restored_stream = self.rehydrating_byte_stream(
                 upstream_body.bytes_stream().boxed(),
                 rehydration_map,
@@ -264,26 +262,13 @@ impl LLMProxyHandler {
                     tokenized_spans_total,
                 ),
             );
-            let converted_stream = restored_stream
-                .map(move |chunk_result| match chunk_result {
-                    Ok(chunk) => Ok(bytes::Bytes::from(convert_chat_sse_chunk_to_responses_chunk(
-                        request_id_for_stream.as_str(),
-                        &mut pending_bytes,
-                        chunk.as_ref(),
-                    ))),
-                    Err(error) => Err(error),
-                })
-                .filter_map(|item| async move {
-                    match item {
-                        Ok(chunk) if chunk.is_empty() => None,
-                        other => Some(other),
-                    }
-                });
+            let converted_stream =
+                converting_responses_stream(restored_stream, request_id.clone());
 
             return Ok(LLMProxyResponse {
                 request_id,
                 status,
-                body: LLMProxyBody::SseStream(Box::pin(converted_stream)),
+                body: LLMProxyBody::SseStream(converted_stream),
             });
         }
 
@@ -428,9 +413,9 @@ impl LLMProxyHandler {
                         Some((Ok(bytes::Bytes::from(emitted)), state))
                     }
                     Some(Err(error)) => {
-                        // Bytes already buffered from upstream must reach the
-                        // client verbatim before the error propagates.
-                        let tail = state.rehydrator.drain_raw();
+                        // Buffered bytes and pending token-prefix carries must
+                        // reach the client before the error propagates.
+                        let tail = state.rehydrator.drain();
                         state.report();
                         if tail.is_empty() {
                             state.audit.emit();
@@ -525,6 +510,69 @@ impl Drop for StreamAuditContext {
     fn drop(&mut self) {
         self.emit();
     }
+}
+
+/// Wraps the rehydrated chat-SSE stream with conversion to `/v1/responses`
+/// event shape. The converter's pending tail is flushed on end of stream and
+/// ahead of a forwarded error so already-received bytes never vanish.
+fn converting_responses_stream(stream: SseBodyStream, request_id: String) -> SseBodyStream {
+    struct State {
+        stream: SseBodyStream,
+        converter: ResponsesChunkConverter,
+        pending_error: Option<reqwest::Error>,
+        done: bool,
+    }
+
+    futures_util::stream::unfold(
+        State {
+            stream,
+            converter: ResponsesChunkConverter::new(&request_id),
+            pending_error: None,
+            done: false,
+        },
+        |mut state| async move {
+            if let Some(error) = state.pending_error.take() {
+                // Brief yield so the transport can flush the converter tail
+                // before the error aborts the connection.
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                return Some((Err(error), state));
+            }
+            if state.done {
+                return None;
+            }
+            match state.stream.next().await {
+                Some(Ok(chunk)) => {
+                    let converted = state.converter.feed(&chunk);
+                    Some((Ok(bytes::Bytes::from(converted)), state))
+                }
+                Some(Err(error)) => {
+                    let tail = state.converter.finish();
+                    if tail.is_empty() {
+                        Some((Err(error), state))
+                    } else {
+                        state.pending_error = Some(error);
+                        Some((Ok(bytes::Bytes::from(tail)), state))
+                    }
+                }
+                None => {
+                    let tail = state.converter.finish();
+                    if tail.is_empty() {
+                        None
+                    } else {
+                        state.done = true;
+                        Some((Ok(bytes::Bytes::from(tail)), state))
+                    }
+                }
+            }
+        },
+    )
+    .filter(|item| {
+        std::future::ready(match item {
+            Ok(bytes) => !bytes.is_empty(),
+            Err(_) => true,
+        })
+    })
+    .boxed()
 }
 
 async fn read_stream_body_with_limit(

@@ -61,12 +61,17 @@ impl McpProxyHandler {
         let started = Instant::now();
         self.metrics.on_mcp_tool_call();
 
+        // Counters accumulate inside the call so the terminal audit event
+        // reports real tokenization totals even when the call fails midway
+        // (e.g. upstream error after arguments were already tokenized).
+        let mut counters = CallCounters::default();
         let result = self
             .handle_tool_call_inner(
                 request_id.clone(),
                 request.clone(),
                 api_key_profile,
                 upstream_credential,
+                &mut counters,
             )
             .await;
 
@@ -84,9 +89,9 @@ impl McpProxyHandler {
                     started.elapsed().as_millis() as u64,
                     auth_mode,
                     if upstream_credential.is_some() { "request" } else { "config" },
-                    outcome.tokenized_spans_total,
-                    outcome.rehydrated_tokens_total,
-                    outcome.unrestored_tokens_total,
+                    counters.tokenized_spans_total,
+                    counters.rehydrated_tokens_total,
+                    counters.unrestored_tokens_total,
                 );
             }
             Err(error) => {
@@ -107,9 +112,9 @@ impl McpProxyHandler {
                     started.elapsed().as_millis() as u64,
                     auth_mode,
                     if upstream_credential.is_some() { "request" } else { "config" },
-                    0,
-                    0,
-                    0,
+                    counters.tokenized_spans_total,
+                    counters.rehydrated_tokens_total,
+                    counters.unrestored_tokens_total,
                 );
             }
         }
@@ -123,6 +128,7 @@ impl McpProxyHandler {
         request: McpToolCallRequest,
         api_key_profile: &str,
         upstream_credential: Option<&str>,
+        counters: &mut CallCounters,
     ) -> Result<ToolCallOutcome, McpProxyError> {
         validate_request_shape(&request_id, &request)?;
         guard_pilot_subset(&request_id, &request)?;
@@ -186,6 +192,7 @@ impl McpProxyHandler {
                         )
                     })?;
                 args_map = outcome.rehydration;
+                counters.tokenized_spans_total = args_map.spans_total();
                 let args_eval = outcome.result;
 
                 self.metrics.on_rule_hits(args_eval.decision.rule_hits_total);
@@ -241,6 +248,8 @@ impl McpProxyHandler {
         // resolve back, while secrets first observed in tool output stay
         // governed by the (destructive) output policy.
         let (restored_output, report) = rehydrate_value(sanitization.safe_output, &args_map);
+        counters.rehydrated_tokens_total = report.restored;
+        counters.unrestored_tokens_total = report.unrestored;
         if report.restored > 0 {
             self.metrics.on_rehydrated_tokens(report.restored);
         }
@@ -263,9 +272,6 @@ impl McpProxyHandler {
                     tool: request.tool,
                 },
             },
-            tokenized_spans_total: args_map.spans_total(),
-            rehydrated_tokens_total: report.restored,
-            unrestored_tokens_total: report.unrestored,
         })
     }
 
@@ -377,13 +383,19 @@ impl McpProxyHandler {
     }
 }
 
-/// Internal per-call counters carried to the audit emission site; the
-/// rehydration map itself never leaves `handle_tool_call_inner`.
-struct ToolCallOutcome {
-    response: McpToolCallResponse,
+/// Internal per-call counters accumulated during `handle_tool_call_inner`
+/// so the terminal audit event reports real tokenization totals on both the
+/// success and the error path; the rehydration map itself never leaves the
+/// handler.
+#[derive(Default)]
+struct CallCounters {
     tokenized_spans_total: u32,
     rehydrated_tokens_total: u32,
     unrestored_tokens_total: u32,
+}
+
+struct ToolCallOutcome {
+    response: McpToolCallResponse,
 }
 
 fn resolve_profile_id<'a>(requested: Option<&'a str>, fallback: &'a str) -> &'a str {

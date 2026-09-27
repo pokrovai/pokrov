@@ -290,6 +290,128 @@ async fn llm_sse_passthrough_restores_token_split_across_http_chunks() {
 }
 
 #[tokio::test]
+async fn llm_sse_passthrough_restores_crlf_terminated_events() {
+    let token = token_for(ORG_MARKER);
+    // CRLF framing: events must terminate on `\r\n\r\n`, not hang awaiting
+    // `\n\n` while the buffer grows.
+    let provider = start_mock_provider(MockProviderMode::Sse {
+        status: 200,
+        body: format!(
+            "data: {{\"id\":\"c1\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"use {token}::init\"}}}}]}}\r\n\r\ndata: [DONE]\r\n\r\n"
+        ),
+    })
+    .await;
+
+    let runtime_key_path = write_key_file("llm-test-key");
+    let provider_key_path = write_key_file("provider-test-key");
+    let rehydration_key_path = write_key_file(REHYDRATION_KEY);
+    let config_path = write_runtime_config(&llm_config(
+        &runtime_key_path,
+        &provider_key_path,
+        &rehydration_key_path,
+        &provider.base_url,
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .post(format!("{}/v1/chat/completions", handle.base_url()))
+        .header("authorization", "Bearer llm-test-key")
+        .json(&serde_json::json!({
+            "model": "gpt-4o-mini",
+            "stream": true,
+            "messages": [{
+                "role": "user",
+                "content": "refactor acme-corp-utils crate"
+            }],
+            "metadata": {"profile": "custom"}
+        }))
+        .send()
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.expect("stream body expected");
+    assert!(body.contains(ORG_MARKER), "CRLF-framed stream must restore originals");
+    assert!(!body.contains("__PKV_"), "client must not see raw tokens");
+
+    handle.shutdown().await.expect("shutdown should succeed");
+    provider.shutdown().await;
+}
+
+#[tokio::test]
+async fn llm_sse_passthrough_restores_tokens_split_per_choice_index() {
+    let token = token_for(ORG_MARKER);
+    // Two interleaved choices (n=2), each splitting its token across delta
+    // events: carries must stay isolated per `choices[].index`.
+    let (head, tail) = token.split_at(token.len() / 2);
+    let provider = start_mock_provider(MockProviderMode::Sse {
+        status: 200,
+        body: format!(
+            concat!(
+                "data: {{\"id\":\"c1\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"{head}\"}}}}]}}\n\n",
+                "data: {{\"id\":\"c1\",\"choices\":[{{\"index\":1,\"delta\":{{\"content\":\"{head}\"}}}}]}}\n\n",
+                "data: {{\"id\":\"c1\",\"choices\":[{{\"index\":1,\"delta\":{{\"content\":\"{tail}\"}}}}]}}\n\n",
+                "data: {{\"id\":\"c1\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"{tail}\"}}}}]}}\n\n",
+                "data: [DONE]\n\n"
+            ),
+            head = head,
+            tail = tail,
+        ),
+    })
+    .await;
+
+    let runtime_key_path = write_key_file("llm-test-key");
+    let provider_key_path = write_key_file("provider-test-key");
+    let rehydration_key_path = write_key_file(REHYDRATION_KEY);
+    let config_path = write_runtime_config(&llm_config(
+        &runtime_key_path,
+        &provider_key_path,
+        &rehydration_key_path,
+        &provider.base_url,
+    ));
+
+    let handle = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
+        .await
+        .expect("runtime should start");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .post(format!("{}/v1/chat/completions", handle.base_url()))
+        .header("authorization", "Bearer llm-test-key")
+        .json(&serde_json::json!({
+            "model": "gpt-4o-mini",
+            "stream": true,
+            "messages": [{
+                "role": "user",
+                "content": "refactor acme-corp-utils crate"
+            }],
+            "metadata": {"profile": "custom"}
+        }))
+        .send()
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.expect("stream body expected");
+    // Both choice streams must restore their own copies of the fragment.
+    assert_eq!(body.matches(ORG_MARKER).count(), 2, "each index restores independently");
+    assert!(!body.contains("__PKV_"), "client must not see raw tokens");
+
+    handle.shutdown().await.expect("shutdown should succeed");
+    provider.shutdown().await;
+}
+
+#[tokio::test]
 async fn llm_sse_buffered_path_restores_tokens_after_output_policy() {
     let token = token_for(ORG_MARKER);
     let provider = start_mock_provider(MockProviderMode::Sse {

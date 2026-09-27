@@ -1,5 +1,5 @@
 use pokrov_core::{
-    rehydrate::{EventRehydrator, RehydrateReport, RehydrationMap},
+    rehydrate::{event_boundary_end, EventRehydrator, RehydrateReport, RehydrationMap},
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
 };
@@ -120,11 +120,9 @@ pub fn rehydrate_sse_stream(raw_body: &str, map: &RehydrationMap) -> (String, Re
         }
         events.push(rehydrator.rehydrate_event(event));
     }
-    // A stream that ended mid-token still flushes the pending carry as a
-    // synthetic delta event rather than dropping upstream bytes.
-    if let Some(flush) = rehydrator.finish() {
-        events.push(flush);
-    }
+    // A stream that ended mid-token still flushes pending carries as
+    // synthetic delta events rather than dropping upstream bytes.
+    events.extend(rehydrator.finish());
 
     let mut body = events.join("\n\n");
     if !body.is_empty() {
@@ -192,31 +190,55 @@ pub fn convert_chat_sse_to_responses_sse(
     Ok(body)
 }
 
-pub fn convert_chat_sse_chunk_to_responses_chunk(
-    request_id: &str,
-    pending_bytes: &mut Vec<u8>,
-    incoming_chunk: &[u8],
-) -> Vec<u8> {
-    pending_bytes.extend_from_slice(incoming_chunk);
-    let mut converted = String::new();
-
-    while let Some(separator_index) = find_double_newline(pending_bytes.as_slice()) {
-        let event_bytes: Vec<u8> = pending_bytes.drain(..separator_index).collect();
-        pending_bytes.drain(..2);
-        let event = String::from_utf8_lossy(event_bytes.as_slice());
-        let converted_event = convert_single_chat_sse_event(request_id, &event);
-        if converted_event.is_empty() {
-            continue;
-        }
-        converted.push_str(&converted_event);
-        converted.push_str("\n\n");
-    }
-
-    converted.into_bytes()
+/// Incremental chat-SSE → responses-SSE converter for the passthrough path.
+/// Upstream bytes accumulate until a blank-line terminator completes an
+/// event (LF/CRLF/CR endings alike, shared with the rehydrator's scanner).
+/// `finish` pushes the pending tail through conversion at end of stream or
+/// ahead of a forwarded error so already-received bytes are never dropped.
+pub struct ResponsesChunkConverter {
+    request_id: String,
+    pending_bytes: Vec<u8>,
 }
 
-fn find_double_newline(bytes: &[u8]) -> Option<usize> {
-    bytes.windows(2).position(|window| window == b"\n\n")
+impl ResponsesChunkConverter {
+    pub fn new(request_id: &str) -> Self {
+        Self { request_id: request_id.to_string(), pending_bytes: Vec::new() }
+    }
+
+    /// Converts every complete buffered event; returns bytes safe to emit.
+    pub fn feed(&mut self, incoming_chunk: &[u8]) -> Vec<u8> {
+        self.pending_bytes.extend_from_slice(incoming_chunk);
+        let mut converted = String::new();
+
+        while let Some(end) = event_boundary_end(&self.pending_bytes) {
+            let event_bytes: Vec<u8> = self.pending_bytes.drain(..end).collect();
+            let event = String::from_utf8_lossy(event_bytes.as_slice());
+            let converted_event = convert_single_chat_sse_event(&self.request_id, &event);
+            if converted_event.is_empty() {
+                continue;
+            }
+            converted.push_str(&converted_event);
+            converted.push_str("\n\n");
+        }
+
+        converted.into_bytes()
+    }
+
+    /// Flushes the pending tail: a complete trailing event still converts,
+    /// malformed leftovers pass through verbatim inside the event frame.
+    pub fn finish(&mut self) -> Vec<u8> {
+        if self.pending_bytes.is_empty() {
+            return Vec::new();
+        }
+        let tail: Vec<u8> = self.pending_bytes.drain(..).collect();
+        let event = String::from_utf8_lossy(tail.as_slice());
+        let converted = convert_single_chat_sse_event(&self.request_id, &event);
+        let mut out = converted.into_bytes();
+        if !out.is_empty() {
+            out.extend_from_slice(b"\n\n");
+        }
+        out
+    }
 }
 
 fn convert_single_chat_sse_event(request_id: &str, event: &str) -> String {
@@ -286,8 +308,7 @@ mod tests {
     };
 
     use super::{
-        convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse,
-        sanitize_sse_stream,
+        convert_chat_sse_to_responses_sse, sanitize_sse_stream, ResponsesChunkConverter,
     };
 
     fn engine() -> SanitizationEngine {
@@ -368,25 +389,29 @@ mod tests {
 
     #[test]
     fn converts_responses_stream_chunk_by_chunk_across_boundaries() {
-        let mut pending = Vec::new();
-        let first = convert_chat_sse_chunk_to_responses_chunk(
-            "req-3",
-            &mut pending,
-            br#"data: {"choices":[{"delta":{"content":"he"}}]"#,
-        );
+        let mut converter = ResponsesChunkConverter::new("req-3");
+        let first =
+            converter.feed(br#"data: {"choices":[{"delta":{"content":"he"}}]"#);
         assert!(first.is_empty());
 
-        let second = convert_chat_sse_chunk_to_responses_chunk(
-            "req-3",
-            &mut pending,
-            b"}\n\ndata: [DONE]\n\n",
-        );
+        let second = converter.feed(b"}\n\ndata: [DONE]\n\n");
 
         let converted = String::from_utf8(second).expect("converted chunk should be utf-8");
         assert!(converted.contains("\"type\":\"response.output_text.delta\""));
         assert!(converted.contains("\"delta\":\"he\""));
         assert!(converted.contains("\"request_id\":\"req-3\""));
         assert!(converted.contains("data: [DONE]"));
-        assert!(pending.is_empty());
+        assert!(converter.finish().is_empty());
+    }
+
+    #[test]
+    fn converter_flushes_pending_tail_at_stream_end() {
+        let mut converter = ResponsesChunkConverter::new("req-4");
+        // Upstream dies mid-event: the partial bytes must not be dropped.
+        converter.feed(br#"data: {"choices":[{"delta":{"content":"trun"#);
+
+        let tail = converter.finish();
+        let text = String::from_utf8(tail).expect("tail should be utf-8");
+        assert!(text.contains("trun"), "tail must preserve received bytes: {text}");
     }
 }

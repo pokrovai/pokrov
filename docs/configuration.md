@@ -316,7 +316,7 @@ custom_rules:
 ### Reversible tokenization (`[PKV_TOKEN]`)
 
 Rules with `action: replace` and `replacement: "[PKV_TOKEN]"` substitute the
-matched fragment with a deterministic keyed pseudonym (`__PKV_<hex24>__`,
+matched fragment with a deterministic keyed pseudonym (`__PKV_<hex32>__`,
 optionally `_c<hex>` collision suffix) before the payload leaves for the LLM
 provider or MCP server. On the response path the proxy restores original
 values after output policy evaluation, on all LLM response shapes (JSON,
