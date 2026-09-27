@@ -18,6 +18,9 @@ pub struct RuntimeMetricsRegistry {
     rule_hits_total: AtomicU64,
     transformed_payloads_total: AtomicU64,
     blocked_evaluations_total: AtomicU64,
+    tokenized_spans_total: AtomicU64,
+    rehydrated_tokens_total: AtomicU64,
+    unrestored_tokens_total: AtomicU64,
     llm_action_allow_total: AtomicU64,
     llm_action_mask_total: AtomicU64,
     llm_action_replace_total: AtomicU64,
@@ -115,6 +118,9 @@ impl RuntimeMetricsRegistry {
             rule_hits_total: AtomicU64::new(0),
             transformed_payloads_total: AtomicU64::new(0),
             blocked_evaluations_total: AtomicU64::new(0),
+            tokenized_spans_total: AtomicU64::new(0),
+            rehydrated_tokens_total: AtomicU64::new(0),
+            unrestored_tokens_total: AtomicU64::new(0),
             llm_action_allow_total: AtomicU64::new(0),
             llm_action_mask_total: AtomicU64::new(0),
             llm_action_replace_total: AtomicU64::new(0),
@@ -164,6 +170,9 @@ impl RuntimeMetricsRegistry {
             rule_hits_total: self.rule_hits_total.load(Ordering::Relaxed),
             transformed_payloads_total: self.transformed_payloads_total.load(Ordering::Relaxed),
             blocked_evaluations_total: self.blocked_evaluations_total.load(Ordering::Relaxed),
+            tokenized_spans_total: self.tokenized_spans_total.load(Ordering::Relaxed),
+            rehydrated_tokens_total: self.rehydrated_tokens_total.load(Ordering::Relaxed),
+            unrestored_tokens_total: self.unrestored_tokens_total.load(Ordering::Relaxed),
             llm_action_allow_total: self.llm_action_allow_total.load(Ordering::Relaxed),
             llm_action_mask_total: self.llm_action_mask_total.load(Ordering::Relaxed),
             llm_action_replace_total: self.llm_action_replace_total.load(Ordering::Relaxed),
@@ -231,6 +240,18 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
 
     fn on_evaluation_blocked(&self) {
         self.blocked_evaluations_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn on_tokenized_spans(&self, count: u32) {
+        self.tokenized_spans_total.fetch_add(count as u64, Ordering::Relaxed);
+    }
+
+    fn on_rehydrated_tokens(&self, count: u32) {
+        self.rehydrated_tokens_total.fetch_add(count as u64, Ordering::Relaxed);
+    }
+
+    fn on_unrestored_tokens(&self, count: u32) {
+        self.unrestored_tokens_total.fetch_add(count as u64, Ordering::Relaxed);
     }
 
     fn on_llm_final_action(&self, action: PolicyAction) {
@@ -394,6 +415,9 @@ pub struct RuntimeMetricsSnapshot {
     pub rule_hits_total: u64,
     pub transformed_payloads_total: u64,
     pub blocked_evaluations_total: u64,
+    pub tokenized_spans_total: u64,
+    pub rehydrated_tokens_total: u64,
+    pub unrestored_tokens_total: u64,
     pub llm_action_allow_total: u64,
     pub llm_action_mask_total: u64,
     pub llm_action_replace_total: u64,

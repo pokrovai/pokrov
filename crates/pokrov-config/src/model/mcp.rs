@@ -15,6 +15,11 @@ pub struct McpDefaultsConfig {
     pub upstream_timeout_ms: u64,
     #[serde(default = "default_true")]
     pub output_sanitization: bool,
+    /// Enables sanitization of tool arguments before upstream dispatch.
+    /// Disabled by default: `[PKV_TOKEN]`-tokenized arguments reach tools
+    /// as pseudonyms and can break tools that consume values functionally.
+    #[serde(default)]
+    pub sanitize_arguments: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -41,6 +46,9 @@ pub struct McpToolPolicy {
     pub argument_constraints: ToolArgumentConstraints,
     #[serde(default)]
     pub output_sanitization: Option<bool>,
+    /// Per-tool override for `defaults.sanitize_arguments`.
+    #[serde(default)]
+    pub sanitize_arguments: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

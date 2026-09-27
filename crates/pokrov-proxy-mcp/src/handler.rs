@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use pokrov_config::model::McpConfig;
 use pokrov_core::{
+    rehydrate::{rehydrate_value, RehydrationMap},
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
 };
@@ -70,19 +71,22 @@ impl McpProxyHandler {
             .await;
 
         match &result {
-            Ok(response) => {
+            Ok(outcome) => {
                 self.emit_terminal_event(
                     &request_id,
                     &request.server,
                     &request.tool,
-                    &response.pokrov.profile,
-                    response.pokrov.action,
-                    response.pokrov.rule_hits,
+                    &outcome.response.pokrov.profile,
+                    outcome.response.pokrov.action,
+                    outcome.response.pokrov.rule_hits,
                     false,
                     Some(200),
                     started.elapsed().as_millis() as u64,
                     auth_mode,
                     if upstream_credential.is_some() { "request" } else { "config" },
+                    outcome.tokenized_spans_total,
+                    outcome.rehydrated_tokens_total,
+                    outcome.unrestored_tokens_total,
                 );
             }
             Err(error) => {
@@ -103,11 +107,14 @@ impl McpProxyHandler {
                     started.elapsed().as_millis() as u64,
                     auth_mode,
                     if upstream_credential.is_some() { "request" } else { "config" },
+                    0,
+                    0,
+                    0,
                 );
             }
         }
 
-        result
+        result.map(|outcome| outcome.response)
     }
 
     async fn handle_tool_call_inner(
@@ -116,7 +123,7 @@ impl McpProxyHandler {
         request: McpToolCallRequest,
         api_key_profile: &str,
         upstream_credential: Option<&str>,
-    ) -> Result<McpToolCallResponse, McpProxyError> {
+    ) -> Result<ToolCallOutcome, McpProxyError> {
         validate_request_shape(&request_id, &request)?;
         guard_pilot_subset(&request_id, &request)?;
 
@@ -141,11 +148,64 @@ impl McpProxyHandler {
             resolved.argument_policy.as_ref(),
         )?;
 
+        let mut arguments = request.arguments.clone();
+        let mut args_map = RehydrationMap::new();
+
+        // Argument sanitization is opt-in: tokenized arguments reach the
+        // upstream tool as pseudonyms, so operators enable it per tool/defaults.
+        if resolved.sanitize_arguments {
+            if let Some(evaluator) = self.evaluator.as_ref() {
+                let outcome = evaluator
+                    .evaluate_with_rehydration(EvaluateRequest {
+                        request_id: request_id.clone(),
+                        profile_id: profile_id.clone(),
+                        mode: EvaluationMode::Enforce,
+                        payload: request.arguments.clone(),
+                        path_class: PathClass::Mcp,
+                        effective_language: "en".to_string(),
+                        entity_scope_filters: Vec::new(),
+                        recognizer_family_filters: Vec::new(),
+                        allowlist_additions: Vec::new(),
+                    })
+                    .map_err(|error| {
+                        McpProxyError::upstream_error(
+                            &request_id,
+                            &request.server,
+                            &request.tool,
+                            format!("failed to evaluate MCP argument policy: {error}"),
+                        )
+                    })?;
+                args_map = outcome.rehydration;
+                let args_eval = outcome.result;
+
+                self.metrics.on_rule_hits(args_eval.decision.rule_hits_total);
+                self.metrics
+                    .on_payload_transformed(args_eval.transform.transformed_fields_count);
+                if args_map.spans_total() > 0 {
+                    self.metrics.on_tokenized_spans(args_map.spans_total());
+                }
+
+                if args_eval.transform.blocked {
+                    return Err(McpProxyError::tool_call_blocked(
+                        &request_id,
+                        &request.server,
+                        &request.tool,
+                        McpPolicyReason::ArgumentInvalid.as_str(),
+                        args_eval.decision.rule_hits_total.max(1),
+                    ));
+                }
+
+                if let Some(sanitized) = args_eval.transform.sanitized_payload {
+                    arguments = sanitized;
+                }
+            }
+        }
+
         let mut upstream_context = resolved.upstream.clone();
         upstream_context.upstream_bearer_token = upstream_credential.map(str::to_string);
 
         let mut result =
-            self.upstream.execute_tool_call(&upstream_context, &request.arguments).await?;
+            self.upstream.execute_tool_call(&upstream_context, &arguments).await?;
 
         let sanitization = self.sanitize_output(
             &request_id,
@@ -168,20 +228,37 @@ impl McpProxyHandler {
             ));
         }
 
-        result.content = sanitization.safe_output;
+        // Restoration runs strictly after output policy evaluation and only
+        // over the argument map: tokens minted from client-sent arguments
+        // resolve back, while secrets first observed in tool output stay
+        // governed by the (destructive) output policy.
+        let (restored_output, report) =
+            rehydrate_value(sanitization.safe_output, &args_map);
+        if report.restored > 0 {
+            self.metrics.on_rehydrated_tokens(report.restored);
+        }
+        if report.unrestored > 0 {
+            self.metrics.on_unrestored_tokens(report.unrestored);
+        }
+        result.content = restored_output;
 
-        Ok(McpToolCallResponse {
-            request_id,
-            allowed: true,
-            sanitized: sanitization.sanitized,
-            result,
-            pokrov: crate::types::McpResponseMetadata {
-                profile: profile_id,
-                action: sanitization.action,
-                rule_hits: sanitization.rule_hits_total,
-                server: request.server,
-                tool: request.tool,
+        Ok(ToolCallOutcome {
+            response: McpToolCallResponse {
+                request_id,
+                allowed: true,
+                sanitized: sanitization.sanitized,
+                result,
+                pokrov: crate::types::McpResponseMetadata {
+                    profile: profile_id,
+                    action: sanitization.action,
+                    rule_hits: sanitization.rule_hits_total,
+                    server: request.server,
+                    tool: request.tool,
+                },
             },
+            tokenized_spans_total: args_map.spans_total(),
+            rehydrated_tokens_total: report.restored,
+            unrestored_tokens_total: report.unrestored,
         })
     }
 
@@ -264,6 +341,9 @@ impl McpProxyHandler {
         duration_ms: u64,
         auth_mode: &'static str,
         credential_origin: &'static str,
+        tokenized_spans_total: u32,
+        rehydrated_tokens_total: u32,
+        unrestored_tokens_total: u32,
     ) {
         McpAuditEvent {
             request_id: request_id.to_string(),
@@ -277,6 +357,9 @@ impl McpProxyHandler {
             duration_ms,
             auth_mode,
             credential_origin,
+            tokenized_spans_total,
+            rehydrated_tokens_total,
+            unrestored_tokens_total,
         }
         .emit();
 
@@ -285,6 +368,15 @@ impl McpProxyHandler {
         }
         self.metrics.on_mcp_tool_call_duration_ms(duration_ms);
     }
+}
+
+/// Internal per-call counters carried to the audit emission site; the
+/// rehydration map itself never leaves `handle_tool_call_inner`.
+struct ToolCallOutcome {
+    response: McpToolCallResponse,
+    tokenized_spans_total: u32,
+    rehydrated_tokens_total: u32,
+    unrestored_tokens_total: u32,
 }
 
 fn resolve_profile_id<'a>(requested: Option<&'a str>, fallback: &'a str) -> &'a str {
@@ -367,6 +459,7 @@ mod tests {
                 profile_id: "strict".to_string(),
                 upstream_timeout_ms: 1000,
                 output_sanitization: true,
+                sanitize_arguments: false,
             },
             servers: vec![McpServerDefinition {
                 id: "repo-tools".to_string(),
@@ -381,6 +474,7 @@ mod tests {
                         argument_schema: None,
                         argument_constraints: ToolArgumentConstraints::default(),
                         output_sanitization: Some(true),
+                        sanitize_arguments: None,
                     },
                 )]),
             }],
@@ -388,6 +482,7 @@ mod tests {
 
         let evaluator = SanitizationEngine::new(EvaluatorConfig {
             default_profile: "strict".to_string(),
+            rehydration_key: None,
             profiles: BTreeMap::from([(
                 "strict".to_string(),
                 PolicyProfile {

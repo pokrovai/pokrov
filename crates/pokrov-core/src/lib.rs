@@ -9,6 +9,9 @@ use audit::{build_audit_summary, build_explain_summary};
 use detection::{compile_custom_rules, detect_payload, CompiledCustomRule};
 use dry_run::is_execution_enabled;
 use policy::{category_hit_counts, resolve_overlaps, select_final_action};
+use rehydrate::{
+    EvaluateOutcome, RehydrationContext, RehydrationMap, TokenDeriver, REVERSIBLE_TEMPLATE,
+};
 use transform::apply_transforms;
 
 use crate::types::{
@@ -22,6 +25,7 @@ pub mod audit;
 pub mod detection;
 pub mod dry_run;
 pub mod policy;
+pub mod rehydrate;
 pub mod transform;
 pub mod traversal;
 pub mod types;
@@ -51,6 +55,7 @@ struct EvaluationArtifacts {
     audit: crate::types::AuditSummary,
     executed: ExecutedSummary,
     degraded: DegradedSummary,
+    rehydration: RehydrationMap,
 }
 
 /// Evaluates sanitization requests against the configured policy profiles.
@@ -58,6 +63,7 @@ struct EvaluationArtifacts {
 pub struct SanitizationEngine {
     default_profile: String,
     profiles: Arc<BTreeMap<String, CompiledProfile>>,
+    token_deriver: Option<TokenDeriver>,
     #[cfg(feature = "ner")]
     ner: Option<Arc<NerAdapter>>,
     #[cfg(feature = "ner")]
@@ -76,7 +82,15 @@ pub struct SanitizationEngine {
 
 impl SanitizationEngine {
     /// Builds a sanitization engine from the static evaluator configuration.
+    /// Fails closed when a profile uses the `[PKV_TOKEN]` sentinel without
+    /// configured `rehydration_key` material.
     pub fn new(config: EvaluatorConfig) -> Result<Self, EvaluateError> {
+        let token_deriver = config
+            .rehydration_key
+            .as_deref()
+            .filter(|key| !key.is_empty())
+            .map(|key| TokenDeriver::new(key.as_bytes()));
+
         let mut profiles = BTreeMap::new();
 
         for (profile_id, profile) in config.profiles {
@@ -84,6 +98,18 @@ impl SanitizationEngine {
                 return Err(EvaluateError::InvalidProfile(format!(
                     "profile '{}' mask_visible_suffix must be <= 8",
                     profile_id
+                )));
+            }
+
+            if token_deriver.is_none()
+                && profile
+                    .custom_rules
+                    .iter()
+                    .any(|rule| rule.replacement_template.as_deref() == Some(REVERSIBLE_TEMPLATE))
+            {
+                return Err(EvaluateError::InvalidProfile(format!(
+                    "profile '{profile_id}' uses {REVERSIBLE_TEMPLATE} but sanitization.rehydration_key \
+                     is unset or could not be resolved (env:/file: secret ref required)"
                 )));
             }
 
@@ -101,6 +127,7 @@ impl SanitizationEngine {
         Ok(Self {
             default_profile: config.default_profile,
             profiles: Arc::new(profiles),
+            token_deriver,
             #[cfg(feature = "ner")]
             ner: None,
             #[cfg(feature = "ner")]
@@ -314,19 +341,33 @@ impl SanitizationEngine {
     }
 
     /// Evaluates one payload through the current sanitization pipeline.
+    /// The rehydration map produced by `[PKV_TOKEN]` rules is discarded;
+    /// use `evaluate_with_rehydration` on paths that restore responses.
     pub fn evaluate(&self, request: EvaluateRequest) -> Result<EvaluateResult, EvaluateError> {
+        self.evaluate_with_rehydration(request).map(|outcome| outcome.result)
+    }
+
+    /// Evaluates one payload and returns the result together with the
+    /// request-scoped rehydration map for response-side token restoration.
+    pub fn evaluate_with_rehydration(
+        &self,
+        request: EvaluateRequest,
+    ) -> Result<EvaluateOutcome, EvaluateError> {
         let artifacts = self.evaluate_internal(&request)?;
 
-        Ok(EvaluateResult {
-            request_id: request.request_id,
-            profile_id: artifacts.profile_id,
-            mode: request.mode,
-            decision: artifacts.decision,
-            transform: artifacts.transform,
-            explain: artifacts.explain,
-            audit: artifacts.audit,
-            executed: artifacts.executed,
-            degraded: artifacts.degraded,
+        Ok(EvaluateOutcome {
+            result: EvaluateResult {
+                request_id: request.request_id,
+                profile_id: artifacts.profile_id,
+                mode: request.mode,
+                decision: artifacts.decision,
+                transform: artifacts.transform,
+                explain: artifacts.explain,
+                audit: artifacts.audit,
+                executed: artifacts.executed,
+                degraded: artifacts.degraded,
+            },
+            rehydration: artifacts.rehydration,
         })
     }
 
@@ -481,11 +522,20 @@ impl SanitizationEngine {
             }
         }
 
+        let mut rehydration_map = RehydrationMap::new();
+        // Dry-run must not mint tokens: the map is per-request and is only
+        // consumed on real upstream round-trips.
+        let rehydration_context = self
+            .token_deriver
+            .as_ref()
+            .filter(|_| is_execution_enabled(request.mode))
+            .map(|deriver| RehydrationContext { deriver, map: &mut rehydration_map });
         let transform = apply_transforms(
             &request.payload,
             &resolved_spans,
             decision.final_action,
             compiled_profile.profile.mask_visible_suffix,
+            rehydration_context,
         );
         let executed = ExecutedSummary {
             execution_enabled: is_execution_enabled(request.mode),
@@ -542,6 +592,7 @@ impl SanitizationEngine {
             audit,
             executed,
             degraded,
+            rehydration: rehydration_map,
         })
     }
 }

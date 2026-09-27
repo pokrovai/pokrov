@@ -57,6 +57,9 @@ rate_limit:
 sanitization:
   enabled: true
   default_profile: strict
+  # Required only when a replace-rule uses replacement: "[PKV_TOKEN]".
+  # Missing key material plus a marker rule fails startup validation.
+  rehydration_key: env:POKROV_REHYDRATION_KEY
   profiles:
     minimal:
       mode_default: enforce
@@ -114,6 +117,15 @@ sanitization:
           action: redact
           priority: 900
           enabled: true
+        # Reversible tokenization: the org marker is replaced by a stable
+        # __PKV_<hex12>__ token upstream and restored in the client response.
+        # - id: custom.org_marker
+        #   category: corporate_markers
+        #   pattern: "(?i)acme-corp"
+        #   action: replace
+        #   replacement: "[PKV_TOKEN]"
+        #   priority: 900
+        #   enabled: true
 
 ner:
   enabled: true
@@ -176,6 +188,9 @@ mcp:
     profile_id: strict
     upstream_timeout_ms: 10000
     output_sanitization: true
+    # Off by default: sanitized arguments reach tools as values/tokens; enable
+    # per tool only when the tool tolerates pseudonym arguments.
+    sanitize_arguments: false
   servers:
     - id: repo-tools
       endpoint: http://repo-tools.internal

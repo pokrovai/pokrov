@@ -8,7 +8,7 @@ use pokrov_core::types::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::RuntimeConfig;
+use super::{RuntimeConfig, SecretRef};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SanitizationConfig {
@@ -16,6 +16,10 @@ pub struct SanitizationConfig {
     pub enabled: bool,
     #[serde(default = "default_profile_id")]
     pub default_profile: String,
+    /// Secret ref (`env:VAR` / `file:PATH`) for deterministic `[PKV_TOKEN]`
+    /// derivation. Required when any profile uses the reversible sentinel.
+    #[serde(default)]
+    pub rehydration_key: Option<String>,
     #[serde(default)]
     pub profiles: SanitizationProfiles,
 }
@@ -25,6 +29,7 @@ impl Default for SanitizationConfig {
         Self {
             enabled: true,
             default_profile: default_profile_id(),
+            rehydration_key: None,
             profiles: SanitizationProfiles::default(),
         }
     }
@@ -86,6 +91,10 @@ pub struct DeterministicRecognizerConfig {
     pub allowlist_exact: Vec<String>,
     #[serde(default)]
     pub context: Option<DeterministicContextConfig>,
+    /// Replacement template propagated to generated rules; required when
+    /// `action` is `replace`. `"[PKV_TOKEN]"` enables reversible tokens.
+    #[serde(default)]
+    pub replacement: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -163,6 +172,7 @@ impl RuntimeConfig {
     pub fn evaluator_config(&self) -> EvaluatorConfig {
         EvaluatorConfig {
             default_profile: self.sanitization.default_profile.clone(),
+            rehydration_key: self.resolve_rehydration_key(),
             profiles: BTreeMap::from([
                 (
                     "minimal".to_string(),
@@ -178,6 +188,13 @@ impl RuntimeConfig {
                 ),
             ]),
         }
+    }
+
+    /// Resolves `[PKV_TOKEN]` derivation key material from an env or file
+    /// secret reference. Returns `None` when unset or unresolvable; engine
+    /// construction fails closed if marker rules exist without a key.
+    fn resolve_rehydration_key(&self) -> Option<String> {
+        SecretRef::parse(self.sanitization.rehydration_key.as_deref()?)?.resolve()
     }
 }
 
@@ -243,7 +260,7 @@ fn deterministic_rules(profile: &SanitizationProfile) -> Vec<CustomRule> {
                 pattern: pattern.expression.clone(),
                 action: recognizer.action,
                 priority: recognizer.family_priority.saturating_add(pattern.base_score),
-                replacement_template: None,
+                replacement_template: recognizer.replacement.clone(),
                 enabled: recognizer.enabled,
                 deterministic: Some(DeterministicRuleMetadata {
                     recognizer_id: recognizer.id.clone(),
@@ -292,7 +309,7 @@ fn deterministic_rules(profile: &SanitizationProfile) -> Vec<CustomRule> {
                 pattern: format!(r"\A{escaped}\z"),
                 action: recognizer.action,
                 priority: recognizer.family_priority.saturating_add(1000),
-                replacement_template: None,
+                replacement_template: recognizer.replacement.clone(),
                 enabled: recognizer.enabled,
                 deterministic: Some(DeterministicRuleMetadata {
                     recognizer_id: recognizer.id.clone(),
@@ -547,6 +564,7 @@ sanitization:
                 denylist_exact: vec!["4111 1111 1111 1111".to_string()],
                 allowlist_exact: Vec::new(),
                 context: None,
+                replacement: None,
             }],
             allow_empty_matches: false,
             ner_enabled: false,
@@ -603,6 +621,7 @@ sanitization:
                     window: 16,
                     suppress_on_negative: true,
                 }),
+                replacement: None,
             }],
             allow_empty_matches: false,
             ner_enabled: false,

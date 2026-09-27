@@ -57,6 +57,8 @@ rate_limit:
 sanitization:
   enabled: true
   default_profile: strict
+  # Required only when a replace-rule uses replacement: "[PKV_TOKEN]".
+  rehydration_key: env:POKROV_REHYDRATION_KEY
   profiles:
     minimal:
       mode_default: enforce
@@ -194,6 +196,7 @@ mcp:
     profile_id: strict
     upstream_timeout_ms: 10000
     output_sanitization: true
+    sanitize_arguments: false
   servers:
     - id: repo-tools
       endpoint: http://repo-tools.internal

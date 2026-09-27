@@ -22,6 +22,14 @@ pub(super) struct TerminalEvent<'a> {
     pub(super) estimated_token_units: u32,
     pub(super) auth_mode: &'a str,
     pub(super) credential_origin: UpstreamCredentialOrigin,
+    /// Count of request spans replaced by `[PKV_TOKEN]` pseudonyms.
+    pub(super) tokenized_spans_total: u32,
+    /// Count of tokens restored on the response path (known only for
+    /// non-streaming and buffered-SSE responses; passthrough reports 0).
+    pub(super) rehydrated_tokens_total: u32,
+    /// Count of `__PKV_` markers left unrestored on the response path
+    /// (same visibility scope as `rehydrated_tokens_total`).
+    pub(super) unrestored_tokens_total: u32,
 }
 
 pub(super) struct ResponseMetadataContext<'a> {

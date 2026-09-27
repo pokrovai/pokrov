@@ -22,6 +22,12 @@ pub struct LLMAuditEvent {
     pub estimated_token_units: u32,
     pub auth_mode: String,
     pub credential_origin: UpstreamCredentialOrigin,
+    /// Metadata-only counters; original fragments and tokens are never logged.
+    /// `unrestored_tokens_total` counts `__PKV_` markers left unrestored on
+    /// the response path (mutated or foreign tokens, fail-visible).
+    pub tokenized_spans_total: u32,
+    pub rehydrated_tokens_total: u32,
+    pub unrestored_tokens_total: u32,
 }
 
 impl LLMAuditEvent {
@@ -42,7 +48,10 @@ impl LLMAuditEvent {
             duration_ms = self.duration_ms,
             estimated_token_units = self.estimated_token_units,
             auth_mode = %self.auth_mode,
-            credential_origin = ?self.credential_origin
+            credential_origin = ?self.credential_origin,
+            tokenized_spans_total = self.tokenized_spans_total,
+            rehydrated_tokens_total = self.rehydrated_tokens_total,
+            unrestored_tokens_total = self.unrestored_tokens_total
         );
     }
 }

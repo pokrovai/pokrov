@@ -51,7 +51,11 @@ pub fn foundation_engine() -> SanitizationEngine {
 
     let profiles = BTreeMap::from([("strict".to_string(), strict)]);
 
-    SanitizationEngine::new(EvaluatorConfig { default_profile: "strict".to_string(), profiles })
+    SanitizationEngine::new(EvaluatorConfig {
+        default_profile: "strict".to_string(),
+        rehydration_key: None,
+        profiles,
+    })
         .expect("foundation engine should build")
 }
 

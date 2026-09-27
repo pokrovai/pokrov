@@ -2,18 +2,22 @@ use std::{sync::Arc, time::Instant};
 
 use futures_util::StreamExt;
 use pokrov_config::UpstreamAuthMode;
-use pokrov_core::types::PolicyAction;
+use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
+use pokrov_core::{
+    rehydrate::{RehydrationMap, StreamRehydrator},
+    types::PolicyAction,
+};
 use serde_json::Value;
 
 use crate::{
     errors::LLMProxyError,
     stream::{
         convert_chat_sse_chunk_to_responses_chunk, convert_chat_sse_to_responses_sse,
-        sanitize_sse_stream,
+        rehydrate_sse_stream, sanitize_sse_stream,
     },
     types::{
-        LLMProxyBody, LLMProxyResponse, RouteResolution, UpstreamCredentialOrigin,
-        UpstreamStreamResponse, RESPONSES_ENDPOINT,
+        LLMProxyBody, LLMProxyResponse, RouteResolution, SseBodyStream,
+        UpstreamCredentialOrigin, UpstreamStreamResponse, RESPONSES_ENDPOINT,
     },
 };
 
@@ -40,7 +44,9 @@ impl LLMProxyHandler {
         auth_mode: UpstreamAuthMode,
         credential_origin: UpstreamCredentialOrigin,
         upstream_credential: Option<String>,
+        rehydration_map: RehydrationMap,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
+        let tokenized_spans_total = rehydration_map.spans_total();
         let upstream = self
             .upstream
             .execute_stream(
@@ -68,6 +74,9 @@ impl LLMProxyHandler {
                         upstream_status: error.upstream_status(),
                         auth_mode: mode_as_str(auth_mode),
                         credential_origin,
+                        tokenized_spans_total,
+                        rehydrated_tokens_total: 0,
+                        unrestored_tokens_total: 0,
                     },
                     &error,
                 );
@@ -100,6 +109,9 @@ impl LLMProxyHandler {
                             upstream_status: Some(status.as_u16()),
                             auth_mode: mode_as_str(auth_mode),
                             credential_origin,
+                            tokenized_spans_total,
+                            rehydrated_tokens_total: 0,
+                            unrestored_tokens_total: 0,
                         },
                         &cause,
                     );
@@ -140,6 +152,9 @@ impl LLMProxyHandler {
                                     upstream_status: Some(status.as_u16()),
                                     auth_mode: mode_as_str(auth_mode),
                                     credential_origin,
+                                    tokenized_spans_total,
+                                    rehydrated_tokens_total: 0,
+                                    unrestored_tokens_total: 0,
                                 },
                                 &error,
                             );
@@ -165,6 +180,9 @@ impl LLMProxyHandler {
                                     upstream_status: Some(status.as_u16()),
                                     auth_mode: mode_as_str(auth_mode),
                                     credential_origin,
+                                    tokenized_spans_total,
+                                    rehydrated_tokens_total: 0,
+                                    unrestored_tokens_total: 0,
                                 },
                                 &error,
                             );
@@ -180,6 +198,7 @@ impl LLMProxyHandler {
             if endpoint == RESPONSES_ENDPOINT {
                 stream_body = convert_chat_sse_to_responses_sse(&request_id, &stream_body)?;
             }
+
             #[cfg(feature = "llm_payload_trace")]
             self.upstream.emit_response_trace(
                 &request_id,
@@ -187,6 +206,19 @@ impl LLMProxyHandler {
                 endpoint,
                 &Value::String(stream_body.clone()),
             );
+
+            // Rehydration runs strictly after output policy evaluation, endpoint
+            // conversion, and payload tracing so restored originals are never
+            // re-scanned or traced.
+            let (restored_body, report) =
+                rehydrate_sse_stream(&stream_body, &rehydration_map);
+            stream_body = restored_body;
+            if report.restored > 0 {
+                self.metrics.on_rehydrated_tokens(report.restored);
+            }
+            if report.unrestored > 0 {
+                self.metrics.on_unrestored_tokens(report.unrestored);
+            }
 
             self.emit_terminal_event(TerminalEvent {
                 request_id: &request_id,
@@ -203,6 +235,9 @@ impl LLMProxyHandler {
                 estimated_token_units,
                 auth_mode: mode_as_str(auth_mode),
                 credential_origin,
+                tokenized_spans_total,
+                rehydrated_tokens_total: report.restored,
+                unrestored_tokens_total: report.unrestored,
             });
 
             return Ok(LLMProxyResponse {
@@ -215,8 +250,11 @@ impl LLMProxyHandler {
         if endpoint == RESPONSES_ENDPOINT {
             let mut pending_bytes = Vec::new();
             let request_id_for_stream = request_id.clone();
-            let converted_stream = upstream_body
-                .bytes_stream()
+            let restored_stream = self.rehydrating_byte_stream(
+                upstream_body.bytes_stream().boxed(),
+                rehydration_map,
+            );
+            let converted_stream = restored_stream
                 .map(move |chunk_result| match chunk_result {
                     Ok(chunk) => Ok(bytes::Bytes::from(convert_chat_sse_chunk_to_responses_chunk(
                         request_id_for_stream.as_str(),
@@ -247,6 +285,11 @@ impl LLMProxyHandler {
                 estimated_token_units,
                 auth_mode: mode_as_str(auth_mode),
                 credential_origin,
+                tokenized_spans_total,
+                // Passthrough restores incrementally inside the stream; the
+                // totals are unknown at emission and reported via metrics only.
+                rehydrated_tokens_total: 0,
+                unrestored_tokens_total: 0,
             });
 
             return Ok(LLMProxyResponse {
@@ -271,13 +314,104 @@ impl LLMProxyHandler {
             estimated_token_units,
             auth_mode: mode_as_str(auth_mode),
             credential_origin,
+            tokenized_spans_total,
+            rehydrated_tokens_total: 0,
+            unrestored_tokens_total: 0,
         });
 
         Ok(LLMProxyResponse {
             request_id,
             status,
-            body: LLMProxyBody::SseStream(Box::pin(upstream_body.bytes_stream())),
+            body: LLMProxyBody::SseStream(
+                self.rehydrating_byte_stream(
+                    upstream_body.bytes_stream().boxed(),
+                    rehydration_map,
+                ),
+            ),
         })
+    }
+
+    /// Wraps a passthrough byte stream with incremental `[PKV_TOKEN]`
+    /// restoration. Restored and unrestored counts are reported per emitted
+    /// chunk; the audit event fires before the stream drains, so only metrics
+    /// observe them.
+    fn rehydrating_byte_stream(
+        &self,
+        stream: SseBodyStream,
+        map: RehydrationMap,
+    ) -> SseBodyStream {
+        if map.is_empty() {
+            return stream;
+        }
+
+        struct State {
+            stream: SseBodyStream,
+            rehydrator: StreamRehydrator,
+            flushed: bool,
+            reported_restored: u32,
+            reported_unrestored: u32,
+        }
+
+        impl State {
+            // Totals are cumulative; only the delta since the previous chunk
+            // is reported to keep metrics additive.
+            fn report(&mut self, metrics: &SharedRuntimeMetricsHooks) {
+                let restored = self.rehydrator.restored_total();
+                if restored > self.reported_restored {
+                    metrics.on_rehydrated_tokens(restored - self.reported_restored);
+                    self.reported_restored = restored;
+                }
+                let unrestored = self.rehydrator.unrestored_total();
+                if unrestored > self.reported_unrestored {
+                    metrics.on_unrestored_tokens(unrestored - self.reported_unrestored);
+                    self.reported_unrestored = unrestored;
+                }
+            }
+        }
+
+        let metrics = self.metrics.clone();
+        futures_util::stream::unfold(
+            State {
+                stream,
+                rehydrator: StreamRehydrator::new(map),
+                flushed: false,
+                reported_restored: 0,
+                reported_unrestored: 0,
+            },
+            move |mut state| {
+                let metrics = metrics.clone();
+                async move {
+                    if state.flushed {
+                        return None;
+                    }
+                    match state.stream.next().await {
+                        Some(Ok(chunk)) => {
+                            let emitted = state.rehydrator.feed(&chunk);
+                            state.report(&metrics);
+                            Some((Ok(bytes::Bytes::from(emitted)), state))
+                        }
+                        Some(Err(error)) => Some((Err(error), state)),
+                        None => {
+                            state.flushed = true;
+                            let tail = state.rehydrator.finish();
+                            state.report(&metrics);
+                            if tail.is_empty() {
+                                None
+                            } else {
+                                Some((Ok(bytes::Bytes::from(tail)), state))
+                            }
+                        }
+                    }
+                }
+            },
+        )
+        .filter(|item| {
+            std::future::ready(match item {
+                Ok(bytes) => !bytes.is_empty(),
+                Err(_) => true,
+            })
+        })
+        .boxed()
     }
 }
 

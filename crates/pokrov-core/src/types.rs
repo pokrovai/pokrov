@@ -200,6 +200,10 @@ const fn default_max_hits_per_request() -> u32 {
 pub struct EvaluatorConfig {
     pub default_profile: String,
     pub profiles: BTreeMap<String, PolicyProfile>,
+    /// Key material for deterministic `[PKV_TOKEN]` derivation. Never
+    /// serialized: resolved from env/file secret refs at bootstrap only.
+    #[serde(skip)]
+    pub rehydration_key: Option<String>,
 }
 
 /// Public request passed from API layer into sanitization engine.

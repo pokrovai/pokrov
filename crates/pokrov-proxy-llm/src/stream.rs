@@ -1,4 +1,5 @@
 use pokrov_core::{
+    rehydrate::{rehydrate_text, rehydrate_value, RehydrateReport, RehydrationMap},
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
 };
@@ -97,6 +98,76 @@ pub fn sanitize_sse_stream(
     }
 
     Ok(StreamSanitizationResult { body, rule_hits_total: total_hits, final_action })
+}
+
+/// Restores `[PKV_TOKEN]` pseudonyms in a fully buffered SSE body. Runs after
+/// output policy evaluation: `data:` payloads that parse as JSON are restored
+/// leaf-wise so fragments containing JSON-significant bytes stay escaped,
+/// while `data:` lines and other SSE fields are restored as plain text.
+pub fn rehydrate_sse_stream(raw_body: &str, map: &RehydrationMap) -> (String, RehydrateReport) {
+    if map.is_empty() {
+        return (raw_body.to_string(), RehydrateReport::default());
+    }
+
+    let mut report = RehydrateReport::default();
+    let mut events = Vec::new();
+
+    for event in raw_body.split("\n\n") {
+        if event.trim().is_empty() {
+            continue;
+        }
+
+        let mut lines = Vec::new();
+        for line in event.lines() {
+            if let Some(data) = line.strip_prefix("data:") {
+                let payload = data.trim();
+                if payload == "[DONE]" {
+                    lines.push("data: [DONE]".to_string());
+                    continue;
+                }
+
+                match serde_json::from_str::<Value>(payload) {
+                    Ok(event_json) => {
+                        let (restored, leaf) = rehydrate_value(event_json, map);
+                        report.restored = report.restored.saturating_add(leaf.restored);
+                        report.unrestored = report.unrestored.saturating_add(leaf.unrestored);
+                        if leaf.restored == 0 {
+                            // Nothing substituted: keep the original bytes
+                            // instead of a re-serialized payload to stay
+                            // byte-faithful on token-free lines.
+                            lines.push(line.to_string());
+                        } else {
+                            match serde_json::to_string(&restored) {
+                                Ok(encoded) => lines.push(format!("data: {encoded}")),
+                                Err(_) => lines.push(line.to_string()),
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        let (restored, leaf) = rehydrate_text(line, map);
+                        report.restored = report.restored.saturating_add(leaf.restored);
+                        report.unrestored = report.unrestored.saturating_add(leaf.unrestored);
+                        lines.push(restored);
+                    }
+                }
+                continue;
+            }
+
+            let (restored, leaf) = rehydrate_text(line, map);
+            report.restored = report.restored.saturating_add(leaf.restored);
+            report.unrestored = report.unrestored.saturating_add(leaf.unrestored);
+            lines.push(restored);
+        }
+
+        events.push(lines.join("\n"));
+    }
+
+    let mut body = events.join("\n\n");
+    if !body.is_empty() {
+        body.push_str("\n\n");
+    }
+
+    (body, report)
 }
 
 pub fn convert_chat_sse_to_responses_sse(
@@ -272,6 +343,7 @@ mod tests {
 
         SanitizationEngine::new(EvaluatorConfig {
             default_profile: "strict".to_string(),
+            rehydration_key: None,
             profiles: BTreeMap::from([("strict".to_string(), strict)]),
         })
         .expect("engine should build")

@@ -280,6 +280,63 @@ fn validate_sanitization(config: &RuntimeConfig, issues: &mut Vec<ValidationIssu
     validate_profile("minimal", &config.sanitization.profiles.minimal, issues);
     validate_profile("strict", &config.sanitization.profiles.strict, issues);
     validate_profile("custom", &config.sanitization.profiles.custom, issues);
+    validate_rehydration_key(config, issues);
+}
+
+// The `[PKV_TOKEN]` sentinel requires resolvable key material; otherwise
+// deterministic token derivation is impossible and the engine fails closed.
+fn validate_rehydration_key(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) {
+    let marker_used = [
+        ("minimal", &config.sanitization.profiles.minimal),
+        ("strict", &config.sanitization.profiles.strict),
+        ("custom", &config.sanitization.profiles.custom),
+    ]
+    .into_iter()
+    .any(|(_, profile)| profile_uses_reversible_marker(profile));
+
+    if !marker_used {
+        return;
+    }
+
+    let Some(raw) = config.sanitization.rehydration_key.as_deref() else {
+        issues.push(ValidationIssue::new(
+            "sanitization.rehydration_key",
+            "must be set when any profile uses [PKV_TOKEN] replacement",
+        ));
+        return;
+    };
+
+    let Some(secret_ref) = SecretRef::parse(raw) else {
+        issues.push(ValidationIssue::new(
+            "sanitization.rehydration_key",
+            "must use env:VAR or file:/path format",
+        ));
+        return;
+    };
+
+    // Resolution is checked here so bootstrap reports the real failure —
+    // a configured-but-unresolvable reference — instead of a misleading
+    // "key not configured" from the engine layer.
+    if secret_ref.resolve().is_none() {
+        issues.push(ValidationIssue::new(
+            "sanitization.rehydration_key",
+            "references a secret that cannot be resolved (env var unset/empty or file unreadable)",
+        ));
+    }
+}
+
+fn profile_uses_reversible_marker(profile: &SanitizationProfile) -> bool {
+    profile
+        .custom_rules
+        .iter()
+        .any(|rule| rule.replacement.as_deref() == Some(pokrov_core::rehydrate::REVERSIBLE_TEMPLATE))
+        || profile
+            .deterministic_recognizers
+            .iter()
+            .any(|recognizer| {
+                recognizer.replacement.as_deref()
+                    == Some(pokrov_core::rehydrate::REVERSIBLE_TEMPLATE)
+            })
 }
 
 fn validate_profile(
@@ -391,6 +448,15 @@ fn validate_deterministic_recognizers(
                     "must be greater than zero",
                 ));
             }
+        }
+
+        if recognizer.action == pokrov_core::types::PolicyAction::Replace
+            && recognizer.replacement.is_none()
+        {
+            issues.push(ValidationIssue::new(
+                format!("{base_path}.replacement"),
+                "is required when action=replace",
+            ));
         }
     }
 }

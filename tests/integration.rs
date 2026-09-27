@@ -96,6 +96,8 @@ mod responses_policy_block_path;
 mod responses_stream_happy_path;
 #[path = "integration/responses_stream_malformed_chunk_path.rs"]
 mod responses_stream_malformed_chunk_path;
+#[path = "integration/reversible_tokenization_path.rs"]
+mod reversible_tokenization_path;
 #[path = "common/sanitization_analyzer_contract_test_support.rs"]
 pub mod sanitization_analyzer_contract_test_support;
 #[path = "integration/sanitization_audit_explain_flow.rs"]

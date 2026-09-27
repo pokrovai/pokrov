@@ -387,6 +387,7 @@ mod tests {
                 allowed_path_prefixes: Vec::new(),
             },
             output_sanitization: Some(true),
+            sanitize_arguments: None,
         };
 
         let error = validate_tool_arguments(
@@ -414,6 +415,7 @@ mod tests {
                 allowed_path_prefixes: vec!["src/".to_string()],
             },
             output_sanitization: Some(true),
+            sanitize_arguments: None,
         };
 
         let result = validate_tool_arguments(
@@ -445,6 +447,7 @@ mod tests {
                 allowed_path_prefixes: Vec::new(),
             },
             output_sanitization: Some(true),
+            sanitize_arguments: None,
         };
 
         let error = validate_tool_arguments(
@@ -472,6 +475,7 @@ mod tests {
                 allowed_path_prefixes: vec!["src/".to_string()],
             },
             output_sanitization: Some(true),
+            sanitize_arguments: None,
         };
 
         let error = validate_tool_arguments(
@@ -499,6 +503,7 @@ mod tests {
                 allowed_path_prefixes: Vec::new(),
             },
             output_sanitization: Some(true),
+            sanitize_arguments: None,
         };
 
         let payload = serde_json::json!({
@@ -526,6 +531,7 @@ mod tests {
                 allowed_path_prefixes: vec!["src/".to_string()],
             },
             output_sanitization: Some(true),
+            sanitize_arguments: None,
         };
 
         let result = validate_tool_arguments(

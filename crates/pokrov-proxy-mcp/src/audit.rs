@@ -13,6 +13,12 @@ pub struct McpAuditEvent {
     pub duration_ms: u64,
     pub auth_mode: &'static str,
     pub credential_origin: &'static str,
+    /// Metadata-only counters; original fragments and tokens are never logged.
+    /// `unrestored_tokens_total` counts `__PKV_` markers left unrestored in
+    /// the tool output (mutated or foreign tokens, fail-visible).
+    pub tokenized_spans_total: u32,
+    pub rehydrated_tokens_total: u32,
+    pub unrestored_tokens_total: u32,
 }
 
 impl McpAuditEvent {
@@ -31,6 +37,9 @@ impl McpAuditEvent {
             duration_ms = self.duration_ms,
             auth_mode = self.auth_mode,
             credential_origin = self.credential_origin,
+            tokenized_spans_total = self.tokenized_spans_total,
+            rehydrated_tokens_total = self.rehydrated_tokens_total,
+            unrestored_tokens_total = self.unrestored_tokens_total,
             "mcp tool call completed"
         );
     }

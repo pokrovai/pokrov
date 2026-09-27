@@ -158,6 +158,20 @@ impl SecretRef {
 
         None
     }
+
+    /// Resolves the referenced secret material from the process environment
+    /// or filesystem. Returns `None` when the source is missing or empty.
+    pub fn resolve(&self) -> Option<String> {
+        match self {
+            Self::Env(name) => {
+                std::env::var(name).ok().filter(|value| !value.trim().is_empty())
+            }
+            Self::File(path) => std::fs::read_to_string(path)
+                .ok()
+                .map(|content| content.trim().to_string())
+                .filter(|value| !value.is_empty()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
