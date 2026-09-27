@@ -106,7 +106,7 @@ impl McpProxyHandler {
                     &request.tool,
                     resolve_profile_id(request.metadata.profile.as_deref(), api_key_profile),
                     PolicyAction::Block,
-                    0,
+                    counters.rule_hits_total,
                     blocked,
                     error.upstream_status(),
                     started.elapsed().as_millis() as u64,
@@ -194,6 +194,8 @@ impl McpProxyHandler {
                 args_map = outcome.rehydration;
                 counters.tokenized_spans_total = args_map.spans_total();
                 let args_eval = outcome.result;
+                counters.rule_hits_total =
+                    counters.rule_hits_total.saturating_add(args_eval.decision.rule_hits_total);
 
                 self.metrics.on_rule_hits(args_eval.decision.rule_hits_total);
                 self.metrics.on_payload_transformed(args_eval.transform.transformed_fields_count);
@@ -230,6 +232,8 @@ impl McpProxyHandler {
             resolved.output_sanitization,
             &result,
         )?;
+        counters.rule_hits_total =
+            counters.rule_hits_total.saturating_add(sanitization.rule_hits_total);
 
         // Output blocking is post-hoc by design: the tool call is already executed upstream,
         // but the response payload is withheld from the caller after policy evaluation.
@@ -392,6 +396,7 @@ struct CallCounters {
     tokenized_spans_total: u32,
     rehydrated_tokens_total: u32,
     unrestored_tokens_total: u32,
+    rule_hits_total: u32,
 }
 
 struct ToolCallOutcome {

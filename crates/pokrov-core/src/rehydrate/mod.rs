@@ -17,7 +17,7 @@ pub const REVERSIBLE_TEMPLATE: &str = "[PKV_TOKEN]";
 
 const TOKEN_PREFIX: &str = "__PKV_";
 const TOKEN_SUFFIX: &str = "__";
-const TOKEN_HEX_LEN: usize = 32;
+const TOKEN_HEX_LEN: usize = 64;
 
 /// `__PKV_` plus the hex body; narrows `BTreeMap` lookups to the collision
 /// domain of one base token instead of scanning every known token.
@@ -25,7 +25,9 @@ const TOKEN_BASE_LEN: usize = TOKEN_PREFIX.len() + TOKEN_HEX_LEN;
 
 mod sse;
 
-pub use sse::{event_boundary_end, EventRehydrator, SseStreamRehydrator};
+pub use sse::{
+    event_boundary_end, EventRehydrator, SseStreamRehydrator, MAX_EVENT_BUFFER_BYTES,
+};
 
 /// Derives deterministic pseudonym tokens from secret key material.
 /// Keyed HMAC-SHA256 keeps tokens stable across requests and proxy paths
@@ -84,33 +86,31 @@ impl RehydrationMap {
         self.spans_total
     }
 
-    /// Returns the deterministic token for a fragment: `__PKV_<32 lowercase
-    /// hex>__` taken from the fragment's keyed digest. The 128-bit body makes
-    /// collisions cryptographically unreachable, so the fragment→token mapping
-    /// is a pure function of (key, fragment) — identical across requests and
-    /// independent of insertion order, as FR-002 requires.
+    /// Returns the deterministic token for a fragment: `__PKV_<64 lowercase
+    /// hex>__` — the fragment's full keyed HMAC-SHA256 rendered. The mapping
+    /// is a pure function of (key, fragment): identical fragments yield
+    /// identical tokens across requests and insertion order can never affect
+    /// the result, as FR-002 requires.
     ///
-    /// For completeness the map still disambiguates a body collision with a
-    /// `_c<8hex>` suffix drawn from the same digest (bytes [16..20], then
-    /// [20..24], and so on); the suffix sequence is deterministic per
-    /// fragment rather than sequential per request. A residual
-    /// winner-take-base corner would need a real 128-bit collision inside a
-    /// single request and is unreachable without the key. If the digest
-    /// runway is ever exhausted, further material is derived by chained HMAC.
+    /// For completeness the map still disambiguates a collision with a
+    /// `_c<8hex>` suffix drawn from chained HMAC material
+    /// (`fragment#pkv-collision-<level>`); the suffix sequence is
+    /// deterministic per fragment. Reaching it at all requires a full
+    /// 256-bit HMAC-SHA256 collision — a hash break, at which point no
+    /// tokenization scheme survives anyway.
     pub fn token_for(&mut self, deriver: &TokenDeriver, fragment: &str) -> String {
         self.spans_total += 1;
         if let Some(token) = self.fragment_to_token.get(fragment) {
             return token.clone();
         }
 
-        let digest = deriver.digest_for(fragment);
-        let base = format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&digest[..16]));
+        let base = format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&deriver.digest_for(fragment)));
 
         let mut token = base.clone();
         let mut level = 0u32;
         while self.token_to_fragment.contains_key(&token) {
             level += 1;
-            let suffix = collision_suffix(deriver, fragment, &digest, level);
+            let suffix = collision_suffix(deriver, fragment, level);
             token =
                 format!("{}_c{}{}", &base[..base.len() - TOKEN_SUFFIX.len()], suffix, TOKEN_SUFFIX);
         }
@@ -122,7 +122,7 @@ impl RehydrationMap {
 
     /// Longest known token matching the head of `text`, or `None`.
     /// Collision-suffixed tokens share the base prefix, so longest wins.
-    /// The 38-byte `__PKV_<hex32>` base narrows the BTreeMap range scan to
+    /// The 70-byte `__PKV_<hex64>` base narrows the BTreeMap range scan to
     /// the collision domain, keeping lookups O(log n + collisions).
     fn longest_match_at(&self, text: &[u8]) -> Option<(&str, &str)> {
         if text.len() < TOKEN_BASE_LEN {
@@ -320,24 +320,11 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 /// Deterministic `_c<8hex>` suffix material for collision `level` (1-based):
-/// digest bytes [16..20] for level 1, then [20..24], and so on through the
-/// four-group runway; beyond that the chain is extended by chained HMAC over
-/// `fragment#pkv-collision-<level>`. Because every suffix derives from the
-/// fragment's own keyed digest, the escalation sequence never depends on
-/// request content or mint ordering.
-fn collision_suffix(
-    deriver: &TokenDeriver,
-    fragment: &str,
-    digest: &[u8; 32],
-    level: u32,
-) -> String {
-    // The base token consumes digest[..16]; the runway offers four 4-byte
-    // groups before chained HMAC material takes over.
-    const RUNWAY_LEVELS: u32 = 4;
-    if level <= RUNWAY_LEVELS {
-        let start = 16 + 4 * (level as usize - 1);
-        return hex_encode(&digest[start..start + 4]);
-    }
+/// chained HMAC over `fragment#pkv-collision-<level>` — the base token
+/// already consumes the entire fragment digest. Because every suffix derives
+/// from the fragment's own keyed hash chain, the escalation sequence never
+/// depends on request content or mint ordering.
+fn collision_suffix(deriver: &TokenDeriver, fragment: &str, level: u32) -> String {
     let extended =
         hmac_sha256(&deriver.key, format!("{fragment}#pkv-collision-{level}").as_bytes());
     hex_encode(&extended[..4])
@@ -389,8 +376,7 @@ mod tests {
     }
 
     fn base_of(deriver: &TokenDeriver, fragment: &str) -> String {
-        let digest = deriver.digest_for(fragment);
-        format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&digest[..16]))
+        format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&deriver.digest_for(fragment)))
     }
 
     #[test]
@@ -466,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn token_format_is_a_32_hex_digit_identifier_fragment() {
+    fn token_format_is_a_64_hex_digit_identifier_fragment() {
         let deriver = deriver();
         let mut map = RehydrationMap::new();
         let token = map.token_for(&deriver, "acme-corp");
@@ -483,9 +469,11 @@ mod tests {
         let fragment = "collision-victim";
 
         // The base slot a fragment maps to is a pure function of its digest.
-        let digest = deriver.digest_for(fragment);
-        let base = format!("{TOKEN_PREFIX}{}{TOKEN_SUFFIX}", hex_encode(&digest[..16]));
-        let suffix_l1 = hex_encode(&digest[16..20]);
+        let base = format!(
+            "{TOKEN_PREFIX}{}{TOKEN_SUFFIX}",
+            hex_encode(&deriver.digest_for(fragment))
+        );
+        let suffix_l1 = super::collision_suffix(&deriver, fragment, 1);
         let suffixed =
             format!("{}_c{suffix_l1}{TOKEN_SUFFIX}", &base[..base.len() - TOKEN_SUFFIX.len()]);
 

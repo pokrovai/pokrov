@@ -25,7 +25,12 @@ use super::{
 /// blank-line terminator would grow the rehydration buffer without bound;
 /// past the cap the buffered bytes are flushed verbatim so tokens inside
 /// stay unresolved (fail-visible) and count as unrestored markers.
-const MAX_EVENT_BUFFER_BYTES: usize = 1 << 20;
+pub const MAX_EVENT_BUFFER_BYTES: usize = 1 << 20;
+
+/// Distinct delta legs (`choices[].index`, responses text) tracked
+/// simultaneously. Beyond the cap content is restored without carry join —
+/// tokens split across extra legs stay visible and count as unrestored.
+const MAX_CARRY_KEYS: usize = 128;
 
 /// End index (exclusive) of the first complete SSE event in `buffer`:
 /// content lines terminated by a blank line. Recognizes LF, CRLF, and
@@ -224,8 +229,15 @@ impl EventRehydrator {
     /// Joins the carry for `key` with the next delta `content`, holds back
     /// the trailing proper token prefix, and restores complete tokens in the
     /// emittable part. Restoring the carried merge would otherwise expose a
-    /// token that spans two SSE delta events as unrestored.
+    /// token that spans two SSE delta events as unrestored. Past
+    /// `MAX_CARRY_KEYS` distinct legs the carry join is skipped so a hostile
+    /// index spray cannot grow the map without bound.
     fn process_delta_content(&mut self, key: CarryKey, content: &str) -> String {
+        if !self.delta_carry.contains_key(&key) && self.delta_carry.len() >= MAX_CARRY_KEYS {
+            let (restored, report) = rehydrate_text(content, &self.map);
+            self.accumulate(report);
+            return restored;
+        }
         let mut combined = self.delta_carry.remove(&key).unwrap_or_default();
         combined.push_str(content);
         let cut = holdback_index(combined.as_bytes(), &self.map);
@@ -241,11 +253,14 @@ impl EventRehydrator {
     /// Drains the carries of the given (terminated) legs into synthetic
     /// events; chat legs share one `chat.completion.chunk` carrying every
     /// pending index, responses text flushes as `response.output_text.delta`.
+    /// Flushed carries are incomplete token prefixes — markers emitted
+    /// unrestored, so they are counted as such.
     fn flush_carries(&mut self, keys: &[CarryKey]) -> Vec<String> {
         let mut carries = Vec::new();
         for key in keys {
             if let Some(carry) = self.delta_carry.remove(key) {
                 if !carry.is_empty() {
+                    self.note_unrestored_markers(carry.as_bytes());
                     carries.push((*key, carry));
                 }
             }
@@ -260,7 +275,18 @@ impl EventRehydrator {
             .into_iter()
             .filter(|(_, carry)| !carry.is_empty())
             .collect();
+        for (_, carry) in &carries {
+            self.note_unrestored_markers(carry.as_bytes());
+        }
         synthesize_carry_events(carries)
+    }
+
+    /// Counts `__PKV_` markers in bytes emitted unrestored (verbatim
+    /// overflow, error-path passthrough, carry flushes).
+    fn note_unrestored_markers(&mut self, bytes: &[u8]) {
+        self.unrestored_total = self
+            .unrestored_total
+            .saturating_add(count_unrestored_markers(bytes, &self.map));
     }
 
     /// Restores a non-JSON line. When a substituted fragment would introduce
@@ -320,11 +346,19 @@ fn synthesize_carry_events(carries: Vec<(CarryKey, String)>) -> Vec<String> {
 pub struct SseStreamRehydrator {
     inner: EventRehydrator,
     buffer: Vec<u8>,
+    /// After an oversized event flushed verbatim, the remainder of that same
+    /// event must pass through untouched: restoring tokens inside an
+    /// already-emitted partial JSON frame could inject unescaped bytes.
+    overflow_passthrough: bool,
 }
 
 impl SseStreamRehydrator {
     pub fn new(map: RehydrationMap) -> Self {
-        Self { inner: EventRehydrator::new(map), buffer: Vec::new() }
+        Self {
+            inner: EventRehydrator::new(map),
+            buffer: Vec::new(),
+            overflow_passthrough: false,
+        }
     }
 
     /// Cumulative restore counters; streaming callers report deltas against
@@ -342,20 +376,35 @@ impl SseStreamRehydrator {
     /// Feeds one upstream chunk and returns bytes safe to emit downstream.
     /// An unterminated event past `MAX_EVENT_BUFFER_BYTES` is flushed
     /// verbatim to keep the buffer bounded; its markers count as unrestored.
+    /// The remainder of that event then streams through verbatim until its
+    /// blank-line terminator — a partial JSON frame already emitted can never
+    /// be safely mutated afterwards.
     pub fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
         self.buffer.extend_from_slice(chunk);
         let mut out = Vec::new();
+        if self.overflow_passthrough {
+            match event_boundary_end(&self.buffer) {
+                // The oversized event finally terminated; resume restoring
+                // at the next event.
+                Some(end) => {
+                    self.flush_passthrough(end, &mut out);
+                    self.overflow_passthrough = false;
+                }
+                // No terminator yet: stream the bytes out verbatim, keeping
+                // memory bounded by the chunk rather than the event.
+                None => {
+                    self.flush_passthrough(self.buffer.len(), &mut out);
+                    return out;
+                }
+            }
+        }
         while let Some(end) = event_boundary_end(&self.buffer) {
             let block: Vec<u8> = self.buffer.drain(..end).collect();
             self.emit_block(&block, &mut out);
         }
         if self.buffer.len() > MAX_EVENT_BUFFER_BYTES {
-            let overflow: Vec<u8> = self.buffer.drain(..).collect();
-            self.inner.unrestored_total = self
-                .inner
-                .unrestored_total
-                .saturating_add(count_unrestored_markers(&overflow, &self.inner.map));
-            out.extend_from_slice(&overflow);
+            self.flush_passthrough(self.buffer.len(), &mut out);
+            self.overflow_passthrough = true;
         }
         out
     }
@@ -365,18 +414,32 @@ impl SseStreamRehydrator {
     pub fn finish(&mut self) -> Vec<u8> {
         let tail: Vec<u8> = self.buffer.drain(..).collect();
         let mut out = Vec::new();
-        if !tail.is_empty() {
+        if self.overflow_passthrough {
+            self.inner.note_unrestored_markers(&tail);
+            out.extend_from_slice(&tail);
+        } else if !tail.is_empty() {
             self.emit_block(&tail, &mut out);
         }
         self.append_carry_flush(&mut out);
         out
     }
 
+    /// Emits `len` buffered bytes verbatim, counting enclosed `__PKV_`
+    /// markers as unrestored.
+    fn flush_passthrough(&mut self, len: usize, out: &mut Vec<u8>) {
+        let bytes: Vec<u8> = self.buffer.drain(..len).collect();
+        self.inner.note_unrestored_markers(&bytes);
+        out.extend_from_slice(&bytes);
+    }
+
     /// Bytes upstream sent but not yet emitted plus pending-carry flushes —
     /// for propagation ahead of a forwarded upstream stream error so no
-    /// already-received content is dropped.
+    /// already-received content is dropped. The raw tail goes out unrestored
+    /// (a partial event cannot be safely mutated) and its markers are
+    /// counted as such.
     pub fn drain(&mut self) -> Vec<u8> {
         let mut out = std::mem::take(&mut self.buffer);
+        self.inner.note_unrestored_markers(&out);
         self.append_carry_flush(&mut out);
         out
     }
@@ -667,6 +730,63 @@ mod tests {
             serde_json::from_str(synthetic.strip_prefix("data: ").unwrap()).unwrap();
         assert_eq!(parsed["choices"][0]["delta"]["content"], partial);
         assert!(rehydrator.finish().is_empty());
+    }
+
+    #[test]
+    fn stream_rehydrator_passes_oversized_event_remainder_verbatim() {
+        let (map, token) = map_with("acme\ncorp");
+        let mut rehydrator = SseStreamRehydrator::new(map);
+
+        // Overflow mid-event, then the remainder arrives containing a full
+        // token — it must NOT be restored into the already-emitted partial
+        // JSON frame (the fragment contains a newline; substituting it as
+        // plain text would corrupt the emitted bytes' framing anyway).
+        let first = vec![b'x'; MAX_EVENT_BUFFER_BYTES + 1];
+        let out = rehydrator.feed(&first);
+        assert_eq!(out.len(), first.len());
+
+        let remainder = format!("tail {token} end\n\n");
+        let out = rehydrator.feed(remainder.as_bytes());
+        assert_eq!(String::from_utf8(out).unwrap(), remainder);
+        assert!(rehydrator.report().unrestored >= 1);
+
+        // After the terminator, normal restore resumes for the next event.
+        let next = format!("{}\n\n", delta_event(&token));
+        let out = rehydrator.feed(next.as_bytes());
+        let text = String::from_utf8(out).unwrap();
+        // The fragment contains a newline; inside a JSON delta leaf serde
+        // escapes it, so the event restores fine.
+        assert!(text.contains("acme\\ncorp"));
+    }
+
+    #[test]
+    fn stream_rehydrator_carry_flush_counts_unrestored_markers() {
+        let (map, token) = map_with("acme-corp");
+        let partial = &token[..12];
+        let mut rehydrator = SseStreamRehydrator::new(map);
+        rehydrator.feed(format!("{}\n\n", delta_event(partial)).as_bytes());
+        assert_eq!(rehydrator.report().unrestored, 0);
+
+        // The flushed carry emits a visible incomplete token marker — it is
+        // unrestored and must be counted for audit/metrics.
+        rehydrator.finish();
+        assert_eq!(rehydrator.report().unrestored, 1);
+    }
+
+    #[test]
+    fn event_rehydrator_bounds_carry_key_count() {
+        let (map, token) = map_with("acme-corp");
+        let partial = &token[..12];
+        let mut rehydrator = EventRehydrator::new(map);
+
+        // Spray more distinct indices than the carry cap: extra legs get no
+        // carry join and emit their partial markers unrestored instead.
+        for index in 0..(MAX_CARRY_KEYS as i64 + 1) {
+            rehydrator.rehydrate_event(&indexed_delta_event(index, partial));
+        }
+        assert_eq!(rehydrator.delta_carry.len(), MAX_CARRY_KEYS);
+        // The last (over-cap) index emitted its marker unrestored.
+        assert_eq!(rehydrator.report().unrestored, 1);
     }
 
     #[test]

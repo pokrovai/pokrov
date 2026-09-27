@@ -1,5 +1,8 @@
 use pokrov_core::{
-    rehydrate::{event_boundary_end, EventRehydrator, RehydrateReport, RehydrationMap},
+    rehydrate::{
+        event_boundary_end, EventRehydrator, RehydrateReport, RehydrationMap,
+        MAX_EVENT_BUFFER_BYTES,
+    },
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
 };
@@ -198,18 +201,42 @@ pub fn convert_chat_sse_to_responses_sse(
 pub struct ResponsesChunkConverter {
     request_id: String,
     pending_bytes: Vec<u8>,
+    /// After an oversized event flushed verbatim, the remainder of that same
+    /// event streams through untouched until its blank-line terminator —
+    /// converting a partial event already emitted would corrupt framing.
+    passthrough: bool,
 }
 
 impl ResponsesChunkConverter {
     pub fn new(request_id: &str) -> Self {
-        Self { request_id: request_id.to_string(), pending_bytes: Vec::new() }
+        Self {
+            request_id: request_id.to_string(),
+            pending_bytes: Vec::new(),
+            passthrough: false,
+        }
     }
 
     /// Converts every complete buffered event; returns bytes safe to emit.
+    /// A pending event past `MAX_EVENT_BUFFER_BYTES` flushes verbatim and
+    /// the rest of it streams through untouched, so the rehydrator's bound
+    /// holds end-to-end on this path too.
     pub fn feed(&mut self, incoming_chunk: &[u8]) -> Vec<u8> {
         self.pending_bytes.extend_from_slice(incoming_chunk);
-        let mut converted = String::new();
+        let mut out = Vec::new();
+        if self.passthrough {
+            match event_boundary_end(&self.pending_bytes) {
+                Some(end) => {
+                    out.extend(self.pending_bytes.drain(..end));
+                    self.passthrough = false;
+                }
+                None => {
+                    out.extend(self.pending_bytes.drain(..));
+                    return out;
+                }
+            }
+        }
 
+        let mut converted = String::new();
         while let Some(end) = event_boundary_end(&self.pending_bytes) {
             let event_bytes: Vec<u8> = self.pending_bytes.drain(..end).collect();
             let event = String::from_utf8_lossy(event_bytes.as_slice());
@@ -220,17 +247,24 @@ impl ResponsesChunkConverter {
             converted.push_str(&converted_event);
             converted.push_str("\n\n");
         }
-
-        converted.into_bytes()
+        out.extend_from_slice(converted.as_bytes());
+        if self.pending_bytes.len() > MAX_EVENT_BUFFER_BYTES {
+            out.extend(self.pending_bytes.drain(..));
+            self.passthrough = true;
+        }
+        out
     }
 
     /// Flushes the pending tail: a complete trailing event still converts,
-    /// malformed leftovers pass through verbatim inside the event frame.
+    /// malformed or oversized leftovers pass through verbatim.
     pub fn finish(&mut self) -> Vec<u8> {
-        if self.pending_bytes.is_empty() {
+        let tail: Vec<u8> = self.pending_bytes.drain(..).collect();
+        if tail.is_empty() {
             return Vec::new();
         }
-        let tail: Vec<u8> = self.pending_bytes.drain(..).collect();
+        if self.passthrough {
+            return tail;
+        }
         let event = String::from_utf8_lossy(tail.as_slice());
         let converted = convert_single_chat_sse_event(&self.request_id, &event);
         let mut out = converted.into_bytes();
