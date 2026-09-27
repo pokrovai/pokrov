@@ -247,7 +247,7 @@ impl ResponsesChunkConverter {
                         .count();
                     let flush_end = self.pending_bytes.len() - keep;
                     out.extend(self.pending_bytes.drain(..flush_end));
-                    self.scanned = self.pending_bytes.len().saturating_sub(1);
+                    self.scanned = 0;
                     return out;
                 }
             }
@@ -266,7 +266,15 @@ impl ResponsesChunkConverter {
             converted.push_str(&converted_event);
             converted.push_str("\n\n");
         }
-        self.scanned = self.pending_bytes.len().saturating_sub(1);
+        // Resume at the start of the trailing EOL run — it may grow into a
+        // boundary once the next chunk arrives (`\r\n\r` + `\n`).
+        self.scanned = self.pending_bytes.len()
+            - self
+                .pending_bytes
+                .iter()
+                .rev()
+                .take_while(|b| matches!(b, b'\r' | b'\n'))
+                .count();
         out.extend_from_slice(converted.as_bytes());
         if self.pending_bytes.len() > MAX_EVENT_BUFFER_BYTES {
             let keep = self
@@ -277,7 +285,7 @@ impl ResponsesChunkConverter {
                 .count();
             let flush_end = self.pending_bytes.len() - keep;
             out.extend(self.pending_bytes.drain(..flush_end));
-            self.scanned = self.pending_bytes.len().saturating_sub(1);
+            self.scanned = 0;
             self.passthrough = true;
         }
         out
@@ -474,8 +482,9 @@ mod tests {
         // An oversized event whose terminator is split across the flush must
         // not swallow the following event into passthrough — the next chat
         // event still converts into responses format.
-        for (first_eol, rest_eol) in [("\n", "\n"), ("\r\n", "\r\n"), ("\r", "\r"), ("\r\n\r", "\n")]
-        {
+        // `\r\n\r` alone is already a complete boundary (lone-CR blank
+        // line), so only true terminator splits are exercised.
+        for (first_eol, rest_eol) in [("\n", "\n"), ("\r\n", "\r\n"), ("\r", "\r")] {
             let mut converter = ResponsesChunkConverter::new("req-split");
             let mut flood = vec![b'x'; MAX_EVENT_BUFFER_BYTES + 1];
             flood.extend_from_slice(first_eol.as_bytes());

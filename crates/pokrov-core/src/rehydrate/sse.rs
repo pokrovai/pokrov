@@ -51,16 +51,11 @@ pub fn event_boundary_end(buffer: &[u8]) -> Option<usize> {
         match buffer.get(line_end) {
             Some(&b'\n') => return Some(line_end + 1),
             Some(&b'\r') => {
-                // A buffer-final `\r` is inconclusive: it may be the first
-                // half of a `\r\n` split across chunks. Only bytes after it
-                // can settle whether this blank line actually ended.
-                return if buffer.get(line_end + 1) == Some(&b'\n') {
-                    Some(line_end + 2)
-                } else if line_end + 1 < buffer.len() {
-                    Some(line_end + 1)
+                return Some(if buffer.get(line_end + 1) == Some(&b'\n') {
+                    line_end + 2
                 } else {
-                    None
-                };
+                    line_end + 1
+                });
             }
             _ => cursor = line_end,
         }
@@ -417,7 +412,7 @@ impl SseStreamRehydrator {
                 None => {
                     let keep = trailing_eol_len(&self.buffer);
                     self.flush_passthrough(self.buffer.len() - keep, &mut out);
-                    self.scanned = self.buffer.len().saturating_sub(1);
+                    self.scanned = 0;
                     return out;
                 }
             }
@@ -430,13 +425,15 @@ impl SseStreamRehydrator {
             // at this boundary.
             self.scanned = 0;
         }
-        // The whole buffer is boundary-free; rescan from the last byte only
-        // so a terminator split across the next chunk is still found.
-        self.scanned = self.buffer.len().saturating_sub(1);
+        // The buffer is boundary-free, but its trailing EOL run may grow
+        // into a boundary once the next chunk arrives (e.g. `\r\n\r` +
+        // `\n`). Resume the scan at the run's start, not the last byte, so
+        // a multi-byte split terminator is still found.
+        self.scanned = self.buffer.len() - trailing_eol_len(&self.buffer);
         if self.buffer.len() > MAX_EVENT_BUFFER_BYTES {
             let keep = trailing_eol_len(&self.buffer);
             self.flush_passthrough(self.buffer.len() - keep, &mut out);
-            self.scanned = self.buffer.len().saturating_sub(1);
+            self.scanned = 0;
             self.overflow_passthrough = true;
         }
         out
@@ -829,12 +826,12 @@ mod tests {
         // Every terminator form is exercised with its boundary split across
         // the passthrough flush: the oversized event's trailing EOL byte is
         // retained, so the next event is not swallowed into passthrough.
+        // `\r\n\r` alone is already a complete boundary (lone-CR blank line),
+        // so only true splits of the terminator are exercised here.
         for (terminator_first, terminator_rest) in [
             ("\n", "\n"),
             ("\r\n", "\r\n"),
             ("\r", "\r"),
-            // CRLF split inside a single line ending.
-            ("\r\n\r", "\n"),
         ] {
             let (map, token) = map_with("acme-corp");
             let mut rehydrator = SseStreamRehydrator::new(map);
@@ -861,6 +858,29 @@ mod tests {
                 "next event after overflow must restore, terminator {terminator_first:?}{terminator_rest:?}: {text}"
             );
             assert!(rehydrator.finish().is_empty());
+        }
+    }
+
+    #[test]
+    fn stream_rehydrator_restores_event_with_terminator_split_at_any_point() {
+        // The incremental cursor must re-examine the whole pending
+        // terminator prefix: every split position of `\r\n\r\n` and `\r\r`
+        // still yields the event on the second chunk, without overflow.
+        for terminator in ["\r\n\r\n", "\r\r", "\n\n"] {
+            let (map, token) = map_with("acme-corp");
+            let event = format!("{delta}{terminator}", delta = delta_event(&token));
+            for split in 0..=terminator.len() {
+                let (head, tail) = event.split_at(event.len() - terminator.len() + split);
+                let mut rehydrator = SseStreamRehydrator::new(map.clone());
+                let mut out = rehydrator.feed(head.as_bytes());
+                out.extend(rehydrator.feed(tail.as_bytes()));
+                out.extend(rehydrator.finish());
+                let text = String::from_utf8(out).unwrap();
+                assert!(
+                    text.contains("acme-corp"),
+                    "terminator {terminator:?} split at {split}: {text}"
+                );
+            }
         }
     }
 
