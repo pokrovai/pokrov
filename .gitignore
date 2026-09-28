@@ -14,5 +14,8 @@ Thumbs.db
 *.swp
 .vscode/
 /models/**
+# Keep the directory itself in git so `COPY models ./models` in the Dockerfile
+# works even when no pre-downloaded models are present.
+!/models/.gitkeep
 /tmp/*
 /env/*
