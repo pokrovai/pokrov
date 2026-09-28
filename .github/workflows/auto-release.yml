@@ -1,0 +1,69 @@
+name: Auto Release
+
+# Versions from Conventional Commits merged since the last v* tag:
+# BREAKING CHANGE or `!:` -> major, `feat:` -> minor, anything else -> patch.
+# The tag is pushed by GITHUB_TOKEN, which cannot retrigger push-based
+# workflows, so the Release workflow is invoked explicitly through
+# workflow_dispatch with the tag as input.
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: auto-release-master
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compute next tag
+        id: tag
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --quiet
+          if git tag --points-at HEAD | grep -qE '^v[0-9]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          last=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
+          if [ -z "$last" ]; then
+            next="v0.1.0"
+          else
+            base="${last#v}"
+            IFS=. read -r major minor patch <<<"$base"
+            if git log --format=%B "$last..HEAD" | grep -qiE 'BREAKING[ -]CHANGE' \
+              || git log --format=%s "$last..HEAD" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:'; then
+              major=$((major + 1)); minor=0; patch=0
+            elif git log --format=%s "$last..HEAD" | grep -qiE '^feat(\([^)]*\))?:'; then
+              minor=$((minor + 1)); patch=0
+            else
+              patch=$((patch + 1))
+            fi
+            next="v${major}.${minor}.${patch}"
+          fi
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "next tag: $next"
+
+      - name: Push tag
+        if: steps.tag.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git tag -a "${{ steps.tag.outputs.next }}" -m "Release ${{ steps.tag.outputs.next }}" HEAD
+          git push origin "${{ steps.tag.outputs.next }}"
+
+      - name: Trigger release workflow
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --ref master -f tag="${{ steps.tag.outputs.next }}"
