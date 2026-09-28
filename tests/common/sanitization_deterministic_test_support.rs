@@ -20,6 +20,7 @@ pub fn payment_card_recognizer_fixture() -> DeterministicRecognizerConfig {
         }],
         denylist_exact: vec!["9999 0000 0000 0000".to_string()],
         allowlist_exact: vec!["4111 1111 1111 1111".to_string()],
+        replacement: None,
         context: None,
     }
 }

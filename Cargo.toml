@@ -42,6 +42,8 @@ uuid = { version = "1.16.0", features = ["serde", "v4"] }
 
 [dev-dependencies]
 axum = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
 pokrov-api = { path = "crates/pokrov-api" }
 pokrov-config = { path = "crates/pokrov-config" }
 pokrov-core = { path = "crates/pokrov-core" }

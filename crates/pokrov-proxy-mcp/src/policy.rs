@@ -14,6 +14,10 @@ pub struct ResolvedToolCall {
     pub upstream: McpUpstreamRequestContext,
     pub argument_policy: Option<McpToolPolicy>,
     pub output_sanitization: bool,
+    /// When true, tool arguments pass through the sanitization engine before
+    /// upstream dispatch; `[PKV_TOKEN]` rule hits produce a call-scoped
+    /// rehydration map applied to the tool output.
+    pub sanitize_arguments: bool,
 }
 
 pub fn resolve_tool_call(
@@ -72,6 +76,11 @@ pub fn resolve_tool_call(
         .and_then(|policy| policy.output_sanitization)
         .unwrap_or(config.defaults.output_sanitization);
 
+    let sanitize_arguments = tool_policy
+        .as_ref()
+        .and_then(|policy| policy.sanitize_arguments)
+        .unwrap_or(config.defaults.sanitize_arguments);
+
     Ok(ResolvedToolCall {
         decision: McpToolPolicyDecision {
             profile_id: profile_id.to_string(),
@@ -90,6 +99,7 @@ pub fn resolve_tool_call(
         },
         argument_policy: tool_policy,
         output_sanitization,
+        sanitize_arguments,
     })
 }
 
@@ -113,6 +123,7 @@ mod tests {
                 profile_id: "strict".to_string(),
                 upstream_timeout_ms: 10_000,
                 output_sanitization: true,
+                sanitize_arguments: false,
             },
             servers: vec![McpServerDefinition {
                 id: "repo-tools".to_string(),
@@ -127,6 +138,7 @@ mod tests {
                         argument_schema: None,
                         argument_constraints: ToolArgumentConstraints::default(),
                         output_sanitization: Some(true),
+                        sanitize_arguments: None,
                     },
                 )]),
             }],

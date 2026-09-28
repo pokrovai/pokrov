@@ -17,6 +17,13 @@ pub trait RuntimeMetricsHooks: Send + Sync {
     fn on_rule_hits(&self, _hits: u32) {}
     fn on_payload_transformed(&self, _count: u32) {}
     fn on_evaluation_blocked(&self) {}
+    /// Spans replaced by `[PKV_TOKEN]` pseudonyms (counts only, never values).
+    fn on_tokenized_spans(&self, _count: u32) {}
+    /// Token occurrences restored on the response path.
+    fn on_rehydrated_tokens(&self, _count: u32) {}
+    /// `__PKV_` markers observed on the response path that matched no known
+    /// token (mutated or foreign tokens left visible to the client).
+    fn on_unrestored_tokens(&self, _count: u32) {}
     fn on_llm_final_action(&self, _action: PolicyAction) {}
     fn on_llm_blocked_request(&self) {}
     fn on_llm_upstream_status(&self, _status: u16) {}

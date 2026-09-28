@@ -42,7 +42,7 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
     validate_api_key_bindings(&config.security.api_keys, &mut issues);
     validate_sanitization(config, &mut issues);
     validate_llm(config.llm.as_ref(), &mut issues);
-    validate_mcp(config.mcp.as_ref(), &mut issues);
+    validate_mcp(config.mcp.as_ref(), config.sanitization.enabled, &mut issues);
     validate_rate_limit(&config.rate_limit, &mut issues);
     validate_identity(config, &mut issues);
 
@@ -280,6 +280,76 @@ fn validate_sanitization(config: &RuntimeConfig, issues: &mut Vec<ValidationIssu
     validate_profile("minimal", &config.sanitization.profiles.minimal, issues);
     validate_profile("strict", &config.sanitization.profiles.strict, issues);
     validate_profile("custom", &config.sanitization.profiles.custom, issues);
+    validate_rehydration_key(config, issues);
+}
+
+/// Minimum resolved length of `sanitization.rehydration_key` material.
+/// Tokens are HMAC-SHA256 over fragments; 16 bytes (128-bit) is the floor
+/// against offline brute force on a known fragment/token pair, with 32+ bytes
+/// recommended for real deployments.
+const MIN_REHYDRATION_KEY_BYTES: usize = 16;
+
+// The `[PKV_TOKEN]` sentinel requires resolvable key material; otherwise
+// deterministic token derivation is impossible and the engine fails closed.
+fn validate_rehydration_key(config: &RuntimeConfig, issues: &mut Vec<ValidationIssue>) {
+    let marker_used = [
+        ("minimal", &config.sanitization.profiles.minimal),
+        ("strict", &config.sanitization.profiles.strict),
+        ("custom", &config.sanitization.profiles.custom),
+    ]
+    .into_iter()
+    .any(|(_, profile)| profile_uses_reversible_marker(profile));
+
+    if !marker_used {
+        return;
+    }
+
+    let Some(raw) = config.sanitization.rehydration_key.as_deref() else {
+        issues.push(ValidationIssue::new(
+            "sanitization.rehydration_key",
+            "must be set when any profile uses [PKV_TOKEN] replacement",
+        ));
+        return;
+    };
+
+    let Some(secret_ref) = SecretRef::parse(raw) else {
+        issues.push(ValidationIssue::new(
+            "sanitization.rehydration_key",
+            "must use env:VAR or file:/path format",
+        ));
+        return;
+    };
+
+    // Resolution is checked here so bootstrap reports the real failure —
+    // a configured-but-unresolvable reference — instead of a misleading
+    // "key not configured" from the engine layer.
+    let Some(resolved) = secret_ref.resolve() else {
+        issues.push(ValidationIssue::new(
+            "sanitization.rehydration_key",
+            "references a secret that cannot be resolved (env var unset/empty or file unreadable)",
+        ));
+        return;
+    };
+
+    // HMAC-SHA256 accepts arbitrary key lengths, but tokens are public
+    // ciphertext: a short key is brute-forceable from a single known
+    // fragment/token pair, which would let an attacker derive tokens for
+    // arbitrary fragments and probe the sanitization boundary. The message
+    // never echoes key material or its real length.
+    if resolved.len() < MIN_REHYDRATION_KEY_BYTES {
+        issues.push(ValidationIssue::new(
+            "sanitization.rehydration_key",
+            "resolved key material is too short; provide at least 16 bytes (32+ recommended)",
+        ));
+    }
+}
+
+fn profile_uses_reversible_marker(profile: &SanitizationProfile) -> bool {
+    profile.custom_rules.iter().any(|rule| {
+        rule.replacement.as_deref() == Some(pokrov_core::rehydrate::REVERSIBLE_TEMPLATE)
+    }) || profile.deterministic_recognizers.iter().any(|recognizer| {
+        recognizer.replacement.as_deref() == Some(pokrov_core::rehydrate::REVERSIBLE_TEMPLATE)
+    })
 }
 
 fn validate_profile(
@@ -391,6 +461,15 @@ fn validate_deterministic_recognizers(
                     "must be greater than zero",
                 ));
             }
+        }
+
+        if recognizer.action == pokrov_core::types::PolicyAction::Replace
+            && recognizer.replacement.is_none()
+        {
+            issues.push(ValidationIssue::new(
+                format!("{base_path}.replacement"),
+                "is required when action=replace",
+            ));
         }
     }
 }
@@ -551,10 +630,37 @@ fn validate_llm(config: Option<&LlmConfig>, issues: &mut Vec<ValidationIssue>) {
     }
 }
 
-fn validate_mcp(config: Option<&McpConfig>, issues: &mut Vec<ValidationIssue>) {
+fn validate_mcp(
+    config: Option<&McpConfig>,
+    sanitization_enabled: bool,
+    issues: &mut Vec<ValidationIssue>,
+) {
     let Some(config) = config else {
         return;
     };
+
+    // `sanitize_arguments` promises pseudonymized tool arguments; without the
+    // sanitization engine the handler would forward raw arguments upstream.
+    // Reject the misconfiguration at load time — the MCP handler also fails
+    // closed at runtime as a second barrier.
+    if !sanitization_enabled {
+        if config.defaults.sanitize_arguments {
+            issues.push(ValidationIssue::new(
+                "mcp.defaults.sanitize_arguments",
+                "requires sanitization.enabled: true",
+            ));
+        }
+        for (idx, server) in config.servers.iter().enumerate() {
+            for (tool, policy) in &server.tools {
+                if policy.sanitize_arguments == Some(true) {
+                    issues.push(ValidationIssue::new(
+                        format!("mcp.servers[{idx}].tools.{tool}.sanitize_arguments"),
+                        "requires sanitization.enabled: true",
+                    ));
+                }
+            }
+        }
+    }
 
     if config.servers.is_empty() {
         issues.push(ValidationIssue::new("mcp.servers", "must contain at least one server"));

@@ -14,6 +14,7 @@ use crate::{
 fn engine_with_single_profile(profile: PolicyProfile) -> SanitizationEngine {
     SanitizationEngine::new(EvaluatorConfig {
         default_profile: profile.profile_id.clone(),
+        rehydration_key: None,
         profiles: BTreeMap::from([(profile.profile_id.clone(), profile)]),
     })
     .expect("engine should build")
@@ -83,8 +84,12 @@ fn engine() -> SanitizationEngine {
         ("custom".to_string(), custom),
     ]);
 
-    SanitizationEngine::new(EvaluatorConfig { default_profile: "strict".to_string(), profiles })
-        .expect("engine should build")
+    SanitizationEngine::new(EvaluatorConfig {
+        default_profile: "strict".to_string(),
+        rehydration_key: None,
+        profiles,
+    })
+    .expect("engine should build")
 }
 
 #[test]
@@ -417,4 +422,169 @@ fn deterministic_candidates_total_counts_only_deterministic_hits() {
 
     assert!(result.decision.rule_hits_total > result.decision.deterministic_candidates_total);
     assert_eq!(result.decision.deterministic_candidates_total, 1);
+}
+
+fn marker_rule() -> CustomRule {
+    CustomRule {
+        rule_id: "custom.org_marker".to_string(),
+        category: DetectionCategory::Custom,
+        pattern: "acme-corp".to_string(),
+        action: PolicyAction::Replace,
+        priority: 100,
+        replacement_template: Some(crate::rehydrate::REVERSIBLE_TEMPLATE.to_string()),
+        enabled: true,
+        deterministic: None,
+    }
+}
+
+fn allow_all_profile(custom_rules: Vec<CustomRule>) -> PolicyProfile {
+    PolicyProfile {
+        profile_id: "strict".to_string(),
+        mode_default: EvaluationMode::Enforce,
+        category_actions: CategoryActions {
+            secrets: PolicyAction::Allow,
+            pii: PolicyAction::Allow,
+            corporate_markers: PolicyAction::Allow,
+            custom: PolicyAction::Allow,
+        },
+        mask_visible_suffix: 4,
+        max_hits_per_request: 4096,
+        custom_rules_enabled: true,
+        custom_rules,
+        ner_enabled: false,
+    }
+}
+
+#[test]
+fn engine_fails_closed_when_marker_rule_has_no_key() {
+    let result = SanitizationEngine::new(EvaluatorConfig {
+        default_profile: "strict".to_string(),
+        rehydration_key: None,
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
+    });
+
+    assert!(result.is_err(), "marker rules without key material must fail closed");
+}
+
+#[test]
+fn evaluate_without_map_degrades_marker_to_replaced() {
+    // `evaluate` drops the rehydration map, so minting a token there would
+    // produce an unrestorable orphan; the marker must degrade visibly instead.
+    let engine = SanitizationEngine::new(EvaluatorConfig {
+        default_profile: "strict".to_string(),
+        rehydration_key: Some("unit-rehydration-key".to_string()),
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
+    })
+    .expect("engine should build with key material");
+
+    let result = engine
+        .evaluate(EvaluateRequest {
+            request_id: "r-out".to_string(),
+            profile_id: "strict".to_string(),
+            mode: EvaluationMode::Enforce,
+            payload: json!({"message": "use acme-corp-utils"}),
+            path_class: PathClass::Direct,
+            effective_language: "en".to_string(),
+            entity_scope_filters: Vec::new(),
+            recognizer_family_filters: Vec::new(),
+            allowlist_additions: Vec::new(),
+        })
+        .expect("evaluation passes");
+
+    let text = serde_json::to_string(
+        result.transform.sanitized_payload.as_ref().expect("payload transformed"),
+    )
+    .expect("payload serializes");
+    assert!(text.contains("[REPLACED]"), "orphan-safe fallback must be visible: {text}");
+    assert!(!text.contains("__PKV_"));
+    assert!(!text.contains("acme-corp"));
+}
+
+#[test]
+fn evaluate_with_rehydration_round_trips_marker_fragments() {
+    let engine = SanitizationEngine::new(EvaluatorConfig {
+        default_profile: "strict".to_string(),
+        rehydration_key: Some("unit-rehydration-key".to_string()),
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
+    })
+    .expect("engine should build with key material");
+
+    let request = |id: &str| EvaluateRequest {
+        request_id: id.to_string(),
+        profile_id: "strict".to_string(),
+        mode: EvaluationMode::Enforce,
+        payload: json!({"message": "use acme-corp-utils and acme-corp again"}),
+        path_class: PathClass::Direct,
+        effective_language: "en".to_string(),
+        entity_scope_filters: Vec::new(),
+        recognizer_family_filters: Vec::new(),
+        allowlist_additions: Vec::new(),
+    };
+
+    let first = engine.evaluate_with_rehydration(request("r-1")).expect("evaluation passes");
+    let sanitized = first
+        .result
+        .transform
+        .sanitized_payload
+        .as_ref()
+        .expect("marker rule must transform the payload");
+    let sanitized_text = serde_json::to_string(sanitized).expect("payload serializes");
+    assert!(!sanitized_text.contains("acme-corp"));
+    assert!(sanitized_text.contains("__PKV_"));
+    assert_eq!(first.rehydration.spans_total(), 2);
+
+    // Deterministic derivation: a fresh request re-derives the same token and
+    // rebuilds the map without any persisted state.
+    let second = engine.evaluate_with_rehydration(request("r-2")).expect("evaluation passes");
+    let second_text = serde_json::to_string(
+        second.result.transform.sanitized_payload.as_ref().expect("payload transformed"),
+    )
+    .expect("payload serializes");
+    assert_eq!(sanitized_text, second_text);
+
+    // Audit and explain artifacts must never contain original fragments or
+    // token mappings.
+    let audit = serde_json::to_string(&first.result.audit).expect("audit serializes");
+    let explain = serde_json::to_string(&first.result.explain).expect("explain serializes");
+    assert!(!audit.contains("acme-corp"));
+    assert!(!explain.contains("acme-corp"));
+}
+
+#[test]
+fn evaluate_with_rehydration_restores_tokens_over_json_leaves() {
+    let engine = SanitizationEngine::new(EvaluatorConfig {
+        default_profile: "strict".to_string(),
+        rehydration_key: Some("unit-rehydration-key".to_string()),
+        profiles: BTreeMap::from([("strict".to_string(), allow_all_profile(vec![marker_rule()]))]),
+    })
+    .expect("engine should build with key material");
+
+    let outcome = engine
+        .evaluate_with_rehydration(EvaluateRequest {
+            request_id: "r-rt".to_string(),
+            profile_id: "strict".to_string(),
+            mode: EvaluationMode::Enforce,
+            payload: json!({"message": "use acme-corp-utils"}),
+            path_class: PathClass::Direct,
+            effective_language: "en".to_string(),
+            entity_scope_filters: Vec::new(),
+            recognizer_family_filters: Vec::new(),
+            allowlist_additions: Vec::new(),
+        })
+        .expect("evaluation passes");
+
+    let sanitized = outcome.result.transform.sanitized_payload.expect("transformed");
+    let message = sanitized["message"].as_str().expect("string leaf");
+    let token = message
+        .strip_prefix("use ")
+        .and_then(|text| text.strip_suffix("-utils"))
+        .expect("tokenized message embeds a __PKV_ token");
+    assert!(token.starts_with("__PKV_"));
+
+    let upstream_echo = json!({"choices": [{"content": format!("use {token}::init")}]});
+    let (restored, report) = crate::rehydrate::rehydrate_value(upstream_echo, &outcome.rehydration);
+
+    assert_eq!(restored["choices"][0]["content"], "use acme-corp::init");
+    assert_eq!(report.restored, 1);
+    assert_eq!(report.unrestored, 0);
 }

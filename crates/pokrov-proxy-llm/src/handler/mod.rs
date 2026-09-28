@@ -2,12 +2,15 @@ use std::{sync::Arc, time::Instant};
 
 use pokrov_config::{model::ResponseMetadataMode, normalize_model_key, UpstreamAuthMode};
 use pokrov_core::{
+    rehydrate::{rehydrate_value, RehydrationMap},
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
 };
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
 use serde_json::Value;
 
+#[cfg(feature = "llm_payload_trace")]
+use crate::trace::LlmPayloadTraceSink;
 use crate::{
     audit::LLMAuditEvent,
     errors::LLMProxyError,
@@ -21,8 +24,6 @@ use crate::{
     },
     upstream::UpstreamClient,
 };
-#[cfg(feature = "llm_payload_trace")]
-use crate::trace::LlmPayloadTraceSink;
 use support::{
     attach_pokrov_metadata, attach_request_id, max_action, mode_as_str, ResponseMetadataContext,
     TerminalEvent,
@@ -44,6 +45,9 @@ struct ErrorEventContext<'a> {
     upstream_status: Option<u16>,
     auth_mode: &'a str,
     credential_origin: UpstreamCredentialOrigin,
+    tokenized_spans_total: u32,
+    rehydrated_tokens_total: u32,
+    unrestored_tokens_total: u32,
 }
 
 #[derive(Clone)]
@@ -67,13 +71,7 @@ impl LLMProxyHandler {
         #[cfg(feature = "llm_payload_trace")]
         let upstream = upstream.with_payload_trace_sink(payload_trace_sink);
 
-        Ok(Self {
-            evaluator,
-            metrics,
-            routes: Arc::new(routes),
-            upstream,
-            response_metadata_mode,
-        })
+        Ok(Self { evaluator, metrics, routes: Arc::new(routes), upstream, response_metadata_mode })
     }
 
     pub fn routes_loaded(&self) -> bool {
@@ -173,10 +171,11 @@ impl LLMProxyHandler {
         let mut total_hits = 0u32;
         let mut sanitized_input = false;
         let mut sanitized_payload = envelope.original_payload.clone();
+        let mut rehydration_map = RehydrationMap::new();
 
         if let Some(evaluator) = self.evaluator.as_ref() {
-            let input_eval = evaluator
-                .evaluate(EvaluateRequest {
+            let outcome = evaluator
+                .evaluate_with_rehydration(EvaluateRequest {
                     request_id: request_id.clone(),
                     profile_id: profile_id.clone(),
                     mode: EvaluationMode::Enforce,
@@ -193,6 +192,8 @@ impl LLMProxyHandler {
                         format!("failed to evaluate input policy: {error}"),
                     )
                 })?;
+            rehydration_map = outcome.rehydration;
+            let input_eval = outcome.result;
 
             final_action = max_action(final_action, input_eval.decision.final_action);
             total_hits = total_hits.saturating_add(input_eval.decision.rule_hits_total);
@@ -202,6 +203,9 @@ impl LLMProxyHandler {
             self.metrics.on_payload_transformed(input_eval.transform.transformed_fields_count);
             if input_eval.transform.blocked {
                 self.metrics.on_evaluation_blocked();
+            }
+            if rehydration_map.spans_total() > 0 {
+                self.metrics.on_tokenized_spans(rehydration_map.spans_total());
             }
 
             if input_eval.transform.blocked {
@@ -224,6 +228,9 @@ impl LLMProxyHandler {
                     estimated_token_units,
                     auth_mode: mode_as_str(auth_mode),
                     credential_origin: UpstreamCredentialOrigin::Config,
+                    tokenized_spans_total: rehydration_map.spans_total(),
+                    rehydrated_tokens_total: 0,
+                    unrestored_tokens_total: 0,
                 });
                 return Err(error);
             }
@@ -235,7 +242,8 @@ impl LLMProxyHandler {
         }
 
         override_payload_model(&mut sanitized_payload, &route.canonical_model);
-        let selected_credential = select_upstream_credential(auth_mode, &route, upstream_credential);
+        let selected_credential =
+            select_upstream_credential(auth_mode, &route, upstream_credential);
         if selected_credential.is_none() && matches!(auth_mode, UpstreamAuthMode::Passthrough) {
             return Err(LLMProxyError::invalid_request(
                 request_id.clone(),
@@ -265,6 +273,7 @@ impl LLMProxyHandler {
                     auth_mode,
                     credential_origin,
                     upstream_credential.clone(),
+                    rehydration_map,
                 )
                 .await;
         }
@@ -284,6 +293,7 @@ impl LLMProxyHandler {
             auth_mode,
             credential_origin,
             upstream_credential,
+            rehydration_map,
         )
         .await
     }
@@ -325,15 +335,12 @@ impl LLMProxyHandler {
         auth_mode: UpstreamAuthMode,
         credential_origin: UpstreamCredentialOrigin,
         upstream_credential: Option<String>,
+        rehydration_map: RehydrationMap,
     ) -> Result<LLMProxyResponse, LLMProxyError> {
+        let tokenized_spans_total = rehydration_map.spans_total();
         let upstream = self
             .upstream
-            .execute_json(
-                &request_id,
-                &route,
-                &sanitized_payload,
-                upstream_credential.as_deref(),
-            )
+            .execute_json(&request_id, &route, &sanitized_payload, upstream_credential.as_deref())
             .await;
 
         let UpstreamJsonResponse { status, mut body } = match upstream {
@@ -353,6 +360,9 @@ impl LLMProxyHandler {
                         upstream_status: error.upstream_status(),
                         auth_mode: mode_as_str(auth_mode),
                         credential_origin,
+                        tokenized_spans_total,
+                        rehydrated_tokens_total: 0,
+                        unrestored_tokens_total: 0,
                     },
                     &error,
                 );
@@ -405,6 +415,9 @@ impl LLMProxyHandler {
                             upstream_status: Some(status.as_u16()),
                             auth_mode: mode_as_str(auth_mode),
                             credential_origin,
+                            tokenized_spans_total,
+                            rehydrated_tokens_total: 0,
+                            unrestored_tokens_total: 0,
                         },
                         &error,
                     );
@@ -436,6 +449,16 @@ impl LLMProxyHandler {
         #[cfg(feature = "llm_payload_trace")]
         self.upstream.emit_response_trace(&request_id, &route, endpoint, &body);
 
+        // Rehydration runs strictly after output policy evaluation and payload
+        // tracing so restored originals are never re-scanned or traced.
+        let (body, report) = rehydrate_value(body, &rehydration_map);
+        if report.restored > 0 {
+            self.metrics.on_rehydrated_tokens(report.restored);
+        }
+        if report.unrestored > 0 {
+            self.metrics.on_unrestored_tokens(report.unrestored);
+        }
+
         self.emit_terminal_event(TerminalEvent {
             request_id: &request_id,
             endpoint,
@@ -451,6 +474,9 @@ impl LLMProxyHandler {
             estimated_token_units,
             auth_mode: mode_as_str(auth_mode),
             credential_origin,
+            tokenized_spans_total,
+            rehydrated_tokens_total: report.restored,
+            unrestored_tokens_total: report.unrestored,
         });
 
         Ok(LLMProxyResponse { request_id, status, body: LLMProxyBody::Json(body) })
@@ -472,6 +498,9 @@ impl LLMProxyHandler {
             estimated_token_units: 0,
             auth_mode: context.auth_mode,
             credential_origin: context.credential_origin,
+            tokenized_spans_total: context.tokenized_spans_total,
+            rehydrated_tokens_total: context.rehydrated_tokens_total,
+            unrestored_tokens_total: context.unrestored_tokens_total,
         });
     }
 
@@ -491,6 +520,9 @@ impl LLMProxyHandler {
             estimated_token_units: event.estimated_token_units,
             auth_mode: event.auth_mode.to_string(),
             credential_origin: event.credential_origin,
+            tokenized_spans_total: event.tokenized_spans_total,
+            rehydrated_tokens_total: event.rehydrated_tokens_total,
+            unrestored_tokens_total: event.unrestored_tokens_total,
         };
         audit.emit();
 

@@ -216,6 +216,7 @@ rate_limit:
 sanitization:
   enabled: true
   default_profile: strict
+  rehydration_key: env:POKROV_REHYDRATION_KEY
   profiles:
     minimal:
       mode_default: enforce
@@ -262,6 +263,7 @@ sanitization:
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `true` | Enable sanitization engine. |
 | `default_profile` | `string` | `strict` | Default profile used when request does not specify one. |
+| `rehydration_key` | `string?` | `null` | Secret ref (`env:VAR` or `file:PATH`) for deterministic `[PKV_TOKEN]` derivation. Required when any profile uses the reversible sentinel; startup fails closed otherwise. Resolved material must be at least 16 bytes (32+ recommended). Never store the key in plaintext. |
 | `profiles` | _object_ | see below | Three fixed profiles: `minimal`, `strict`, `custom`. |
 
 ### Profile fields
@@ -308,8 +310,47 @@ custom_rules:
 | `pattern` | `string` | _required_ | Regex pattern. Applied to string leaves in JSON payload. |
 | `action` | `enum` | _required_ | Policy action: `allow`, `mask`, `replace`, `redact`, `block`. |
 | `priority` | `u16` | `100` | Rule priority. Higher wins when rules overlap. |
-| `replacement` | `string?` | `null` | Replacement template for `replace` action. Required when `action: replace`. Supports `{match}` placeholder. |
+| `replacement` | `string?` | `null` | Replacement template for `replace` action. Required when `action: replace`. Supports `{match}` placeholder. Special values: `"[ID_HASH]"` (stable hash marker), `"[PKV_TOKEN]"` (reversible token, see below). |
 | `enabled` | `bool` | `true` | Whether the rule is active. |
+
+### Reversible tokenization (`[PKV_TOKEN]`)
+
+Rules with `action: replace` and `replacement: "[PKV_TOKEN]"` substitute the
+matched fragment with a deterministic keyed pseudonym (`__PKV_<hex64>__`,
+optionally `_c<hex>` collision suffix) before the payload leaves for the LLM
+provider or MCP server. On the response path the proxy restores original
+values after output policy evaluation, on all LLM response shapes (JSON,
+buffered SSE, raw SSE passthrough) and for MCP tool outputs.
+
+```yaml
+sanitization:
+  rehydration_key: env:POKROV_REHYDRATION_KEY
+  profiles:
+    custom:
+      custom_rules:
+        - id: custom.org_marker
+          category: corporate_markers
+          pattern: "(?i)acme-corp"
+          action: replace
+          replacement: "[PKV_TOKEN]"
+          priority: 900
+          enabled: true
+```
+
+Notes:
+
+- Token derivation uses HMAC-SHA256 keyed by `sanitization.rehydration_key`;
+  the same fragment maps to the same token across requests, so upstream
+  prompt caches stay valid. The token map itself is rebuilt per request and
+  never persisted, logged, or serialized.
+- Startup validation fails closed: a profile using `[PKV_TOKEN]` without a
+  resolvable `rehydration_key` is a config error.
+- A fragment the client never sent is never restored: values first observed
+  in upstream output stay governed by the output policy.
+- Token-mutating model output (case changes, split tokens) stays visible as
+  `__PKV_...__`; fuzzy restore is out of scope. Such leftover markers are
+  counted by the `unrestored_tokens_total` metric and audit field.
+- NER-derived hits do not participate in reversible tokenization in v1.
 
 ### deterministic_recognizers
 
@@ -349,6 +390,7 @@ deterministic_recognizers:
 | `denylist_exact` | `array` | `[]` | Exact-match deny list. Matches are anchored to full value (automatic `\A...\z`). Priority = `family_priority + 1000`. |
 | `allowlist_exact` | `array` | `[]` | Exact-match allow list. Deny-listed values in the allow list are suppressed. |
 | `context` | `object?` | `null` | Context-aware scoring. Adjusts priority based on nearby terms. |
+| `replacement` | `string?` | `null` | Replacement template propagated to all generated rules. Required when `action: replace`; `"[PKV_TOKEN]"` enables reversible tokenization. |
 
 #### Pattern fields
 
@@ -584,6 +626,7 @@ mcp:
 | `profile_id` | `string` | _required_ | Default sanitization profile for MCP tool calls and outputs. |
 | `upstream_timeout_ms` | `u64` | `10000` | Upstream MCP server timeout (ms). |
 | `output_sanitization` | `bool` | `true` | Whether to sanitize tool call responses. |
+| `sanitize_arguments` | `bool` | `false` | Sanitize tool arguments before upstream dispatch. Off by default: `[PKV_TOKEN]`-tokenized arguments reach tools as pseudonyms and can break tools that consume values functionally. |
 
 ### Server fields
 
@@ -604,6 +647,7 @@ mcp:
 | `argument_schema` | `value?` | `null` | Optional JSON Schema for argument validation. |
 | `argument_constraints` | `object` | see below | Argument-level constraints. |
 | `output_sanitization` | `bool?` | `null` | Override default output sanitization for this tool. |
+| `sanitize_arguments` | `bool?` | `null` | Override `mcp.defaults.sanitize_arguments` for this tool. When enabled, tool outputs restore only tokens minted from this call's arguments. |
 
 ### Argument constraint fields
 

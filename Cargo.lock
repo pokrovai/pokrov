@@ -1471,6 +1471,8 @@ name = "pokrov"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
+ "futures-util",
  "pokrov-api",
  "pokrov-config",
  "pokrov-core",
@@ -1530,6 +1532,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "time",
  "tracing",

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::{
+    rehydrate::{RehydrationContext, REVERSIBLE_TEMPLATE},
     traversal::map_string_leaves,
     types::{PolicyAction, ResolvedSpan, TransformResult},
 };
@@ -12,6 +13,7 @@ pub fn apply_transforms(
     resolved_spans: &[ResolvedSpan],
     final_action: PolicyAction,
     mask_visible_suffix: u8,
+    mut rehydration: Option<RehydrationContext<'_>>,
 ) -> TransformResult {
     if final_action == PolicyAction::Block {
         return TransformResult {
@@ -40,8 +42,10 @@ pub fn apply_transforms(
                 return text.to_string();
             };
 
-            apply_spans(text, spans, mask_visible_suffix)
+            apply_spans(text, spans, mask_visible_suffix, rehydration.as_mut())
         });
+
+    let tokenized = rehydration.as_ref().is_some_and(|context| !context.map.is_empty());
 
     TransformResult {
         final_action,
@@ -50,17 +54,25 @@ pub fn apply_transforms(
         transformed_fields_count,
         transform_metadata: if transformed_fields_count == 0 {
             vec!["pass_through".to_string()]
+        } else if tokenized {
+            vec!["json_string_leaf_mutation".to_string(), "reversible_tokenization".to_string()]
         } else {
             vec!["json_string_leaf_mutation".to_string()]
         },
     }
 }
 
-fn apply_spans(text: &str, spans: &[&ResolvedSpan], mask_visible_suffix: u8) -> String {
+fn apply_spans(
+    text: &str,
+    spans: &[&ResolvedSpan],
+    mask_visible_suffix: u8,
+    rehydration: Option<&mut RehydrationContext<'_>>,
+) -> String {
     if spans.is_empty() {
         return text.to_string();
     }
 
+    let mut rehydration = rehydration;
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0;
 
@@ -80,6 +92,7 @@ fn apply_spans(text: &str, spans: &[&ResolvedSpan], mask_visible_suffix: u8) -> 
             span.effective_action,
             span.replacement_template.as_deref(),
             mask_visible_suffix,
+            rehydration.as_deref_mut(),
         ));
         cursor = clamped_end;
     }
@@ -96,11 +109,18 @@ fn transform_fragment(
     action: PolicyAction,
     replacement_template: Option<&str>,
     mask_visible_suffix: u8,
+    rehydration: Option<&mut RehydrationContext<'_>>,
 ) -> String {
     match action {
         PolicyAction::Allow => fragment.to_string(),
         PolicyAction::Mask => mask_fragment(fragment, mask_visible_suffix as usize),
         PolicyAction::Replace => match replacement_template {
+            Some(REVERSIBLE_TEMPLATE) => match rehydration {
+                Some(context) => context.map.token_for(context.deriver, fragment),
+                // Sentinel without a deriver degrades visibly instead of
+                // leaking the literal template into upstream payloads.
+                None => "[REPLACED]".to_string(),
+            },
             Some("[ID_HASH]") => stable_hash_replacement(fragment),
             Some(template) => template.to_string(),
             None => "[REPLACED]".to_string(),
@@ -140,7 +160,10 @@ fn mask_fragment(fragment: &str, visible_suffix: usize) -> String {
 mod tests {
     use serde_json::json;
 
-    use crate::types::{DetectionCategory, PolicyAction, ResolvedSpan};
+    use crate::{
+        rehydrate::RehydrationContext,
+        types::{DetectionCategory, PolicyAction, ResolvedSpan},
+    };
 
     use super::apply_transforms;
 
@@ -172,7 +195,7 @@ mod tests {
             },
         ];
 
-        let transformed = apply_transforms(&payload, &spans, PolicyAction::Redact, 4);
+        let transformed = apply_transforms(&payload, &spans, PolicyAction::Redact, 4, None);
 
         assert!(!transformed.blocked);
         let text = transformed
@@ -187,7 +210,7 @@ mod tests {
     #[test]
     fn block_short_circuit_removes_payload() {
         let payload = json!({"message": "secret"});
-        let transformed = apply_transforms(&payload, &[], PolicyAction::Block, 4);
+        let transformed = apply_transforms(&payload, &[], PolicyAction::Block, 4, None);
 
         assert!(transformed.blocked);
         assert!(transformed.sanitized_payload.is_none());
@@ -208,7 +231,7 @@ mod tests {
             suppressed_rule_ids: Vec::new(),
         }];
 
-        let transformed = apply_transforms(&payload, &spans, PolicyAction::Redact, 4);
+        let transformed = apply_transforms(&payload, &spans, PolicyAction::Redact, 4, None);
         let actual = transformed
             .sanitized_payload
             .as_ref()
@@ -216,5 +239,75 @@ mod tests {
             .and_then(|value| value.as_str())
             .expect("id should be present");
         assert_eq!(actual, "[ID_HASH:5ff56bf05c1d58f9]");
+    }
+
+    #[test]
+    fn reversible_template_emits_token_and_records_fragment() {
+        use crate::rehydrate::{RehydrationMap, TokenDeriver, REVERSIBLE_TEMPLATE};
+
+        let deriver = TokenDeriver::new(b"test-key");
+        let mut map = RehydrationMap::new();
+        let payload = json!({"pkg": "use acme-corp-utils::init"});
+        let spans = vec![ResolvedSpan {
+            json_pointer: "/pkg".to_string(),
+            start: 4,
+            end: 13,
+            winning_rule_id: "custom.org".to_string(),
+            category: DetectionCategory::CorporateMarkers,
+            effective_action: PolicyAction::Replace,
+            priority: 1,
+            replacement_template: Some(REVERSIBLE_TEMPLATE.to_string()),
+            suppressed_rule_ids: Vec::new(),
+        }];
+
+        let transformed = apply_transforms(
+            &payload,
+            &spans,
+            PolicyAction::Replace,
+            4,
+            Some(RehydrationContext { deriver: &deriver, map: &mut map }),
+        );
+
+        let text = transformed
+            .sanitized_payload
+            .as_ref()
+            .and_then(|value| value.get("pkg"))
+            .and_then(|value| value.as_str())
+            .expect("pkg should exist");
+        assert!(!text.contains("acme-corp"));
+        assert!(text.contains("__PKV_"));
+        assert_eq!(map.spans_total(), 1);
+        assert!(transformed
+            .transform_metadata
+            .iter()
+            .any(|marker| marker == "reversible_tokenization"));
+    }
+
+    #[test]
+    fn reversible_template_without_context_degrades_to_replaced_marker() {
+        use crate::rehydrate::REVERSIBLE_TEMPLATE;
+
+        let payload = json!({"pkg": "acme-corp"});
+        let spans = vec![ResolvedSpan {
+            json_pointer: "/pkg".to_string(),
+            start: 0,
+            end: 9,
+            winning_rule_id: "custom.org".to_string(),
+            category: DetectionCategory::CorporateMarkers,
+            effective_action: PolicyAction::Replace,
+            priority: 1,
+            replacement_template: Some(REVERSIBLE_TEMPLATE.to_string()),
+            suppressed_rule_ids: Vec::new(),
+        }];
+
+        let transformed = apply_transforms(&payload, &spans, PolicyAction::Replace, 4, None);
+
+        let text = transformed
+            .sanitized_payload
+            .as_ref()
+            .and_then(|value| value.get("pkg"))
+            .and_then(|value| value.as_str())
+            .expect("pkg should exist");
+        assert_eq!(text, "[REPLACED]");
     }
 }
