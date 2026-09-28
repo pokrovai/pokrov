@@ -59,6 +59,10 @@ jobs:
         if: steps.tag.outputs.skip != 'true'
         run: |
           set -euo pipefail
+          # Annotated tags create a tag object, so a committer identity is
+          # required; runners ship without one configured.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.tag.outputs.next }}" -m "Release ${{ steps.tag.outputs.next }}" HEAD
           git push origin "${{ steps.tag.outputs.next }}"
 
