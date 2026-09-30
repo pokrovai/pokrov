@@ -1562,6 +1562,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pokrov-prompt-injection"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "ort",
+ "pokrov-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokenizers",
+ "tracing",
+]
+
+[[package]]
 name = "pokrov-proxy-llm"
 version = "0.1.0"
 dependencies = [
@@ -1610,6 +1624,7 @@ dependencies = [
  "pokrov-core",
  "pokrov-metrics",
  "pokrov-ner",
+ "pokrov-prompt-injection",
  "pokrov-proxy-llm",
  "pokrov-proxy-mcp",
  "regex",

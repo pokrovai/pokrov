@@ -110,6 +110,7 @@ fn valid_config() -> RuntimeConfig {
         policies: None,
         llm: None,
         mcp: None,
+        prompt_injection: crate::model::PromptInjectionConfig::default(),
         rate_limit: crate::rate_limit::RateLimitConfig::default(),
         response_envelope: crate::model::ResponseEnvelopeConfig::default(),
         #[cfg(feature = "ner")]

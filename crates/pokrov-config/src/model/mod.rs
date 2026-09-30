@@ -1,6 +1,7 @@
 mod auth;
 mod llm;
 mod mcp;
+mod prompt_injection;
 mod runtime;
 mod sanitization;
 
@@ -19,6 +20,10 @@ pub use llm::{
 };
 pub use mcp::{
     McpConfig, McpDefaultsConfig, McpServerDefinition, McpToolPolicy, ToolArgumentConstraints,
+};
+pub use prompt_injection::{
+    PromptInjectionChunkingConfig, PromptInjectionConfig, PromptInjectionProviderConfig,
+    PromptInjectionSourceSetting, PromptInjectionSourcesConfig,
 };
 pub use runtime::{
     ApiKeyBinding, LlmPayloadTraceConfig, LogFormat, LogLevel, LoggingConfig, ObservabilityConfig,

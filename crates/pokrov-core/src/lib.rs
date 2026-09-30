@@ -25,6 +25,7 @@ pub mod audit;
 pub mod detection;
 pub mod dry_run;
 pub mod policy;
+pub mod prompt_injection;
 pub mod rehydrate;
 pub mod transform;
 pub mod traversal;

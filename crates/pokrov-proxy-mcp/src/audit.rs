@@ -45,6 +45,59 @@ impl McpAuditEvent {
     }
 }
 
+/// Metadata-only record of one prompt-injection evaluation. Scores are
+/// emitted as buckets; inspected text and fragments are never logged.
+#[derive(Debug, Clone)]
+pub struct McpPromptInjectionAuditEvent {
+    pub request_id: String,
+    /// Flow identifier for audit consumers; always `mcp_tool_call` in v1.
+    pub flow_type: &'static str,
+    pub server_id: String,
+    pub tool_id: String,
+    pub source: &'static str,
+    pub detector_id: String,
+    pub provider: String,
+    pub model_id: String,
+    /// `None` when detection did not complete (degraded outcome).
+    pub classification: Option<&'static str>,
+    pub score_bucket: &'static str,
+    pub threshold: f32,
+    pub decision: &'static str,
+    /// True when enforcing config would have blocked (dry_run visibility).
+    pub would_block: bool,
+    pub degraded: bool,
+    pub degraded_reason: Option<String>,
+    pub chunks_processed: u32,
+    pub duration_ms: u64,
+}
+
+impl McpPromptInjectionAuditEvent {
+    pub fn emit(&self) {
+        tracing::info!(
+            component = "mcp_proxy",
+            action = "prompt_injection_evaluated",
+            request_id = %self.request_id,
+            flow_type = self.flow_type,
+            server = %self.server_id,
+            tool = %self.tool_id,
+            source = self.source,
+            detector_id = %self.detector_id,
+            provider = %self.provider,
+            model_id = %self.model_id,
+            classification = ?self.classification,
+            score_bucket = self.score_bucket,
+            threshold = self.threshold,
+            decision = self.decision,
+            would_block = self.would_block,
+            degraded = self.degraded,
+            degraded_reason = ?self.degraded_reason,
+            chunks_processed = self.chunks_processed,
+            duration_ms = self.duration_ms,
+            "prompt injection evaluation completed"
+        );
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct McpAuthStageAuditEvent {
     pub request_id: String,

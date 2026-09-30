@@ -15,9 +15,21 @@ use pokrov_api::middleware::rate_limit::RateLimiter;
 use pokrov_config::{
     error::ConfigError,
     loader::load_runtime_config,
-    model::{LlmConfig, RuntimeConfig, SecretRef},
+    model::{
+        LlmConfig, PromptInjectionConfig, PromptInjectionProviderConfig, RuntimeConfig, SecretRef,
+    },
 };
-use pokrov_core::{types::EvaluateError, SanitizationEngine};
+use pokrov_core::{
+    prompt_injection::{
+        PromptInjectionDetector, PromptInjectionScanner, StaticPromptInjectionDetector,
+    },
+    types::EvaluateError,
+    SanitizationEngine,
+};
+#[cfg(feature = "prompt-injection")]
+use pokrov_core::prompt_injection::{PromptInjectionFailMode, PromptInjectionMode};
+#[cfg(feature = "prompt-injection")]
+use pokrov_prompt_injection::{ChunkingLimits, LocalOnnxPromptInjectionDetector};
 use pokrov_metrics::{
     hooks::{LifecycleEvent, RuntimeMetricsHooks},
     registry::RuntimeMetricsRegistry,
@@ -1004,10 +1016,107 @@ fn build_mcp_handler(
         return Ok(None);
     };
 
-    let handler = McpProxyHandler::new(evaluator, metrics, mcp_config)
+    let prompt_injection = build_prompt_injection_scanner(config)?;
+    let handler = McpProxyHandler::new(evaluator, metrics, mcp_config, prompt_injection)
         .map_err(|error| BootstrapError::McpProxy(error.to_string()))?;
 
     Ok(Some(handler))
+}
+
+/// Builds the prompt-injection scanner consumed by the MCP proxy stage.
+/// `None` disables the stage entirely (no evaluation, no audit events).
+fn build_prompt_injection_scanner(
+    config: &RuntimeConfig,
+) -> Result<Option<Arc<PromptInjectionScanner>>, BootstrapError> {
+    let pi_config = &config.prompt_injection;
+    if !pi_config.enabled {
+        return Ok(None);
+    }
+
+    let detector = build_prompt_injection_detector(pi_config)?;
+    Ok(Some(Arc::new(PromptInjectionScanner::new(pi_config.to_policy(), detector))))
+}
+
+/// Constructs the configured detector. A failed load is tolerated only when
+/// the policy cannot block anyway (`fail_open`, or `dry_run` which suppresses
+/// fail-closed); otherwise bootstrap fails loudly so an enforcing deployment
+/// never starts without its security control.
+fn build_prompt_injection_detector(
+    config: &PromptInjectionConfig,
+) -> Result<Option<Arc<dyn PromptInjectionDetector>>, BootstrapError> {
+    match &config.provider {
+        PromptInjectionProviderConfig::Static { static_match, static_score } => {
+            warn!(
+                component = "runtime",
+                action = "prompt_injection_static_provider",
+                "prompt-injection 'static' provider is a substring stub, not a \
+                 security control; use only for pipeline testing"
+            );
+            Ok(Some(Arc::new(StaticPromptInjectionDetector::new(
+                "static".to_string(),
+                static_match.clone(),
+                *static_score,
+            ))))
+        }
+        PromptInjectionProviderConfig::None => Err(BootstrapError::Security(
+            "prompt_injection.provider must be configured when enabled".to_string(),
+        )),
+        #[cfg(feature = "prompt-injection")]
+        PromptInjectionProviderConfig::Onnx {
+            model,
+            model_path,
+            tokenizer_path,
+            injection_label_index,
+            ..
+        } => {
+            let tolerate_load_failure = matches!(
+                (config.fail_mode, config.mode),
+                (PromptInjectionFailMode::FailOpen, _) | (_, PromptInjectionMode::DryRun)
+            );
+            let load_result = LocalOnnxPromptInjectionDetector::load(
+                model.clone(),
+                model_path.as_str(),
+                tokenizer_path.as_str(),
+                *injection_label_index,
+                ChunkingLimits {
+                    max_tokens: config.chunking.max_tokens,
+                    overlap_tokens: config.chunking.overlap_tokens,
+                    max_chunks: config.chunking.max_chunks,
+                },
+            );
+            match load_result {
+                Ok(detector) => {
+                    info!(
+                        component = "runtime",
+                        action = "prompt_injection_detector_ready",
+                        model_id = %model,
+                        "prompt-injection detector initialized"
+                    );
+                    Ok(Some(Arc::new(detector)))
+                }
+                Err(error) if tolerate_load_failure => {
+                    warn!(
+                        component = "runtime",
+                        action = "prompt_injection_detector_degraded",
+                        model_id = %model,
+                        error = %error,
+                        "prompt-injection detector unavailable; starting degraded"
+                    );
+                    Ok(None)
+                }
+                Err(error) => Err(BootstrapError::Security(format!(
+                    "prompt-injection detector failed to load under fail_closed enforce: {error}"
+                ))),
+            }
+        }
+        // A missing compile-time provider is a build/config mismatch, not a
+        // runtime degradation — hard error regardless of fail_mode.
+        #[cfg(not(feature = "prompt-injection"))]
+        PromptInjectionProviderConfig::Onnx { .. } => Err(BootstrapError::Security(
+            "prompt_injection.provider.type=onnx requires runtime feature 'prompt-injection'"
+                .to_string(),
+        )),
+    }
 }
 
 fn resolve_llm_provider_keys(

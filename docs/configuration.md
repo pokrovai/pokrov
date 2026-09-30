@@ -18,6 +18,7 @@ Complete reference for all YAML configuration fields in `pokrov.example.yaml`.
   - [Timeout scaling](#timeout-scaling)
   - [Model fields](#model-fields)
   - [NER profile fields](#ner-profile-fields)
+- [prompt_injection](#prompt_injection)
 - [llm](#llm)
 - [mcp](#mcp)
 - [response_envelope](#response_envelope)
@@ -523,6 +524,109 @@ The adapter automatically adjusts the effective timeout based on the execution m
 | `entity_types` | `array` | `[person, organization]` | Entity types to detect: `person`, `organization`. Controls which entities are returned by NER for this profile. |
 
 **Note:** NER is only active for profiles that have `sanitization.profiles.<name>.ner_enabled: true`. The `ner.profiles.<name>.entity_types` controls which entity types are detected, while `ner_enabled` controls whether NER runs at all for that profile.
+
+---
+
+## prompt_injection
+
+Detects direct/indirect prompt injection embedded in untrusted external content (MCP tool output in v1) before it reaches the agent/LLM. Runs as a dedicated stage on **raw** upstream output, ahead of destructive DLP sanitization.
+
+```yaml
+prompt_injection:
+  enabled: true
+  provider:
+    type: onnx
+    model: hikmaai-mdeberta-v3-base-prompt-injection-multilingual
+    model_path: ./models/prompt-injection/model.int8.onnx
+    tokenizer_path: ./models/prompt-injection/tokenizer.json
+    # injection_label_index: 1   # optional; resolved from config.json id2label
+  threshold: 0.90
+  action: block                 # allow | block
+  mode: enforce                 # enforce | dry_run
+  fail_mode: fail_closed        # fail_closed | fail_open
+  timeout_ms: 10000
+  chunking:
+    max_tokens: 512
+    overlap_tokens: 64
+    max_chunks: 32
+    max_content_bytes: 262144
+  sources:
+    mcp_tool_output: true
+    mcp_tool_description: false
+    mcp_resource: false
+    mcp_prompt: false
+    rag: false
+```
+
+`provider.type: onnx` requires the `prompt-injection` runtime feature:
+`cargo run -p pokrov-runtime --features prompt-injection`.
+`provider.type: static` is a deterministic substring-matching stub for
+pipeline/integration tests — it is **not** a security control:
+
+```yaml
+  provider:
+    type: static
+    static_match: ["ignore all previous instructions"]
+    static_score: 0.99
+```
+
+### Semantics
+
+- `score >= threshold` classifies content as `injection`. `threshold` is the
+  global default; `sources.<name>.threshold` overrides per source.
+- `action: allow` records detections without blocking (permanent
+  observe-only). `action: block` withholds content when `mode: enforce`.
+- `mode: dry_run` computes and audits decisions without applying them —
+  detections surface as `would_block` in audit. `dry_run` also suppresses
+  `fail_closed` blocking for detector infrastructure failures.
+- `fail_mode: fail_closed` withholds content when detection cannot complete
+  (detector unavailable, timeout, oversized content, content beyond the
+  `max_chunks` token budget reported as `content_truncated`, or a concurrent
+  scan already in flight reported as `detector_busy`). `fail_open` passes it
+  through marked `degraded`.
+- Only one detector inference runs at a time; calls arriving while a
+  previous (possibly timed-out) inference still occupies the session fail
+  fast as `detector_busy` instead of queueing.
+- Disabled sources pass content unchanged.
+
+Blocked calls return `403` with `code: prompt_injection_detected` and a
+metadata-only `details.source` (`mcp_tool_output`). The tool call may already
+have executed upstream; the result is withheld from the client.
+
+Audit events (`action=prompt_injection_evaluated`) and metrics are emitted for
+every completed evaluation — metadata only: detector/model ids,
+classification, score **bucket**, decision, `would_block`, `degraded`,
+`chunks_processed`, `duration_ms`. Inspected text is never logged.
+
+### Field reference
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Master switch for the stage. |
+| `provider.type` | `enum` | `none` | `onnx` (local ONNX classifier) or `static` (test stub). |
+| `provider.model` | `string` | required for onnx | Model identifier for audit/metrics labels. |
+| `provider.model_path` | `string` | required for onnx | Path to the ONNX model file. |
+| `provider.tokenizer_path` | `string` | required for onnx | Path to the HuggingFace tokenizer JSON. |
+| `provider.injection_label_index` | `u32` | auto | Positive-class logit index; resolved from `config.json` `id2label` next to the model when unset. |
+| `provider.static_match` | `array` | `[]` | Substring markers for the `static` provider; required non-empty when enabled. |
+| `provider.static_score` | `f32` | `0.99` | Score returned on marker match (`static` provider). |
+| `threshold` | `f32` | `0.9` | Injection score threshold, range `(0, 1]`. |
+| `action` | `enum` | `block` | `allow` or `block` applied to injected content. |
+| `mode` | `enum` | `enforce` | `enforce` applies decisions; `dry_run` only observes. |
+| `fail_mode` | `enum` | `fail_open` | `fail_closed` withholds unverifiable content. |
+| `timeout_ms` | `u64` | `10000` | Wall-time budget per detector call including all chunk inferences. Must exceed `max_chunks` × per-chunk model cost (~0.15 s/chunk measured on HikmaAI int8, debug build) or long content degrades as `detector_timeout`. |
+| `chunking.max_tokens` | `usize` | `512` | Model input window in tokens, including special tokens. |
+| `chunking.overlap_tokens` | `usize` | `64` | Token overlap between adjacent windows. |
+| `chunking.max_chunks` | `usize` | `32` | Max windows per text; content beyond coverage degrades as `content_truncated` per `fail_mode`. |
+| `chunking.max_content_bytes` | `usize` | `262144` | Hard cap on submitted content size in bytes. |
+| `sources.<name>` | `bool\|map` | `mcp_tool_output: true`, others `false` | Per-source enablement; map form accepts `{enabled, threshold}`. |
+
+Metrics: `pokrov_prompt_injection_evaluations_total`,
+`pokrov_prompt_injection_detected_total`,
+`pokrov_prompt_injection_blocked_total`,
+`pokrov_prompt_injection_detector_errors_total`,
+`pokrov_prompt_injection_detector_duration_seconds`,
+`pokrov_prompt_injection_chunks_total`.
 
 ---
 

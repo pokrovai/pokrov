@@ -5,6 +5,20 @@ pub fn visit_string_leaves(value: &Value, visitor: &mut dyn FnMut(&str, &str)) {
     visit_recursive(value, &mut pointer, visitor);
 }
 
+/// Concatenates every string leaf into one newline-joined text block.
+/// Whole-text classifiers (e.g. prompt injection) consume content as data
+/// regardless of field boundaries, so leaf order is preserved verbatim.
+pub fn collect_string_leaves_text(value: &Value) -> String {
+    let mut out = String::new();
+    visit_string_leaves(value, &mut |_, text| {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(text);
+    });
+    out
+}
+
 pub fn map_string_leaves(
     value: &Value,
     mapper: &mut dyn FnMut(&str, &str) -> String,

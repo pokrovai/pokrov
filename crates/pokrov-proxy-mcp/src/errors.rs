@@ -7,6 +7,7 @@ pub enum McpErrorCode {
     InvalidRequest,
     Unauthorized,
     ToolCallBlocked,
+    PromptInjectionDetected,
     ArgumentValidationFailed,
     UnsupportedVariant,
     UpstreamError,
@@ -19,6 +20,7 @@ impl McpErrorCode {
             Self::InvalidRequest => "invalid_request",
             Self::Unauthorized => "unauthorized",
             Self::ToolCallBlocked => "tool_call_blocked",
+            Self::PromptInjectionDetected => "prompt_injection_detected",
             Self::ArgumentValidationFailed => "argument_validation_failed",
             Self::UnsupportedVariant => "unsupported_variant",
             Self::UpstreamError => "upstream_error",
@@ -40,6 +42,18 @@ pub enum McpProxyError {
         tool: String,
         reason: String,
         violation_count: u32,
+    },
+    /// Tool output withheld by the prompt-injection stage. `reason` is a
+    /// bounded metadata code (`injection_detected`, `detector_unavailable`,
+    /// `content_exceeds_max_bytes`, ...) — never inspected content.
+    /// Named `source_type` because thiserror reserves `source`.
+    #[error("tool result withheld by prompt injection policy")]
+    PromptInjectionDetected {
+        request_id: String,
+        server: String,
+        tool: String,
+        source_type: String,
+        reason: String,
     },
     #[error("tool arguments failed validation")]
     ArgumentValidationFailed {
@@ -90,6 +104,22 @@ impl McpProxyError {
             tool: tool.into(),
             reason: reason.into(),
             violation_count,
+        }
+    }
+
+    pub fn prompt_injection_detected(
+        request_id: impl Into<String>,
+        server: impl Into<String>,
+        tool: impl Into<String>,
+        source_type: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self::PromptInjectionDetected {
+            request_id: request_id.into(),
+            server: server.into(),
+            tool: tool.into(),
+            source_type: source_type.into(),
+            reason: reason.into(),
         }
     }
 
@@ -178,6 +208,7 @@ impl McpProxyError {
             Self::InvalidRequest { .. } => StatusCode::BAD_REQUEST,
             Self::Unauthorized { .. } => StatusCode::UNAUTHORIZED,
             Self::ToolCallBlocked { .. } => StatusCode::FORBIDDEN,
+            Self::PromptInjectionDetected { .. } => StatusCode::FORBIDDEN,
             Self::ArgumentValidationFailed { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             Self::UnsupportedVariant { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             Self::UpstreamError { .. } => StatusCode::BAD_GATEWAY,
@@ -190,6 +221,7 @@ impl McpProxyError {
             Self::InvalidRequest { .. } => McpErrorCode::InvalidRequest,
             Self::Unauthorized { .. } => McpErrorCode::Unauthorized,
             Self::ToolCallBlocked { .. } => McpErrorCode::ToolCallBlocked,
+            Self::PromptInjectionDetected { .. } => McpErrorCode::PromptInjectionDetected,
             Self::ArgumentValidationFailed { .. } => McpErrorCode::ArgumentValidationFailed,
             Self::UnsupportedVariant { .. } => McpErrorCode::UnsupportedVariant,
             Self::UpstreamError { .. } => McpErrorCode::UpstreamError,
@@ -202,6 +234,7 @@ impl McpProxyError {
             Self::InvalidRequest { request_id, .. }
             | Self::Unauthorized { request_id, .. }
             | Self::ToolCallBlocked { request_id, .. }
+            | Self::PromptInjectionDetected { request_id, .. }
             | Self::ArgumentValidationFailed { request_id, .. }
             | Self::UnsupportedVariant { request_id, .. }
             | Self::UpstreamError { request_id, .. }
@@ -215,6 +248,9 @@ impl McpProxyError {
             | Self::Unauthorized { message, .. }
             | Self::UnsupportedVariant { message, .. } => message.clone(),
             Self::ToolCallBlocked { .. } => "Tool call blocked by policy".to_string(),
+            Self::PromptInjectionDetected { .. } => {
+                "Tool result withheld by prompt injection policy".to_string()
+            }
             Self::ArgumentValidationFailed { .. } => "Tool arguments failed validation".to_string(),
             Self::UpstreamError { .. } => "upstream request failed".to_string(),
             Self::UpstreamUnavailable { .. } => "upstream MCP server is unavailable".to_string(),
@@ -229,6 +265,16 @@ impl McpProxyError {
                     tool: Some(tool.clone()),
                     reason: Some(reason.clone()),
                     violation_count: Some(*violation_count),
+                    source: None,
+                })
+            }
+            Self::PromptInjectionDetected { server, tool, source_type, reason, .. } => {
+                Some(McpErrorDetails {
+                    server: Some(server.clone()),
+                    tool: Some(tool.clone()),
+                    reason: Some(reason.clone()),
+                    violation_count: None,
+                    source: Some(source_type.clone()),
                 })
             }
             Self::ArgumentValidationFailed { server, tool, violation_count, .. } => {
@@ -237,6 +283,7 @@ impl McpProxyError {
                     tool: Some(tool.clone()),
                     reason: Some("argument_invalid".to_string()),
                     violation_count: Some(*violation_count),
+                    source: None,
                 })
             }
             Self::UpstreamError { server, tool, .. }
@@ -245,6 +292,7 @@ impl McpProxyError {
                 tool: Some(tool.clone()),
                 reason: None,
                 violation_count: None,
+                source: None,
             }),
             Self::InvalidRequest { .. }
             | Self::Unauthorized { .. }

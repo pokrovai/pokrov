@@ -156,6 +156,51 @@ ner:
       fail_mode: fail_open
       entity_types: [person]
 
+# Prompt-injection detection on untrusted MCP tool output. Requires the
+# `prompt-injection` runtime feature for provider.type=onnx; provider.type
+# static is a deterministic substring stub for pipeline tests only.
+prompt_injection:
+  enabled: true
+  provider:
+    type: onnx
+    model: hikmaai-mdeberta-v3-base-prompt-injection-multilingual
+    model_path: ./models/prompt-injection/model.int8.onnx
+    tokenizer_path: ./models/prompt-injection/tokenizer.json
+    # Optional explicit positive-class logit index; resolved from config.json
+    # id2label next to the model file when unset.
+    # injection_label_index: 1
+  #   type: static
+  #   static_match: ["ignore all previous instructions"]
+  #   static_score: 0.99
+  threshold: 0.90                 # score >= threshold classifies as injection
+  action: block                 # allow | block
+  mode: enforce                 # enforce | dry_run (compute+audit, never block)
+  fail_mode: fail_closed        # fail_closed | fail_open
+  # Wall-time budget per detector call, covering ALL chunk inferences
+  # sequentially. Measured on HikmaAI int8 (debug build): ~0.15s per
+  # chunk → 32 chunks ≈ 5s. Release builds are several times faster, but
+  # timeout_ms must still exceed max_chunks × per-chunk cost, otherwise
+  # long outputs degrade as detector_timeout (block under fail_closed).
+  timeout_ms: 10000
+  chunking:
+    max_tokens: 512             # model window incl. special tokens
+    overlap_tokens: 64
+    # Content that does not fit into max_chunks windows degrades as
+    # `content_truncated` per fail_mode instead of silently passing.
+    max_chunks: 32
+    max_content_bytes: 262144   # hard cap on joined content size
+  sources:
+    mcp_tool_output: true
+    # Deferred until the corresponding MCP/RAG transport paths exist:
+    mcp_tool_description: false
+    mcp_resource: false
+    mcp_prompt: false
+    rag: false
+    # Per-source override form also accepted:
+    # mcp_tool_output:
+    #   enabled: true
+    #   threshold: 0.85
+
 llm:
   providers:
     - id: openai

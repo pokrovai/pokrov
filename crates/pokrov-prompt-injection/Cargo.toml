@@ -1,0 +1,21 @@
+[package]
+name = "pokrov-prompt-injection"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# NOTE: ort 2.0 has no stable release yet; pinning exact RC to avoid silent breakage.
+ort = "=2.0.0-rc.12"
+libc = "0.2"
+pokrov-core = { path = "../pokrov-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokenizers = "0.21"
+tracing = "0.1"
+
+[[bin]]
+name = "pokrov-pi-bench"
+path = "src/bin/pi_bench.rs"

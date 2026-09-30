@@ -8,6 +8,7 @@ license = "Apache-2.0"
 default = []
 ner = ["pokrov-core/ner", "pokrov-config/ner", "pokrov-ner"]
 llm_payload_trace = ["pokrov-proxy-llm/llm_payload_trace"]
+prompt-injection = ["dep:pokrov-prompt-injection"]
 
 [dependencies]
 axum = { workspace = true }
@@ -18,6 +19,7 @@ pokrov-config = { path = "../pokrov-config", features = ["ner"] }
 pokrov-core = { path = "../pokrov-core", features = ["ner"] }
 pokrov-ner = { path = "../pokrov-ner", optional = true }
 pokrov-metrics = { path = "../pokrov-metrics" }
+pokrov-prompt-injection = { path = "../pokrov-prompt-injection", optional = true }
 pokrov-proxy-llm = { path = "../pokrov-proxy-llm" }
 pokrov-proxy-mcp = { path = "../pokrov-proxy-mcp" }
 regex = { workspace = true }

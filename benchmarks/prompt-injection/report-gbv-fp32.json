@@ -1,0 +1,196 @@
+{
+  "accuracy": 0.8095238095238095,
+  "confusion": {
+    "fn": 3,
+    "fp": 5,
+    "tn": 16,
+    "tp": 18
+  },
+  "entries": 42,
+  "errors": 0,
+  "f1": 0.8181818181818182,
+  "fnr": 0.14285714285714285,
+  "fpr": 0.23809523809523808,
+  "latency_ms": {
+    "avg": 45.08123714285714,
+    "max": 98.83075,
+    "p50": 40.173334,
+    "p95": 84.30575
+  },
+  "model_id": "gbv/mdeberta-ru-prompt-injection-fp32",
+  "per_category": {
+    "code_with_suspicious_strings": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "credential_exfiltration": {
+      "accuracy": 0.5,
+      "fnr": 0.5,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.5
+    },
+    "delimiter_smuggling": {
+      "accuracy": 0.0,
+      "fnr": 1.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 0.0
+    },
+    "direct_override": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 1.0
+    },
+    "embedded_instruction": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 5,
+      "recall": 1.0
+    },
+    "encoded_payload": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 1.0
+    },
+    "jailbreak_persona": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 1.0
+    },
+    "logs": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "malicious_tool_description": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 1.0
+    },
+    "quoted_injection_in_docs": {
+      "accuracy": 0.6666666666666666,
+      "fnr": 0.0,
+      "fpr": 0.3333333333333333,
+      "n": 3,
+      "recall": 0.0
+    },
+    "role_impersonation": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 1.0
+    },
+    "security_docs": {
+      "accuracy": 0.5,
+      "fnr": 0.0,
+      "fpr": 0.5,
+      "n": 2,
+      "recall": 0.0
+    },
+    "system_prompt_extraction": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 1.0
+    },
+    "task_chaining": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 1.0
+    },
+    "technical_docs": {
+      "accuracy": 0.5,
+      "fnr": 0.0,
+      "fpr": 0.5,
+      "n": 2,
+      "recall": 0.0
+    },
+    "tool_invocation_manipulation": {
+      "accuracy": 0.5,
+      "fnr": 0.5,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.5
+    },
+    "tool_output": {
+      "accuracy": 0.8,
+      "fnr": 0.0,
+      "fpr": 0.2,
+      "n": 10,
+      "recall": 0.0
+    }
+  },
+  "per_language": {
+    "en": {
+      "accuracy": 0.8421052631578947,
+      "fnr": 0.1,
+      "fpr": 0.2222222222222222,
+      "n": 19,
+      "recall": 0.9
+    },
+    "mixed": {
+      "accuracy": 0.5,
+      "fnr": 0.3333333333333333,
+      "fpr": 1.0,
+      "n": 4,
+      "recall": 0.6666666666666666
+    },
+    "ru": {
+      "accuracy": 0.8421052631578947,
+      "fnr": 0.125,
+      "fpr": 0.18181818181818182,
+      "n": 19,
+      "recall": 0.875
+    }
+  },
+  "precision": 0.782608695652174,
+  "recall": 0.8571428571428571,
+  "resources": {
+    "cpu_util_pct": 270.8673388276634,
+    "model_size_bytes": 1116153795,
+    "peak_rss_mib": 2349.640625,
+    "throughput_entries_per_sec": 22.17970623671941
+  },
+  "scaling": [
+    {
+      "actual_chunks": 1,
+      "median_ms": 61.385209,
+      "target_chunks": 1
+    },
+    {
+      "actual_chunks": 4,
+      "median_ms": 1461.6276670000002,
+      "target_chunks": 4
+    },
+    {
+      "actual_chunks": 16,
+      "median_ms": 5958.317540999999,
+      "target_chunks": 16
+    },
+    {
+      "actual_chunks": 32,
+      "median_ms": 14491.650291999998,
+      "target_chunks": 32
+    }
+  ],
+  "threshold": 0.8999999761581421
+}

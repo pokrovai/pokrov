@@ -2,14 +2,18 @@ use std::{sync::Arc, time::Instant};
 
 use pokrov_config::model::McpConfig;
 use pokrov_core::{
+    prompt_injection::{
+        PromptInjectionDecision, PromptInjectionScanner, PromptInjectionSource,
+    },
     rehydrate::{rehydrate_value, RehydrationMap},
+    traversal::collect_string_leaves_text,
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
     SanitizationEngine,
 };
 use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
 
 use crate::{
-    audit::McpAuditEvent,
+    audit::{McpAuditEvent, McpPromptInjectionAuditEvent},
     errors::McpProxyError,
     policy::resolve_tool_call,
     types::{
@@ -23,6 +27,7 @@ use crate::{
 #[derive(Clone)]
 pub struct McpProxyHandler {
     evaluator: Option<Arc<SanitizationEngine>>,
+    prompt_injection: Option<Arc<PromptInjectionScanner>>,
     metrics: SharedRuntimeMetricsHooks,
     config: Arc<McpConfig>,
     upstream: McpUpstreamClient,
@@ -33,9 +38,11 @@ impl McpProxyHandler {
         evaluator: Option<Arc<SanitizationEngine>>,
         metrics: SharedRuntimeMetricsHooks,
         config: McpConfig,
+        prompt_injection: Option<Arc<PromptInjectionScanner>>,
     ) -> Result<Self, McpProxyError> {
         Ok(Self {
             evaluator,
+            prompt_injection,
             metrics,
             config: Arc::new(config),
             upstream: McpUpstreamClient::new()?,
@@ -98,6 +105,7 @@ impl McpProxyHandler {
                 let blocked = matches!(
                     error,
                     McpProxyError::ToolCallBlocked { .. }
+                        | McpProxyError::PromptInjectionDetected { .. }
                         | McpProxyError::ArgumentValidationFailed { .. }
                 );
                 self.emit_terminal_event(
@@ -224,6 +232,17 @@ impl McpProxyHandler {
 
         let mut result = self.upstream.execute_tool_call(&upstream_context, &arguments).await?;
 
+        // Prompt-injection classification runs on the raw upstream result:
+        // destructive DLP transforms could alter attack payloads and skew the
+        // classifier, so this stage must precede `sanitize_output`.
+        self.evaluate_prompt_injection(
+            &request_id,
+            &request.server,
+            &request.tool,
+            &result,
+        )
+        .await?;
+
         let sanitization = self.sanitize_output(
             &request_id,
             &profile_id,
@@ -277,6 +296,88 @@ impl McpProxyHandler {
                 },
             },
         })
+    }
+
+    /// Evaluates tool output against the prompt-injection policy. Inference
+    /// is blocking and is offloaded to the blocking pool; every completed
+    /// scan is audited and counted in metrics, including degraded outcomes.
+    async fn evaluate_prompt_injection(
+        &self,
+        request_id: &str,
+        server: &str,
+        tool: &str,
+        result: &McpToolResultEnvelope,
+    ) -> Result<(), McpProxyError> {
+        let Some(scanner) = self.prompt_injection.as_ref() else {
+            return Ok(());
+        };
+        // Skip the leaf-join allocation when the source is disabled.
+        let source_enabled = scanner
+            .policy()
+            .sources
+            .get(&PromptInjectionSource::McpToolOutput)
+            .is_some_and(|policy| policy.enabled);
+        if !source_enabled {
+            return Ok(());
+        }
+
+        // `structuredContent` is inspected together with `content`: it is
+        // equally untrusted even though the response does not forward it.
+        let mut text = collect_string_leaves_text(&result.content);
+        if let Some(structured) = &result.structured_content {
+            text.push('\n');
+            text.push_str(&collect_string_leaves_text(structured));
+        }
+        let task_scanner = Arc::clone(scanner);
+        let outcome = match tokio::task::spawn_blocking(move || {
+            task_scanner.scan(PromptInjectionSource::McpToolOutput, &text)
+        })
+        .await
+        {
+            Ok(Some(outcome)) => outcome,
+            Ok(None) => return Ok(()),
+            // A panicked blocking task degrades like an unavailable detector
+            // rather than silently passing unverified content.
+            Err(_) => scanner.task_failure_outcome(PromptInjectionSource::McpToolOutput),
+        };
+
+        self.metrics.on_prompt_injection_evaluation(&outcome);
+        McpPromptInjectionAuditEvent {
+            request_id: request_id.to_string(),
+            flow_type: "mcp_tool_call",
+            server_id: server.to_string(),
+            tool_id: tool.to_string(),
+            source: outcome.source.as_str(),
+            detector_id: outcome.detector_id.clone(),
+            provider: outcome.provider.clone(),
+            model_id: outcome.model_id.clone(),
+            classification: outcome.classification.map(|c| c.as_str()),
+            score_bucket: score_bucket(outcome.score),
+            threshold: outcome.threshold,
+            decision: outcome.decision.as_str(),
+            would_block: outcome.would_block,
+            degraded: outcome.degraded,
+            degraded_reason: outcome.degraded_reason.clone(),
+            chunks_processed: outcome.chunks_processed,
+            duration_ms: outcome.duration_ms,
+        }
+        .emit();
+
+        if outcome.decision == PromptInjectionDecision::Block {
+            let reason = outcome
+                .degraded_reason
+                .clone()
+                .unwrap_or_else(|| "injection_detected".to_string());
+            return Err(McpProxyError::prompt_injection_detected(
+                request_id,
+                server,
+                tool,
+                outcome.source.as_str(),
+                reason,
+            ));
+        }
+
+        Ok(())
     }
 
     fn sanitize_output(
@@ -448,6 +549,18 @@ fn guard_pilot_subset(request_id: &str, request: &McpToolCallRequest) -> Result<
     Ok(())
 }
 
+/// Coarse score bucket for audit records; raw scores would let logged values
+/// double as a covert channel for inspected content.
+fn score_bucket(score: Option<f32>) -> &'static str {
+    match score {
+        None => "none",
+        Some(score) if score < 0.5 => "low",
+        Some(score) if score < 0.8 => "medium",
+        Some(score) if score < 0.95 => "high",
+        Some(_) => "critical",
+    }
+}
+
 fn action_to_str(action: PolicyAction) -> &'static str {
     match action {
         PolicyAction::Allow => "allow",
@@ -537,8 +650,13 @@ mod tests {
         })
         .expect("evaluator should build");
 
-        McpProxyHandler::new(Some(Arc::new(evaluator)), Arc::new(NoopRuntimeMetricsHooks), config)
-            .expect("handler should build")
+        McpProxyHandler::new(
+            Some(Arc::new(evaluator)),
+            Arc::new(NoopRuntimeMetricsHooks),
+            config,
+            None,
+        )
+        .expect("handler should build")
     }
 
     #[test]
@@ -555,6 +673,7 @@ mod tests {
             }),
             content_type: None,
             truncated: false,
+            structured_content: None,
         };
 
         let result = handler
@@ -596,8 +715,9 @@ mod tests {
                 tools: BTreeMap::new(),
             }],
         };
-        let handler = McpProxyHandler::new(None, Arc::new(NoopRuntimeMetricsHooks), config)
-            .expect("handler should build");
+        let handler =
+            McpProxyHandler::new(None, Arc::new(NoopRuntimeMetricsHooks), config, None)
+                .expect("handler should build");
 
         let request = crate::types::McpToolCallRequest {
             server: "repo-tools".to_string(),
@@ -673,6 +793,7 @@ mod tests {
             Some(Arc::new(evaluator)),
             Arc::new(NoopRuntimeMetricsHooks),
             config,
+            None,
         )
         .expect("handler should build");
 
@@ -680,6 +801,7 @@ mod tests {
             content: serde_json::json!({"summary": "leak acme-corp here"}),
             content_type: None,
             truncated: false,
+            structured_content: None,
         };
         let result = handler
             .sanitize_output("req-2", "strict", "repo-tools", "read_file", true, &envelope)

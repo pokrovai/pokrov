@@ -6,7 +6,9 @@ use crate::rate_limit::RateLimitConfig;
 
 #[cfg(feature = "ner")]
 use super::NerConfig;
-use super::{AuthConfig, IdentityConfig, LlmConfig, McpConfig, SanitizationConfig};
+use super::{
+    AuthConfig, IdentityConfig, LlmConfig, McpConfig, PromptInjectionConfig, SanitizationConfig,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuntimeConfig {
@@ -29,6 +31,8 @@ pub struct RuntimeConfig {
     pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub mcp: Option<McpConfig>,
+    #[serde(default)]
+    pub prompt_injection: PromptInjectionConfig,
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
     #[serde(default)]
