@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use pokrov_core::prompt_injection::PromptInjectionOutcome;
 use pokrov_core::types::PolicyAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,9 @@ pub trait RuntimeMetricsHooks: Send + Sync {
     fn on_mcp_tool_call(&self) {}
     fn on_mcp_tool_call_blocked(&self) {}
     fn on_mcp_tool_call_duration_ms(&self, _duration_ms: u64) {}
+    /// One completed prompt-injection evaluation (including degraded
+    /// outcomes). Carries metadata only — never inspected content.
+    fn on_prompt_injection_evaluation(&self, _outcome: &PromptInjectionOutcome) {}
     fn on_request_outcome(&self, _route: &str, _path_class: &str, _status: u16, _decision: &str) {}
     fn on_blocked_request(&self, _route: &str, _block_reason: &str, _policy_profile: &str) {}
     fn on_rate_limit_event(

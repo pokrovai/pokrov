@@ -1,0 +1,196 @@
+{
+  "accuracy": 0.5238095238095238,
+  "confusion": {
+    "fn": 15,
+    "fp": 5,
+    "tn": 16,
+    "tp": 6
+  },
+  "entries": 42,
+  "errors": 0,
+  "f1": 0.37499999999999994,
+  "fnr": 0.7142857142857143,
+  "fpr": 0.23809523809523808,
+  "latency_ms": {
+    "avg": 14.725886904761902,
+    "max": 28.664542,
+    "p50": 14.069167,
+    "p95": 20.476167
+  },
+  "model_id": "Llama-Prompt-Guard-2-86M-quant",
+  "per_category": {
+    "code_with_suspicious_strings": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "credential_exfiltration": {
+      "accuracy": 0.0,
+      "fnr": 1.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "delimiter_smuggling": {
+      "accuracy": 0.0,
+      "fnr": 1.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 0.0
+    },
+    "direct_override": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 1.0
+    },
+    "embedded_instruction": {
+      "accuracy": 0.2,
+      "fnr": 0.8,
+      "fpr": 0.0,
+      "n": 5,
+      "recall": 0.2
+    },
+    "encoded_payload": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 1.0
+    },
+    "jailbreak_persona": {
+      "accuracy": 0.0,
+      "fnr": 1.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 0.0
+    },
+    "logs": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "malicious_tool_description": {
+      "accuracy": 0.0,
+      "fnr": 1.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "quoted_injection_in_docs": {
+      "accuracy": 0.0,
+      "fnr": 0.0,
+      "fpr": 1.0,
+      "n": 3,
+      "recall": 0.0
+    },
+    "role_impersonation": {
+      "accuracy": 0.0,
+      "fnr": 1.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "security_docs": {
+      "accuracy": 0.0,
+      "fnr": 0.0,
+      "fpr": 1.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "system_prompt_extraction": {
+      "accuracy": 0.5,
+      "fnr": 0.5,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.5
+    },
+    "task_chaining": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 1,
+      "recall": 1.0
+    },
+    "technical_docs": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "tool_invocation_manipulation": {
+      "accuracy": 0.0,
+      "fnr": 1.0,
+      "fpr": 0.0,
+      "n": 2,
+      "recall": 0.0
+    },
+    "tool_output": {
+      "accuracy": 1.0,
+      "fnr": 0.0,
+      "fpr": 0.0,
+      "n": 10,
+      "recall": 0.0
+    }
+  },
+  "per_language": {
+    "en": {
+      "accuracy": 0.5263157894736842,
+      "fnr": 0.7,
+      "fpr": 0.2222222222222222,
+      "n": 19,
+      "recall": 0.3
+    },
+    "mixed": {
+      "accuracy": 0.5,
+      "fnr": 0.6666666666666666,
+      "fpr": 0.0,
+      "n": 4,
+      "recall": 0.3333333333333333
+    },
+    "ru": {
+      "accuracy": 0.5263157894736842,
+      "fnr": 0.75,
+      "fpr": 0.2727272727272727,
+      "n": 19,
+      "recall": 0.25
+    }
+  },
+  "precision": 0.5454545454545454,
+  "recall": 0.2857142857142857,
+  "resources": {
+    "cpu_util_pct": 297.94126335075384,
+    "model_size_bytes": 281297931,
+    "peak_rss_mib": 1096.625,
+    "throughput_entries_per_sec": 67.88775729156943
+  },
+  "scaling": [
+    {
+      "actual_chunks": 1,
+      "median_ms": 20.128417,
+      "target_chunks": 1
+    },
+    {
+      "actual_chunks": 4,
+      "median_ms": 782.494667,
+      "target_chunks": 4
+    },
+    {
+      "actual_chunks": 16,
+      "median_ms": 2995.5230410000004,
+      "target_chunks": 16
+    },
+    {
+      "actual_chunks": 32,
+      "median_ms": 6073.219458,
+      "target_chunks": 32
+    }
+  ],
+  "threshold": 0.8999999761581421
+}

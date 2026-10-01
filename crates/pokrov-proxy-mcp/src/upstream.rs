@@ -96,8 +96,17 @@ fn normalize_result(payload: Value) -> Result<McpToolResultEnvelope, String> {
                         .map(str::to_string);
                     let truncated =
                         result_object.get("truncated").and_then(Value::as_bool).unwrap_or(false);
+                    // `structuredContent` is untrusted tool output too: keep it
+                    // for the prompt-injection stage even though the response
+                    // contract does not forward it to the client.
+                    let structured_content = result_object.get("structuredContent").cloned();
 
-                    return Ok(McpToolResultEnvelope { content, content_type, truncated });
+                    return Ok(McpToolResultEnvelope {
+                        content,
+                        content_type,
+                        truncated,
+                        structured_content,
+                    });
                 }
             }
 
@@ -106,10 +115,21 @@ fn normalize_result(payload: Value) -> Result<McpToolResultEnvelope, String> {
             let content_type =
                 object.get("content_type").and_then(Value::as_str).map(str::to_string);
             let truncated = object.get("truncated").and_then(Value::as_bool).unwrap_or(false);
+            let structured_content = object.get("structuredContent").cloned();
 
-            Ok(McpToolResultEnvelope { content, content_type, truncated })
+            Ok(McpToolResultEnvelope {
+                content,
+                content_type,
+                truncated,
+                structured_content,
+            })
         }
-        _ => Ok(McpToolResultEnvelope { content: payload, content_type: None, truncated: false }),
+        _ => Ok(McpToolResultEnvelope {
+            content: payload,
+            content_type: None,
+            truncated: false,
+            structured_content: None,
+        }),
     }
 }
 

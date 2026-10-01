@@ -12,6 +12,7 @@ members = [
   "crates/pokrov-core",
   "crates/pokrov-metrics",
   "crates/pokrov-ner",
+  "crates/pokrov-prompt-injection",
   "crates/pokrov-proxy-llm",
   "crates/pokrov-proxy-mcp",
   "crates/pokrov-runtime",
@@ -51,7 +52,7 @@ pokrov-metrics = { path = "crates/pokrov-metrics" }
 pokrov-ner = { path = "crates/pokrov-ner" }
 pokrov-proxy-llm = { path = "crates/pokrov-proxy-llm" }
 pokrov-proxy-mcp = { path = "crates/pokrov-proxy-mcp" }
-pokrov-runtime = { path = "crates/pokrov-runtime" }
+pokrov-runtime = { path = "crates/pokrov-runtime", features = ["prompt-injection"] }
 reqwest = { workspace = true }
 rcgen = "0.13.2"
 serde_json = { workspace = true }

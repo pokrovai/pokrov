@@ -38,6 +38,11 @@ pub struct McpToolResultEnvelope {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     pub truncated: bool,
+    /// Upstream `structuredContent`, retained solely for prompt-injection
+    /// inspection; skipped on serialization so the response contract keeps
+    /// forwarding only `content`.
+    #[serde(skip_serializing)]
+    pub structured_content: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -122,6 +127,10 @@ pub struct McpErrorDetails {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub violation_count: Option<u32>,
+    /// Untrusted-content origin that triggered the error (prompt-injection
+    /// stage); `None` for unrelated error codes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone)]

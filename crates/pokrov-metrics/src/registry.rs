@@ -1,5 +1,8 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use pokrov_core::prompt_injection::{
+    PromptInjectionClassification, PromptInjectionDecision, PromptInjectionOutcome,
+};
 use pokrov_core::types::PolicyAction;
 use prometheus::{
     Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry, TextEncoder,
@@ -44,6 +47,12 @@ pub struct RuntimeMetricsRegistry {
     tokenized_spans_total: IntCounter,
     rehydrated_tokens_total: IntCounter,
     unrestored_tokens_total: IntCounter,
+    prompt_injection_evaluations_total: IntCounterVec,
+    prompt_injection_detected_total: IntCounterVec,
+    prompt_injection_blocked_total: IntCounterVec,
+    prompt_injection_detector_errors_total: IntCounterVec,
+    prompt_injection_detector_duration_seconds: HistogramVec,
+    prompt_injection_chunks_total: IntCounterVec,
     force_render_failure: AtomicBool,
 }
 
@@ -102,6 +111,54 @@ impl RuntimeMetricsRegistry {
             "pokrov_unrestored_tokens_total",
             "Total __PKV_ markers observed in responses without a matching token",
         )?;
+        // Prompt-injection metrics per spec §18; label sets are constrained to
+        // bounded metadata values (source/provider/model/decision/fail_mode).
+        let prompt_injection_evaluations_total = IntCounterVec::new(
+            Opts::new(
+                "pokrov_prompt_injection_evaluations_total",
+                "Total prompt-injection evaluations by source/decision",
+            ),
+            &["source", "decision"],
+        )?;
+        let prompt_injection_detected_total = IntCounterVec::new(
+            Opts::new(
+                "pokrov_prompt_injection_detected_total",
+                "Total contents classified as injection by source/provider/model",
+            ),
+            &["source", "provider", "model"],
+        )?;
+        let prompt_injection_blocked_total = IntCounterVec::new(
+            Opts::new(
+                "pokrov_prompt_injection_blocked_total",
+                "Total contents withheld by the prompt-injection stage",
+            ),
+            &["source"],
+        )?;
+        let prompt_injection_detector_errors_total = IntCounterVec::new(
+            Opts::new(
+                "pokrov_prompt_injection_detector_errors_total",
+                "Total degraded prompt-injection evaluations by source/fail_mode",
+            ),
+            &["source", "fail_mode"],
+        )?;
+        let prompt_injection_detector_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "pokrov_prompt_injection_detector_duration_seconds",
+                "Prompt-injection detector call duration by provider/model",
+            )
+            // Upper buckets cover configured detector timeouts, which can be
+            // tens of seconds; without them long-running inferences would
+            // collapse into +Inf.
+            .buckets(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]),
+            &["provider", "model"],
+        )?;
+        let prompt_injection_chunks_total = IntCounterVec::new(
+            Opts::new(
+                "pokrov_prompt_injection_chunks_total",
+                "Total detector context windows evaluated by source",
+            ),
+            &["source"],
+        )?;
 
         prometheus_registry.register(Box::new(requests_total.clone()))?;
         prometheus_registry.register(Box::new(blocked_total.clone()))?;
@@ -115,6 +172,13 @@ impl RuntimeMetricsRegistry {
         prometheus_registry.register(Box::new(tokenized_spans_total.clone()))?;
         prometheus_registry.register(Box::new(rehydrated_tokens_total.clone()))?;
         prometheus_registry.register(Box::new(unrestored_tokens_total.clone()))?;
+        prometheus_registry.register(Box::new(prompt_injection_evaluations_total.clone()))?;
+        prometheus_registry.register(Box::new(prompt_injection_detected_total.clone()))?;
+        prometheus_registry.register(Box::new(prompt_injection_blocked_total.clone()))?;
+        prometheus_registry.register(Box::new(prompt_injection_detector_errors_total.clone()))?;
+        prometheus_registry
+            .register(Box::new(prompt_injection_detector_duration_seconds.clone()))?;
+        prometheus_registry.register(Box::new(prompt_injection_chunks_total.clone()))?;
 
         requests_total.with_label_values(&["other", "runtime", "2xx", "allowed"]);
         blocked_total.with_label_values(&["other", "policy", "strict"]);
@@ -122,6 +186,12 @@ impl RuntimeMetricsRegistry {
         auth_decisions_total.with_label_values(&["static", "gateway_auth", "pass"]);
         upstream_errors_total.with_label_values(&["other", "unknown", "transport"]);
         request_duration_seconds.with_label_values(&["other", "runtime", "allowed"]);
+        prompt_injection_evaluations_total.with_label_values(&["other", "allow"]);
+        prompt_injection_detected_total.with_label_values(&["other", "none", "none"]);
+        prompt_injection_blocked_total.with_label_values(&["other"]);
+        prompt_injection_detector_errors_total.with_label_values(&["other", "fail_open"]);
+        prompt_injection_detector_duration_seconds.with_label_values(&["none", "none"]);
+        prompt_injection_chunks_total.with_label_values(&["other"]);
 
         Ok(Self {
             starting_total: AtomicU64::new(0),
@@ -159,6 +229,12 @@ impl RuntimeMetricsRegistry {
             model_resolution_total,
             model_resolution_failed_total,
             models_catalog_requests_total,
+            prompt_injection_evaluations_total,
+            prompt_injection_detected_total,
+            prompt_injection_blocked_total,
+            prompt_injection_detector_errors_total,
+            prompt_injection_detector_duration_seconds,
+            prompt_injection_chunks_total,
             force_render_failure: AtomicBool::new(false),
         })
     }
@@ -334,6 +410,35 @@ impl RuntimeMetricsHooks for RuntimeMetricsRegistry {
 
     fn on_mcp_tool_call_duration_ms(&self, duration_ms: u64) {
         self.mcp_tool_call_duration_ms_total.fetch_add(duration_ms, Ordering::Relaxed);
+    }
+
+    fn on_prompt_injection_evaluation(&self, outcome: &PromptInjectionOutcome) {
+        let source = constrain_pi_source(outcome.source.as_str());
+        let provider = constrain_pi_provider(&outcome.provider);
+
+        self.prompt_injection_evaluations_total
+            .with_label_values(&[source, constrain_pi_decision(outcome.decision.as_str())])
+            .inc();
+        self.prompt_injection_chunks_total
+            .with_label_values(&[source])
+            .inc_by(outcome.chunks_processed as u64);
+        self.prompt_injection_detector_duration_seconds
+            .with_label_values(&[provider, constrain_pi_model(&outcome.model_id)])
+            .observe((outcome.duration_ms as f64 / 1_000.0).max(0.0));
+
+        if outcome.classification == Some(PromptInjectionClassification::Injection) {
+            self.prompt_injection_detected_total
+                .with_label_values(&[source, provider, constrain_pi_model(&outcome.model_id)])
+                .inc();
+        }
+        if outcome.decision == PromptInjectionDecision::Block {
+            self.prompt_injection_blocked_total.with_label_values(&[source]).inc();
+        }
+        if outcome.degraded {
+            self.prompt_injection_detector_errors_total
+                .with_label_values(&[source, constrain_pi_fail_mode(outcome.fail_mode.as_str())])
+                .inc();
+        }
     }
 
     fn on_request_outcome(&self, route: &str, path_class: &str, status: u16, decision: &str) {
@@ -516,6 +621,51 @@ fn constrain_error_class(error_class: &str) -> &str {
     match error_class {
         "upstream_4xx" | "upstream_5xx" | "transport" | "timeout" => error_class,
         _ => "transport",
+    }
+}
+
+fn constrain_pi_source(source: &str) -> &str {
+    match source {
+        "mcp_tool_output" | "mcp_tool_description" | "mcp_resource" | "mcp_prompt" | "rag"
+        | "external" => source,
+        _ => "other",
+    }
+}
+
+fn constrain_pi_provider(provider: &str) -> &str {
+    match provider {
+        "onnx" | "static" | "none" => provider,
+        _ => "other",
+    }
+}
+
+fn constrain_pi_decision(decision: &str) -> &str {
+    match decision {
+        "allow" | "block" => decision,
+        _ => "allow",
+    }
+}
+
+fn constrain_pi_fail_mode(fail_mode: &str) -> &str {
+    match fail_mode {
+        "fail_open" | "fail_closed" => fail_mode,
+        _ => "fail_open",
+    }
+}
+
+/// Model ids are operator-configured strings, not an enum; keep only
+/// conventional model-name characters and cap the length so a malformed id
+/// cannot grow the label space.
+fn constrain_pi_model(model: &str) -> &str {
+    let valid = !model.is_empty()
+        && model.len() <= 128
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'));
+    if valid {
+        model
+    } else {
+        "other"
     }
 }
 

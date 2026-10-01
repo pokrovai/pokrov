@@ -72,6 +72,8 @@ pub mod mcp_test_support;
 mod mcp_upstream_unavailable_path;
 #[path = "integration/mcp_validation_recovery_path.rs"]
 mod mcp_validation_recovery_path;
+#[path = "integration/prompt_injection_mcp_path.rs"]
+mod prompt_injection_mcp_path;
 #[path = "integration/mesh_mtls_gateway_auth_path.rs"]
 mod mesh_mtls_gateway_auth_path;
 #[path = "integration/rate_limit_request_budget_path.rs"]

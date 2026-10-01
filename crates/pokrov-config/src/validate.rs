@@ -10,7 +10,8 @@ use crate::{
     model::{
         ApiKeyBinding, CategoryActionsConfig, CustomRuleConfig, DeterministicRecognizerConfig,
         GatewayAuthMode, LlmConfig, LlmProviderConfig, LlmRouteConfig, McpConfig,
-        McpServerDefinition, RuntimeConfig, SanitizationProfile, SecretRef,
+        McpServerDefinition, PromptInjectionConfig, PromptInjectionProviderConfig,
+        PromptInjectionSourceSetting, RuntimeConfig, SanitizationProfile, SecretRef,
         ToolArgumentConstraints,
     },
     normalize_model_key,
@@ -43,6 +44,7 @@ pub fn validate_runtime_config(config: &RuntimeConfig, path: &Path) -> Result<()
     validate_sanitization(config, &mut issues);
     validate_llm(config.llm.as_ref(), &mut issues);
     validate_mcp(config.mcp.as_ref(), config.sanitization.enabled, &mut issues);
+    validate_prompt_injection(&config.prompt_injection, &mut issues);
     validate_rate_limit(&config.rate_limit, &mut issues);
     validate_identity(config, &mut issues);
 
@@ -695,6 +697,137 @@ fn validate_mcp(
                 format!("{server_path}.endpoint"),
                 "must be unique for enabled servers",
             ));
+        }
+    }
+}
+
+fn validate_prompt_injection(config: &PromptInjectionConfig, issues: &mut Vec<ValidationIssue>) {
+    if !config.enabled {
+        return;
+    }
+
+    if matches!(config.provider, PromptInjectionProviderConfig::None) {
+        issues.push(ValidationIssue::new(
+            "prompt_injection.provider",
+            "must be configured when prompt_injection.enabled=true",
+        ));
+    }
+
+    if !(0.0 < config.threshold && config.threshold <= 1.0) {
+        issues.push(ValidationIssue::new(
+            "prompt_injection.threshold",
+            "must be in range (0, 1]",
+        ));
+    }
+
+    if config.timeout_ms == 0 {
+        issues.push(ValidationIssue::new(
+            "prompt_injection.timeout_ms",
+            "must be greater than zero",
+        ));
+    }
+
+    match &config.provider {
+        PromptInjectionProviderConfig::Onnx { model, model_path, tokenizer_path, .. } => {
+            if model.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    "prompt_injection.provider.model",
+                    "must not be empty",
+                ));
+            }
+            if model_path.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    "prompt_injection.provider.model_path",
+                    "must not be empty",
+                ));
+            }
+            if tokenizer_path.trim().is_empty() {
+                issues.push(ValidationIssue::new(
+                    "prompt_injection.provider.tokenizer_path",
+                    "must not be empty",
+                ));
+            }
+        }
+        PromptInjectionProviderConfig::Static { static_match, static_score } => {
+            // An empty marker list scores 0.0 on everything: `action: block`
+            // would then protect nothing while looking configured.
+            if static_match.iter().all(|marker| marker.trim().is_empty()) {
+                issues.push(ValidationIssue::new(
+                    "prompt_injection.provider.static_match",
+                    "must contain at least one non-empty marker",
+                ));
+            }
+            if !(0.0..=1.0).contains(static_score) {
+                issues.push(ValidationIssue::new(
+                    "prompt_injection.provider.static_score",
+                    "must be in range 0..=1",
+                ));
+            }
+        }
+        PromptInjectionProviderConfig::None => {}
+    }
+
+    // `max_tokens` covers the full model input including special tokens, so
+    // a usable window requires room for them plus at least one content token.
+    if config.chunking.max_tokens < 3 {
+        issues.push(ValidationIssue::new(
+            "prompt_injection.chunking.max_tokens",
+            "must be >= 3 (special tokens plus at least one content token)",
+        ));
+    }
+    if config.chunking.overlap_tokens >= config.chunking.max_tokens.saturating_sub(2) {
+        issues.push(ValidationIssue::new(
+            "prompt_injection.chunking.overlap_tokens",
+            "must be smaller than max_tokens minus reserved special tokens",
+        ));
+    }
+    if config.chunking.max_chunks == 0 {
+        issues.push(ValidationIssue::new(
+            "prompt_injection.chunking.max_chunks",
+            "must be greater than zero",
+        ));
+    }
+    if config.chunking.max_content_bytes == 0 {
+        issues.push(ValidationIssue::new(
+            "prompt_injection.chunking.max_content_bytes",
+            "must be greater than zero",
+        ));
+    }
+
+    // Content beyond the chunk budget degrades as `content_truncated`; a byte
+    // cap so far above coverage that truncation is guaranteed is almost always
+    // a misconfiguration. 32 bytes/token is a deliberately generous ceiling —
+    // even long BPE tokens average well under it — so this only fires on
+    // configs that can never succeed.
+    if matches!(config.provider, PromptInjectionProviderConfig::Onnx { .. }) {
+        let content_window = config.chunking.max_tokens;
+        let step = content_window.saturating_sub(config.chunking.overlap_tokens);
+        let covered_tokens = content_window
+            .saturating_add(config.chunking.max_chunks.saturating_sub(1).saturating_mul(step));
+        if config.chunking.max_content_bytes > covered_tokens.saturating_mul(32) {
+            issues.push(ValidationIssue::new(
+                "prompt_injection.chunking.max_content_bytes",
+                "exceeds even a generous token-to-byte coverage bound of the \
+                 configured chunk limits; the tail would always degrade",
+            ));
+        }
+    }
+
+    for (name, setting) in [
+        ("mcp_tool_output", &config.sources.mcp_tool_output),
+        ("mcp_tool_description", &config.sources.mcp_tool_description),
+        ("mcp_resource", &config.sources.mcp_resource),
+        ("mcp_prompt", &config.sources.mcp_prompt),
+        ("rag", &config.sources.rag),
+    ] {
+        if let PromptInjectionSourceSetting::Detailed { threshold: Some(threshold), .. } = setting
+        {
+            if !(0.0 < *threshold && *threshold <= 1.0) {
+                issues.push(ValidationIssue::new(
+                    format!("prompt_injection.sources.{name}.threshold"),
+                    "must be in range (0, 1]",
+                ));
+            }
         }
     }
 }
