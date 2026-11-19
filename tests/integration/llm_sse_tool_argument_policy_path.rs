@@ -173,6 +173,75 @@ async fn oversized_source_frame_closes_argument_admissions() {
 }
 
 #[tokio::test]
+async fn text_carry_across_second_oversized_frame_stays_literal() {
+    let token = token_for(TOOL_FRAGMENT);
+    let split = 30;
+    let text_event = |content: &str| {
+        sse_event(
+            &json!({
+                "id": "chatcmpl-text-overflow",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": TOOL_MODEL,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": content},
+                    "finish_reason": null
+                }]
+            })
+            .to_string(),
+            "\n",
+        )
+    };
+    let keepalive = format!(": keepalive {}\n\n", "x".repeat(MAX_EVENT_BUFFER_BYTES));
+    let oversized_restore = sse_event(
+        &json!({
+            "id": "chatcmpl-oversized-text",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": TOOL_MODEL,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": token},
+                "finish_reason": null
+            }],
+            "filler": "x".repeat(MAX_EVENT_BUFFER_BYTES)
+        })
+        .to_string(),
+        "\n",
+    );
+
+    let mut body = String::new();
+    body.push_str(&text_event(&format!("start {}", &token[..split])));
+    body.push_str(&keepalive);
+    body.push_str(&text_event("middle"));
+    body.push_str(&oversized_restore);
+    body.push_str(&text_event("end"));
+    body.push_str(&done_event("\n"));
+
+    let harness = BufferedHarness::start(body).await;
+    let policy = harness.post(POLICY_ROUTE, "strict").await;
+    let plain = harness.post(PLAIN_ROUTE, "strict").await;
+    assert_eq!(policy.status(), StatusCode::OK, "policy route must succeed");
+    assert_eq!(plain.status(), StatusCode::OK, "plain route must succeed");
+    let policy_body = policy.text().await.expect("policy body expected");
+    let plain_body = plain.text().await.expect("plain body expected");
+
+    for body in [&policy_body, &plain_body] {
+        assert!(!body.contains("acme"), "no text or raw oversize frame may restore");
+        assert!(body.contains(&token), "the later oversized frame stays literal");
+        assert_eq!(
+            body.matches("__PKV_").count(),
+            2,
+            "one flushed split prefix plus one literal token in the raw frame"
+        );
+    }
+    assert_eq!(json_payloads(&policy_body), json_payloads(&plain_body));
+
+    harness.shutdown().await;
+}
+
+#[tokio::test]
 async fn terminal_errors_prevent_restoration() {
     let token = token_for(TOOL_FRAGMENT);
     let restorable = argument_event(&format!("{{\"q\":\"{token}\"}}"), 0, 0, "\n");

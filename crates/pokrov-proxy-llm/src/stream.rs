@@ -12,7 +12,9 @@ use crate::errors::LLMProxyError;
 
 mod chat;
 
-pub(crate) use chat::{rehydrate_chat_sse_stream, sanitize_chat_sse_stream, ChatPolicyBody};
+pub(crate) use chat::{
+    rehydrate_chat_sse_stream, sanitize_chat_sse_stream, BarrierKind, ChatPolicyBody,
+};
 
 #[derive(Debug, Clone)]
 pub struct StreamSanitizationResult {

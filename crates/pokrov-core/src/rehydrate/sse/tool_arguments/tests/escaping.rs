@@ -11,16 +11,19 @@ fn escapes_original_and_preserves_split_inner_escapes() {
         feed_all(&map, &[event(0, &[(0, &format!("{{\"v\":\"{}\"}}", tokens[0]))], false)], 0, 0);
     assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["v"], fragment);
     assert_eq!(report.restored, 1);
-    let (map, _) = map_for(&["unused"]);
-    let inner = "{\"v\":\"a\\\"b\\\\c\\u0041d\"}";
+    let (map, tokens) = map_for(&["after-escape"]);
+    let token = &tokens[0];
+    let inner = format!("{{\"v\":\"a\\\"b\\\\c\\u0041d{token}\"}}");
     let events: Vec<String> = inner
         .bytes()
         .map(|b| event(0, &[(0, std::str::from_utf8(&[b]).unwrap())], false))
         .collect();
-    let (text, _) = feed_all(&map, &events, 0, 0);
-    assert_eq!(text, inner);
-    assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["v"], "a\"b\\cAd");
+    let (text, report) = feed_all(&map, &events, 0, 0);
+    assert_eq!(text, format!("{{\"v\":\"a\\\"b\\\\c\\u0041d{}\"}}", "after-escape"));
+    assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["v"], "a\"b\\cAdafter-escape");
     assert!(text.contains("\\u0041"));
+    assert_eq!(report.restored, 1);
+    assert_eq!(report.unrestored, 0);
     let (marker_map, marker_tokens) = map_for(&["marker-victim"]);
     let marker = &marker_tokens[0];
     let inner = format!("{{\"v\":\"_\\u005f{}\"}}", &marker[2..]);

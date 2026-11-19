@@ -33,44 +33,83 @@ pub(crate) fn finish_chat(rehydrator: &mut EventRehydrator) -> Vec<String> {
     events
 }
 
-struct Line<'a> {
-    content: &'a str,
-    ending: &'a str,
+struct ChatData {
+    content_start: usize,
+    content_end: usize,
+    payload_start: usize,
+    payload_end: usize,
+    bare: bool,
 }
 
-/// Splits a block on LF, CRLF, and lone CR while retaining every terminator.
-fn split_lines(block: &str) -> Vec<Line<'_>> {
+struct ChatScan {
+    first_data: Option<ChatData>,
+    data_count: usize,
+    effective_error: bool,
+}
+
+/// Scans physical lines once without descriptors. Records the first data
+/// field's byte ranges, the data-field count, the last event type, and whether
+/// the first data field was bare.
+fn scan_chat_event(block: &str) -> ChatScan {
     let bytes = block.as_bytes();
-    let mut lines = Vec::new();
+    let mut scan = ChatScan { first_data: None, data_count: 0, effective_error: false };
     let mut start = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        let end = match bytes[index] {
-            b'\n' => index + 1,
-            b'\r' if bytes.get(index + 1) == Some(&b'\n') => index + 2,
-            b'\r' => index + 1,
-            _ => {
-                index += 1;
-                continue;
-            }
+    loop {
+        let mut end = start;
+        while end < bytes.len() && bytes[end] != b'\n' && bytes[end] != b'\r' {
+            end += 1;
+        }
+        let content = &block[start..end];
+        scan_chat_line(&mut scan, content, start);
+        let line_end = if end == bytes.len() {
+            end
+        } else if bytes[end] == b'\n' {
+            end + 1
+        } else if bytes.get(end + 1) == Some(&b'\n') {
+            end + 2
+        } else {
+            end + 1
         };
-        lines.push(Line { content: &block[start..index], ending: &block[index..end] });
-        index = end;
-        start = end;
+        if line_end >= bytes.len() {
+            break;
+        }
+        start = line_end;
     }
-    if start < bytes.len() {
-        lines.push(Line { content: &block[start..], ending: "" });
-    }
-    lines
+    scan
 }
 
-fn splice_line(block: &str, lines: &[Line<'_>], target: usize, replacement: &str) -> String {
-    let mut out = String::with_capacity(block.len() + replacement.len());
-    for (index, line) in lines.iter().enumerate() {
-        out.push_str(if index == target { replacement } else { line.content });
-        out.push_str(line.ending);
+fn scan_chat_line(scan: &mut ChatScan, content: &str, start: usize) {
+    if let Some(after) = content.strip_prefix("data:") {
+        scan.data_count += 1;
+        if scan.first_data.is_none() {
+            let trimmed = after.trim();
+            let payload_start = start + 5 + (after.len() - after.trim_start().len());
+            scan.first_data = Some(ChatData {
+                content_start: start,
+                content_end: start + content.len(),
+                payload_start,
+                payload_end: payload_start + trimmed.len(),
+                bare: false,
+            });
+        }
+    } else if content == "data" {
+        scan.data_count += 1;
+        if scan.first_data.is_none() {
+            let end = start + content.len();
+            scan.first_data = Some(ChatData {
+                content_start: start,
+                content_end: end,
+                payload_start: end,
+                payload_end: end,
+                bare: true,
+            });
+        }
+    } else if let Some(event) = content.strip_prefix("event:") {
+        // The last event field wins; an empty type resets to `message`.
+        scan.effective_error = event.trim() == "error";
+    } else if content == "event" {
+        scan.effective_error = false;
     }
-    out
 }
 
 fn chat_event(
@@ -78,28 +117,17 @@ fn chat_event(
     streams: &mut ArgumentStreams,
     block: &str,
 ) -> String {
-    let lines = split_lines(block);
-    let mut data_index = None;
-    let mut data_count = 0usize;
-    let mut error_control = false;
-    for (index, line) in lines.iter().enumerate() {
-        let data = line.content.strip_prefix("data:").map(str::trim);
-        // A bare `data` line is an SSE data field with an empty value.
-        if let Some(data) = data.or_else(|| (line.content == "data").then_some("")) {
-            data_count += 1;
-            data_index.get_or_insert((index, data));
-        } else if let Some(event) = line.content.strip_prefix("event:") {
-            if event.trim() == "error" {
-                error_control = true;
-            }
-        }
-    }
-    if error_control || data_count > 1 {
+    let scan = scan_chat_event(block);
+    if scan.effective_error || scan.data_count > 1 {
         return raw_event(rehydrator, streams, block);
     }
-    let Some((data_line, payload)) = data_index else {
+    let Some(data) = scan.first_data else {
         return block.to_string();
     };
+    if data.bare {
+        return raw_event(rehydrator, streams, block);
+    }
+    let payload = &block[data.payload_start..data.payload_end];
     if payload == "[DONE]" {
         let mut prelude = flush_arguments(rehydrator, streams);
         prelude.extend(rehydrator.flush_all_carries());
@@ -118,12 +146,16 @@ fn chat_event(
         EventPlan::Process(plan) => plan,
         EventPlan::Opaque => return raw_event(rehydrator, streams, block),
     };
-    let (data_rendered, prelude) =
-        chat_json_event(rehydrator, streams, lines[data_line].content, json, plan);
-    let body = if data_rendered == lines[data_line].content {
+    let content = &block[data.content_start..data.content_end];
+    let (data_rendered, prelude) = chat_json_event(rehydrator, streams, content, json, plan);
+    let body = if data_rendered == content {
         block.to_string()
     } else {
-        splice_line(block, &lines, data_line, &data_rendered)
+        let mut out = String::with_capacity(block.len() + data_rendered.len());
+        out.push_str(&block[..data.content_start]);
+        out.push_str(&data_rendered);
+        out.push_str(&block[data.content_end..]);
+        out
     };
     prepend(prelude, &body)
 }
@@ -276,6 +308,11 @@ fn chat_json_event(
         if let Some(slot) =
             restored.pointer_mut(&format!("/choices/{}/delta/tool_calls", entry.choice))
         {
+            *slot = entry.value;
+        }
+    }
+    for entry in plan.detached_deltas {
+        if let Some(slot) = restored.pointer_mut(&format!("/choices/{}/delta", entry.choice)) {
             *slot = entry.value;
         }
     }

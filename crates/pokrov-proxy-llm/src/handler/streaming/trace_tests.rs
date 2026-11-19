@@ -189,7 +189,7 @@ async fn buffered_finalizer_traces_pre_restore_body_and_restores_client_body() {
             rehydrate_chat_sse_stream(
                 ChatPolicyBody {
                     body,
-                    first_source_barrier: None,
+                    source_barriers: Vec::new(),
                     rule_hits_total: 0,
                     final_action: PolicyAction::Allow,
                 },

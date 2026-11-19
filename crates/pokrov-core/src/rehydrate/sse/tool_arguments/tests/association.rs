@@ -174,3 +174,31 @@ fn non_string_arguments_quarantine_pair() {
     assert_eq!(harness.rehydrator.rehydrate_event(&later), later);
     assert_eq!(harness.report().restored, 0);
 }
+
+#[test]
+fn malformed_delta_quarantines_only_its_choice() {
+    let (map, tokens) = map_for(&["keep-token", "drop-token"]);
+    let (keep, drop) = (&tokens[0], &tokens[1]);
+    let mut harness = Harness::new(map);
+    let first = harness.rehydrator.rehydrate_event(&event(
+        0,
+        &[(0, &format!("{{\"v\":\"{}", &keep[..40]))],
+        false,
+    ));
+    harness.feed(&event(1, &[(0, &format!("{{\"v\":\"{}", &drop[..40]))], false));
+    let bad = format!("data: {}", json!({"choices": [{"index": 1, "delta": "opaque"}]}));
+    let out = harness.rehydrator.rehydrate_event(&bad);
+    let (prelude, body) = out.split_once("\n\n").expect("affected choice flushes first");
+    assert_eq!(body, bad);
+    assert_eq!(out.matches(&drop[..40]).count(), 1);
+    assert!(prelude.contains(&drop[..40]));
+    let mut events = parse_events(&first);
+    events.extend(harness.feed(&event(0, &[(0, &format!("{}\"}}", &keep[40..]))], false)));
+    assert_eq!(
+        serde_json::from_str::<Value>(&assembled(&events, 0, 0)).unwrap()["v"],
+        "keep-token"
+    );
+    assert_eq!(harness.report().restored, 1);
+    let late = event(1, &[(0, &format!("{{\"v\":\"{drop}\"}}"))], false);
+    assert_eq!(harness.rehydrator.rehydrate_event(&late), late);
+}

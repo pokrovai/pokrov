@@ -12,7 +12,8 @@ use crate::{
     errors::LLMProxyError,
     stream::{
         convert_chat_sse_to_responses_sse, rehydrate_chat_sse_stream, rehydrate_sse_stream,
-        sanitize_chat_sse_stream, sanitize_sse_stream, ChatPolicyBody, ResponsesChunkConverter,
+        sanitize_chat_sse_stream, sanitize_sse_stream, BarrierKind, ChatPolicyBody,
+        ResponsesChunkConverter,
     },
     types::{
         LLMProxyBody, LLMProxyResponse, RouteResolution, SseBodyStream, UpstreamCredentialOrigin,
@@ -30,11 +31,11 @@ use super::{
 /// buffered restoration shape.
 const CHAT_COMPLETIONS_ENDPOINT: &str = "/v1/chat/completions";
 
-/// Post-policy buffered body plus the out-of-band source barrier that the
-/// Chat restorer must forward through `bypass_complete_event`.
+/// Post-policy buffered body plus the out-of-band source barriers that the
+/// Chat restorer forwards through the matching bypass operation.
 struct BufferedPolicyOutcome {
     body: String,
-    first_source_barrier: Option<Range<usize>>,
+    source_barriers: Vec<(Range<usize>, BarrierKind)>,
     rule_hits_total: u32,
     final_action: PolicyAction,
 }
@@ -137,7 +138,7 @@ impl LLMProxyHandler {
             let chat_buffered =
                 endpoint == CHAT_COMPLETIONS_ENDPOINT && !rehydration_map.is_empty();
             let mut stream_body = body;
-            let mut first_source_barrier = None;
+            let mut source_barriers = Vec::new();
             if let Some(evaluator) = self.evaluator.as_ref() {
                 let evaluator = Arc::clone(evaluator);
                 let request_id_for_task = request_id.clone();
@@ -153,7 +154,7 @@ impl LLMProxyHandler {
                         )
                         .map(|sanitized| BufferedPolicyOutcome {
                             body: sanitized.body,
-                            first_source_barrier: sanitized.first_source_barrier,
+                            source_barriers: sanitized.source_barriers,
                             rule_hits_total: sanitized.rule_hits_total,
                             final_action: sanitized.final_action,
                         })
@@ -166,7 +167,7 @@ impl LLMProxyHandler {
                         )
                         .map(|sanitized| BufferedPolicyOutcome {
                             body: sanitized.body,
-                            first_source_barrier: None,
+                            source_barriers: Vec::new(),
                             rule_hits_total: sanitized.rule_hits_total,
                             final_action: sanitized.final_action,
                         })
@@ -230,7 +231,7 @@ impl LLMProxyHandler {
                 total_hits = total_hits.saturating_add(sanitized.rule_hits_total);
                 final_action = max_action(final_action, sanitized.final_action);
                 stream_body = sanitized.body;
-                first_source_barrier = sanitized.first_source_barrier;
+                source_barriers = sanitized.source_barriers;
             }
 
             if endpoint == RESPONSES_ENDPOINT {
@@ -242,7 +243,7 @@ impl LLMProxyHandler {
             // re-scanned or traced.
             let (restored_body, report) = if chat_buffered {
                 let map = rehydration_map;
-                let barrier = first_source_barrier;
+                let barriers = source_barriers;
                 self.finalize_buffered_sse(
                     &request_id,
                     &route,
@@ -252,7 +253,7 @@ impl LLMProxyHandler {
                         rehydrate_chat_sse_stream(
                             ChatPolicyBody {
                                 body,
-                                first_source_barrier: barrier,
+                                source_barriers: barriers,
                                 rule_hits_total: 0,
                                 final_action: PolicyAction::Allow,
                             },

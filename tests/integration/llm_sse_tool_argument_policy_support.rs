@@ -325,6 +325,27 @@ pub(super) fn split_complete_frames(body: &str) -> (Vec<&str>, &str) {
     (frames, &body[cursor..])
 }
 
+/// Payloads grouped by complete dispatched SSE frame. Unlike a flat line
+/// scan, this preserves blank-line boundaries, so a dropped delimiter changes
+/// the outer vector shape even when the same data lines survive.
+pub(super) fn frame_payloads(body: &str) -> Vec<Vec<Value>> {
+    let (frames, _) = split_complete_frames(body);
+    frames
+        .into_iter()
+        .map(|frame| {
+            frame
+                .split(['\n', '\r'])
+                .filter_map(|line| line.strip_prefix("data:").map(str::trim))
+                .filter(|payload| *payload != "[DONE]")
+                .map(|payload| {
+                    serde_json::from_str(payload)
+                        .unwrap_or_else(|error| panic!("SSE payload must stay valid JSON: {error}"))
+                })
+                .collect()
+        })
+        .collect()
+}
+
 pub(super) fn assembled_arguments(body: &str) -> String {
     let mut assembled = String::new();
     for payload in json_payloads(body) {
@@ -420,9 +441,9 @@ pub(super) async fn assert_policy_parity(body: String, ending: &str, expect_toke
     let plain_body = plain.text().await.expect("plain body expected");
 
     assert_eq!(
-        json_payloads(&policy_body),
-        json_payloads(&plain_body),
-        "parsed payloads must agree for {ending:?} framing"
+        frame_payloads(&policy_body),
+        frame_payloads(&plain_body),
+        "complete dispatched frames must agree for {ending:?} framing"
     );
     assert_eq!(assembled_arguments(&policy_body), assembled_arguments(&plain_body));
 
@@ -463,7 +484,7 @@ pub(super) async fn assert_event_budget_parity(body: String, expect_bom: bool) {
     }
     let policy_view = policy_body.strip_prefix('\u{feff}').unwrap_or(&policy_body);
     let plain_view = plain_body.strip_prefix('\u{feff}').unwrap_or(&plain_body);
-    assert_eq!(json_payloads(policy_view), json_payloads(plain_view));
+    assert_eq!(frame_payloads(policy_view), frame_payloads(plain_view));
     assert_eq!(assembled_arguments(policy_view), assembled_arguments(plain_view));
     for view in [policy_view, plain_view] {
         assert!(view.contains("acme"), "the boundary frame must restore");

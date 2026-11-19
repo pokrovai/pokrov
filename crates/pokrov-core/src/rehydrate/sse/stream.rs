@@ -358,6 +358,40 @@ impl SseStreamRehydrator {
         out
     }
 
+    /// Forwards one complete source-oversized frame supplied by a buffered
+    /// caller at a frame boundary. Unlike [`Self::bypass_complete_event`],
+    /// which only releases tool carries for the source-ambiguity path, this
+    /// mirrors live overflow: pending argument suffixes and text carries are
+    /// flushed before the raw frame, so a text token split around an
+    /// oversized keepalive stays literal in both delivery modes. Tool
+    /// continuity closes and the frame itself is never restored.
+    pub fn bypass_source_oversize_event(&mut self, frame: &[u8]) -> Vec<u8> {
+        if !self.inner.is_chat_completions() {
+            return self.bypass_complete_event(frame);
+        }
+        let mut out = Vec::new();
+        if !self.buffer.is_empty() {
+            // Buffered bytes precede the supplied frame; a partial event
+            // cannot be safely re-framed around an inserted chunk.
+            let tail = std::mem::take(&mut self.buffer);
+            self.note_raw_bytes(&tail);
+            out.extend_from_slice(&tail);
+            self.at_frame_boundary = ends_with_blank_line(&tail);
+        }
+        self.scanned = 0;
+        self.pending_delimiter_lf = false;
+        self.overflow_passthrough = false;
+        self.flush_pending_tool_arguments(&mut out);
+        self.flush_chat_carries(&mut out);
+        self.note_raw_bytes(frame);
+        out.extend_from_slice(frame);
+        self.at_frame_boundary = ends_with_blank_line(frame);
+        if frame.last() == Some(&b'\r') {
+            self.pending_delimiter_lf = true;
+        }
+        out
+    }
+
     /// Emits pending tool suffixes into `out`, separated from preceding raw
     /// bytes by a blank line when necessary.
     fn flush_pending_tool_arguments(&mut self, out: &mut Vec<u8>) {

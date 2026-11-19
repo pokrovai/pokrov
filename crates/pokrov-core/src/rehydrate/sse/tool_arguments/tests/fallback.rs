@@ -167,3 +167,39 @@ fn has_ambiguous_members_checks_relevant_paths() {
     ));
     assert!(has_ambiguous_chat_tool_members("not json"));
 }
+
+#[test]
+fn effective_event_type_uses_last_event_field() {
+    let (map, tokens) = map_for(&["message-token"]);
+    let token = &tokens[0];
+    let data = event(0, &[(0, &format!("{{\"v\":\"{token}\"}}"))], false);
+    let message = format!("event: error\nevent: message\n{data}");
+    let mut harness = Harness::new(map.clone());
+    let out = harness.rehydrator.rehydrate_event(&message);
+    let line = out.lines().find(|line| line.starts_with("data: ")).expect("data line");
+    let parsed: Value = serde_json::from_str(line.strip_prefix("data: ").unwrap()).unwrap();
+    let args = arg_for(&parsed, 0, 0).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(args).unwrap()["v"], "message-token");
+    assert_eq!(harness.report().restored, 1);
+    let error = format!("event: message\nevent: error\n{data}");
+    let mut harness = Harness::new(map);
+    assert_eq!(harness.rehydrator.rehydrate_event(&error), error);
+    assert_eq!(harness.report().restored, 0);
+}
+
+#[test]
+fn scans_many_comment_lines_without_per_line_descriptors() {
+    let (map, _) = map_for(&["unused-scan"]);
+    let data = event(0, &[(0, "{\"v\":\"plain\"}")], false);
+    let mut frame = String::new();
+    for _ in 0..20_000 {
+        frame.push_str(": comment\n");
+    }
+    frame.push_str(&data);
+    for _ in 0..20_000 {
+        frame.push_str(": comment\n");
+    }
+    assert!(frame.len() < 1 << 20);
+    let mut harness = Harness::new(map);
+    assert_eq!(harness.rehydrator.rehydrate_event(&frame), frame);
+}

@@ -4,7 +4,8 @@ use serde_json::Value;
 
 use super::super::{ArgumentKey, ArgumentStreams, MAX_EVENT_ENTRIES};
 use super::{
-    DetachedArguments, DetachedToolCalls, EventPlan, PlannedChoice, PlannedTool, ProcessPlan,
+    DetachedArguments, DetachedDelta, DetachedToolCalls, EventPlan, PlannedChoice, PlannedTool,
+    ProcessPlan,
 };
 
 #[derive(Clone, Copy)]
@@ -89,39 +90,57 @@ pub(crate) fn plan_event(json: &mut Value, streams: &ArgumentStreams) -> EventPl
             let index = object.get("index").and_then(Value::as_u64);
             let finish = object.get("finish_reason").is_some_and(|reason| !reason.is_null());
             let mut tools = RawTools::Absent;
-            if let Some(tool_calls) = object.get("delta").and_then(|delta| delta.get("tool_calls"))
-            {
-                let Some(entries) = tool_calls.as_array() else {
-                    raw.push(RawChoice { position, index, finish, tools: RawTools::Malformed });
-                    continue;
-                };
-                count = count.saturating_add(entries.len());
-                if count > MAX_EVENT_ENTRIES {
-                    return EventPlan::Opaque;
-                }
-                let mut parsed = Vec::new();
-                let mut malformed = false;
-                for (tool_position, entry) in entries.iter().enumerate() {
-                    let Some(tool) = entry.as_object() else {
-                        malformed = true;
-                        break;
+            match object.get("delta") {
+                None => {}
+                Some(delta) => {
+                    let Some(delta) = delta.as_object() else {
+                        raw.push(RawChoice { position, index, finish, tools: RawTools::Malformed });
+                        continue;
                     };
-                    let tool_index = tool.get("index").and_then(Value::as_u64);
-                    let mut args = ArgsKind::Absent;
-                    if let Some(function) = tool.get("function") {
-                        let Some(function) = function.as_object() else {
-                            malformed = true;
-                            break;
+                    if let Some(tool_calls) = delta.get("tool_calls") {
+                        let Some(entries) = tool_calls.as_array() else {
+                            raw.push(RawChoice {
+                                position,
+                                index,
+                                finish,
+                                tools: RawTools::Malformed,
+                            });
+                            continue;
                         };
-                        match function.get("arguments") {
-                            None => {}
-                            Some(Value::String(_)) => args = ArgsKind::String,
-                            Some(_) => args = ArgsKind::Other,
+                        count = count.saturating_add(entries.len());
+                        if count > MAX_EVENT_ENTRIES {
+                            return EventPlan::Opaque;
                         }
+                        let mut parsed = Vec::new();
+                        let mut malformed = false;
+                        for (tool_position, entry) in entries.iter().enumerate() {
+                            let Some(tool) = entry.as_object() else {
+                                malformed = true;
+                                break;
+                            };
+                            let tool_index = tool.get("index").and_then(Value::as_u64);
+                            let mut args = ArgsKind::Absent;
+                            if let Some(function) = tool.get("function") {
+                                let Some(function) = function.as_object() else {
+                                    malformed = true;
+                                    break;
+                                };
+                                match function.get("arguments") {
+                                    None => {}
+                                    Some(Value::String(_)) => args = ArgsKind::String,
+                                    Some(_) => args = ArgsKind::Other,
+                                }
+                            }
+                            parsed.push(RawTool {
+                                position: tool_position,
+                                index: tool_index,
+                                args,
+                            });
+                        }
+                        tools =
+                            if malformed { RawTools::Malformed } else { RawTools::Entries(parsed) };
                     }
-                    parsed.push(RawTool { position: tool_position, index: tool_index, args });
                 }
-                tools = if malformed { RawTools::Malformed } else { RawTools::Entries(parsed) };
             }
             raw.push(RawChoice { position, index, finish, tools });
         }
@@ -194,6 +213,7 @@ pub(crate) fn plan_event(json: &mut Value, streams: &ArgumentStreams) -> EventPl
         choices: Vec::with_capacity(raw.len()),
         detached: Vec::new(),
         detached_tool_calls: Vec::new(),
+        detached_deltas: Vec::new(),
         flush_choices,
         flush_pairs,
     };
@@ -207,6 +227,8 @@ pub(crate) fn plan_event(json: &mut Value, streams: &ArgumentStreams) -> EventPl
             RawTools::Malformed => {
                 if let Some(value) = take_tool_calls(choice) {
                     plan.detached_tool_calls.push(DetachedToolCalls { choice: position, value });
+                } else if let Some(value) = take_delta(choice) {
+                    plan.detached_deltas.push(DetachedDelta { choice: position, value });
                 }
             }
             RawTools::Absent => {}
@@ -265,5 +287,10 @@ fn take_arguments(choice: &mut Value, tool: usize) -> Option<Value> {
 
 fn take_tool_calls(choice: &mut Value) -> Option<Value> {
     let slot = choice.get_mut("delta")?.as_object_mut()?.get_mut("tool_calls")?;
+    Some(std::mem::replace(slot, Value::Null))
+}
+
+fn take_delta(choice: &mut Value) -> Option<Value> {
+    let slot = choice.get_mut("delta")?;
     Some(std::mem::replace(slot, Value::Null))
 }

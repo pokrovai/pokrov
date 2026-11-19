@@ -132,16 +132,24 @@ fn finish_event() -> String {
 
 /// Builds roughly 32 KiB of interleaved Chat deltas for two tool calls. The
 /// main call carries split, whole, and absent tokens; the second call keeps an
-/// independent inner document so interleaving exercises per-pair state.
-fn traffic_body(token: &str) -> String {
+/// independent inner document so interleaving exercises per-pair state. The
+/// returned expected strings are the exact inner argument JSON after restore.
+fn traffic_body(token: &str) -> (String, String, String) {
     let split = token.len() / 2;
+    let quoted = serde_json::to_string(TOOL_FRAGMENT).expect("fragment should serialize");
+    let restored = &quoted[1..quoted.len() - 1];
+    let mut expected0 = String::from("{\"q\":\"");
+    let mut expected1 = String::from("{\"note\":\"");
+
     let mut body = String::with_capacity(TARGET_BYTES + 1024);
     body.push_str(&argument_event("{\"q\":\"", 0));
     body.push_str(&argument_event("{\"note\":\"", 1));
     let mut cycle = 0usize;
     while body.len() < TARGET_BYTES {
         body.push_str(&argument_event(&format!("chunk-{cycle}:"), 0));
+        expected0.push_str(&format!("chunk-{cycle}:"));
         body.push_str(&argument_event(&format!("note-{cycle}"), 1));
+        expected1.push_str(&format!("note-{cycle}"));
         let split_token = match cycle % 3 {
             0 => {
                 body.push_str(&argument_event(&token[..split], 0));
@@ -149,28 +157,35 @@ fn traffic_body(token: &str) -> String {
             }
             1 => {
                 body.push_str(&argument_event(token, 0));
+                expected0.push_str(restored);
                 false
             }
             _ => {
                 body.push_str(&argument_event("absent-token", 0));
+                expected0.push_str("absent-token");
                 false
             }
         };
         body.push_str(&argument_event("-tail", 1));
+        expected1.push_str("-tail");
         if split_token {
             // Complete the split token only after the interleaved call, so
             // cross-pair state cannot absorb the fragment.
             body.push_str(&argument_event(&token[split..], 0));
+            expected0.push_str(restored);
         } else {
             body.push_str(&argument_event("-tail", 0));
+            expected0.push_str("-tail");
         }
         cycle += 1;
     }
+    expected0.push_str("\"}");
+    expected1.push_str("\"}");
     body.push_str(&argument_event("\"}", 0));
     body.push_str(&argument_event("\"}", 1));
     body.push_str(&finish_event());
     body.push_str("data: [DONE]\n\n");
-    body
+    (body, expected0, expected1)
 }
 
 fn percentile(samples: &[Duration], p: usize) -> Duration {
@@ -190,16 +205,73 @@ async fn drain(client: &Client, base_url: &str, request: &serde_json::Value) {
         .await
         .expect("request should complete");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = response.bytes().await.expect("body should drain");
+    let _ = response.bytes().await.expect("body should drain");
+}
+
+fn assembled_arguments_for(body: &str, choice_index: u64, tool_index: u64) -> String {
+    let mut assembled = String::new();
+    for line in body.lines() {
+        let Some(data) = line.strip_prefix("data:") else { continue };
+        let Ok(payload) = serde_json::from_str::<serde_json::Value>(data.trim()) else {
+            continue;
+        };
+        let Some(choices) = payload.get("choices").and_then(serde_json::Value::as_array) else {
+            continue;
+        };
+        for choice in choices {
+            if choice.get("index").and_then(serde_json::Value::as_u64) != Some(choice_index) {
+                continue;
+            }
+            let Some(calls) = choice
+                .get("delta")
+                .and_then(|delta| delta.get("tool_calls"))
+                .and_then(serde_json::Value::as_array)
+            else {
+                continue;
+            };
+            for call in calls {
+                if call.get("index").and_then(serde_json::Value::as_u64) != Some(tool_index) {
+                    continue;
+                }
+                if let Some(arguments) = call
+                    .get("function")
+                    .and_then(|function| function.get("arguments"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    assembled.push_str(arguments);
+                }
+            }
+        }
+    }
+    assembled
+}
+
+async fn verify_arguments(
+    client: &Client,
+    base_url: &str,
+    request: &serde_json::Value,
+    expected0: &str,
+    expected1: &str,
+) {
+    let response = client
+        .post(format!("{base_url}/v1/chat/completions"))
+        .header("authorization", format!("Bearer {RUNTIME_API_KEY}"))
+        .json(request)
+        .send()
+        .await
+        .expect("verification request should complete");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.bytes().await.expect("verification body should drain");
     let text = String::from_utf8_lossy(&body);
-    assert!(!text.contains("__PKV_"), "restoration must cover the measured traffic");
-    assert!(text.contains("acme"), "restored original must appear in the drained body");
+    assert!(!text.contains("__PKV_"), "every known token must restore");
+    assert_eq!(assembled_arguments_for(&text, 0, 0), expected0);
+    assert_eq!(assembled_arguments_for(&text, 0, 1), expected1);
 }
 
 #[tokio::test]
 async fn llm_sse_tool_argument_overhead_stays_within_budget() {
     let token = token_for(TOOL_FRAGMENT);
-    let body = traffic_body(&token);
+    let (body, expected0, expected1) = traffic_body(&token);
     assert!(body.len() >= TARGET_BYTES, "fixture must cover 32 KiB: {}", body.len());
     assert!(body.len() < TARGET_BYTES + 4096, "fixture should stay near 32 KiB: {}", body.len());
 
@@ -245,12 +317,11 @@ async fn llm_sse_tool_argument_overhead_stays_within_budget() {
                 .await
                 .expect("request should complete");
             assert_eq!(response.status(), StatusCode::OK);
-            let body = response.bytes().await.expect("body should drain");
+            let _ = response.bytes().await.expect("body should drain");
             latencies.push(started.elapsed());
-            let text = String::from_utf8_lossy(&body);
-            assert!(!text.contains("__PKV_"), "{model}: tokens must restore");
-            assert!(text.contains("acme"), "{model}: original must be visible");
         }
+
+        verify_arguments(&client, &runtime.base_url(), &request, &expected0, &expected1).await;
 
         latencies.sort_unstable();
         let p95 = percentile(&latencies, 95);

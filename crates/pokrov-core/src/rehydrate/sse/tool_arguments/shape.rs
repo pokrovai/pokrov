@@ -32,6 +32,7 @@ pub(crate) struct ProcessPlan {
     pub(crate) choices: Vec<PlannedChoice>,
     pub(crate) detached: Vec<DetachedArguments>,
     pub(crate) detached_tool_calls: Vec<DetachedToolCalls>,
+    pub(crate) detached_deltas: Vec<DetachedDelta>,
     /// Choices to flush and fence before the event is forwarded.
     pub(crate) flush_choices: Vec<u64>,
     /// Pairs to flush and quarantine before the event is forwarded.
@@ -45,6 +46,7 @@ impl ProcessPlan {
             choices: Vec::new(),
             detached: Vec::new(),
             detached_tool_calls: Vec::new(),
+            detached_deltas: Vec::new(),
             flush_choices: Vec::new(),
             flush_pairs: Vec::new(),
         }
@@ -73,6 +75,11 @@ pub(crate) struct DetachedArguments {
 }
 
 pub(crate) struct DetachedToolCalls {
+    pub(crate) choice: usize,
+    pub(crate) value: Value,
+}
+
+pub(crate) struct DetachedDelta {
     pub(crate) choice: usize,
     pub(crate) value: Value,
 }

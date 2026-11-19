@@ -71,23 +71,59 @@ fn chat_opaque_frames_flush_then_break_continuity() {
 
 #[test]
 fn chat_bypass_complete_event_flushes_then_breaks_continuity() {
-    let (map, token) = map_with("acme-corp");
+    let (mut map, token) = map_with("acme-corp");
+    let text_token = map.token_for(&TokenDeriver::new(b"task2-key"), "globex");
     let prefix = token[..12].to_string();
     let rest = token[12..].to_string();
+    let (text_prefix, text_rest) = text_token.split_at(12);
     let pending = format!("{{\"x\":\"{prefix}");
     let mut rehydrator = SseStreamRehydrator::new_chat_completions(map);
     rehydrator.feed(format!("{}\n\n", tool_event(0, 0, &pending)).as_bytes());
+    rehydrator.feed(format!("{}\n\n", text_event(text_prefix)).as_bytes());
 
     let frame = b"data: {\"opaque\":true}\n\n";
     let out = rehydrator.bypass_complete_event(frame);
     assert!(position(&out, prefix.as_bytes()) < position(&out, frame));
     assert!(out.ends_with(frame));
+    assert!(
+        !String::from_utf8_lossy(&out).contains(text_prefix),
+        "source ambiguity keeps text carries pending"
+    );
 
+    let out = rehydrator.feed(format!("{}\n\n", text_event(text_rest)).as_bytes());
+    assert!(String::from_utf8_lossy(&out).contains("globex"));
     let completing = format!("{rest}\"}}");
     let out = rehydrator.feed(format!("{}\n\n", tool_event(0, 0, &completing)).as_bytes());
     let text = String::from_utf8(out).unwrap();
     assert!(!text.contains("acme-corp"));
     assert!(text.contains(rest.as_str()));
+}
+
+#[test]
+fn chat_bypass_source_oversize_flushes_arguments_then_text() {
+    let (mut map, argument_token) = map_with("acme-corp");
+    let text_token = map.token_for(&TokenDeriver::new(b"task2-key"), "globex");
+    let argument_prefix = &argument_token[..12];
+    let (text_prefix, text_rest) = text_token.split_at(12);
+    let mut rehydrator = SseStreamRehydrator::new_chat_completions(map);
+    let pending = format!("{{\"x\":\"{argument_prefix}");
+    rehydrator.feed(format!("{}\n\n", tool_event(0, 0, &pending)).as_bytes());
+    rehydrator.feed(format!("{}\n\n", text_event(text_prefix)).as_bytes());
+
+    let frame = format!("{}\n\n", padded_text_event(MAX_EVENT_BUFFER_BYTES + 1, "keepalive"));
+    let out = rehydrator.bypass_source_oversize_event(frame.as_bytes());
+    assert!(out.ends_with(frame.as_bytes()));
+    assert_eq!(out.windows(frame.len()).filter(|window| *window == frame.as_bytes()).count(), 1);
+    assert!(position(&out, argument_prefix.as_bytes()) < position(&out, text_prefix.as_bytes()));
+    assert!(position(&out, text_prefix.as_bytes()) < position(&out, frame.as_bytes()));
+
+    let rest_event = format!("{text_rest} after");
+    let out = rehydrator.feed(format!("{}\n\n", text_event(&rest_event)).as_bytes());
+    assert!(!String::from_utf8_lossy(&out).contains("globex"));
+    assert!(String::from_utf8_lossy(&out).contains(text_rest));
+    let out = rehydrator.feed(format!("{}\n\n", text_event(&text_token)).as_bytes());
+    assert!(String::from_utf8_lossy(&out).contains("globex"));
+    assert_eq!(rehydrator.report().restored, 1);
 }
 
 #[test]
