@@ -105,8 +105,9 @@ fn scan_chat_line(scan: &mut ChatScan, content: &str, start: usize) {
             });
         }
     } else if let Some(event) = content.strip_prefix("event:") {
-        // The last event field wins; an empty type resets to `message`.
-        scan.effective_error = event.trim() == "error";
+        // SSE removes at most one leading space; the value itself is not trimmed.
+        let value = event.strip_prefix(' ').unwrap_or(event);
+        scan.effective_error = value == "error";
     } else if content == "event" {
         scan.effective_error = false;
     }

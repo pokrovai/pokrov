@@ -22,8 +22,9 @@ mod support;
 
 use support::{
     argument_event, assembled_arguments, assembled_arguments_for, assert_event_budget_parity,
-    assert_policy_parity, done_event, first_frame_at_event_budget, json_payloads, plain_stream,
-    split_complete_frames, sse_event, token_stream, BufferedHarness, PLAIN_ROUTE, POLICY_ROUTE,
+    assert_policy_parity, done_event, first_frame_at_event_budget, frame_payloads, json_payloads,
+    plain_stream, split_complete_frames, sse_event, token_stream, BufferedHarness, PLAIN_ROUTE,
+    POLICY_ROUTE,
 };
 
 #[tokio::test]
@@ -212,11 +213,13 @@ async fn text_carry_across_second_oversized_frame_stays_literal() {
     );
 
     let mut body = String::new();
-    body.push_str(&text_event(&format!("start {}", &token[..split])));
+    body.push_str(&text_event("before first overflow"));
     body.push_str(&keepalive);
     body.push_str(&text_event("middle"));
+    body.push_str(&text_event(&format!("fresh {}", &token[..split])));
     body.push_str(&oversized_restore);
-    body.push_str(&text_event("end"));
+    let continuation = format!("{} continuation", &token[split..]);
+    body.push_str(&text_event(&continuation));
     body.push_str(&done_event("\n"));
 
     let harness = BufferedHarness::start(body).await;
@@ -233,10 +236,33 @@ async fn text_carry_across_second_oversized_frame_stays_literal() {
         assert_eq!(
             body.matches("__PKV_").count(),
             2,
-            "one flushed split prefix plus one literal token in the raw frame"
+            "the flushed prefix plus the literal token in the raw frame"
+        );
+
+        let (frames, _) = split_complete_frames(body);
+        let mut offset = 0usize;
+        let mut oversized_range = None;
+        for frame in frames {
+            let start = offset;
+            let end = start + frame.len();
+            if frame.contains("chatcmpl-oversized-text") {
+                oversized_range = Some((start, end));
+            }
+            offset = end;
+        }
+        let (oversized_start, oversized_end) = oversized_range.expect("second oversized frame");
+        let prefix = body.find(&token[..split]).expect("flushed text prefix");
+        assert!(
+            prefix < oversized_start,
+            "the held prefix must be emitted before the second oversized frame"
+        );
+        let continuation_at = body.find(&continuation).expect("continuation text");
+        assert!(
+            continuation_at > oversized_end,
+            "the continuation must follow the second oversized frame"
         );
     }
-    assert_eq!(json_payloads(&policy_body), json_payloads(&plain_body));
+    assert_eq!(frame_payloads(&policy_body), frame_payloads(&plain_body));
 
     harness.shutdown().await;
 }

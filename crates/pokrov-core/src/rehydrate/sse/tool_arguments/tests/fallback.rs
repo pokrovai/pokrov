@@ -188,18 +188,60 @@ fn effective_event_type_uses_last_event_field() {
 }
 
 #[test]
+fn event_value_removes_only_one_leading_space() {
+    let (map, tokens) = map_for(&["space-token"]);
+    let token = &tokens[0];
+    for prefix in ["event:  error\n", "event: error \n"] {
+        let mut harness = Harness::new(map.clone());
+        let first = harness.rehydrator.rehydrate_event(&event(
+            0,
+            &[(0, &format!("{{\"v\":\"{}", &token[..40]))],
+            false,
+        ));
+        let complete = event(0, &[(0, &format!("{}\"}}", &token[40..]))], false);
+        let out = harness.rehydrator.rehydrate_event(&format!("{prefix}{complete}"));
+        let line = out.lines().find(|line| line.starts_with("data: ")).expect("data line");
+        let parsed: Value = serde_json::from_str(line.strip_prefix("data: ").unwrap()).unwrap();
+        let mut events = parse_events(&first);
+        events.push(parsed);
+        assert_eq!(
+            serde_json::from_str::<Value>(&assembled(&events, 0, 0)).unwrap()["v"],
+            "space-token"
+        );
+        assert_eq!(harness.report().restored, 1);
+        assert!(harness.rehydrator.chat_arguments.as_ref().unwrap().admissions_open);
+    }
+}
+
+#[test]
 fn scans_many_comment_lines_without_per_line_descriptors() {
-    let (map, _) = map_for(&["unused-scan"]);
-    let data = event(0, &[(0, "{\"v\":\"plain\"}")], false);
-    let mut frame = String::new();
-    for _ in 0..20_000 {
-        frame.push_str(": comment\n");
-    }
-    frame.push_str(&data);
-    for _ in 0..20_000 {
-        frame.push_str(": comment\n");
-    }
-    assert!(frame.len() < 1 << 20);
+    let (map, tokens) = map_for(&["scan-token"]);
+    let token = &tokens[0];
+    let frame = |data: &str| {
+        let mut frame = String::new();
+        for _ in 0..20_000 {
+            frame.push_str(": comment\n");
+        }
+        frame.push_str(data);
+        frame.push('\n');
+        for _ in 0..20_000 {
+            frame.push_str(": comment\n");
+        }
+        frame
+    };
+    let plain = frame(&event(0, &[(0, "{\"v\":\"plain\"}")], false));
+    assert!(plain.len() < 1 << 20);
+    let mut harness = Harness::new(map.clone());
+    assert_eq!(harness.rehydrator.rehydrate_event(&plain), plain);
+    assert_eq!(harness.report().restored, 0);
+    let restored = frame(&event(0, &[(0, &format!("{{\"v\":\"{token}\"}}"))], false));
+    assert!(restored.len() < 1 << 20);
     let mut harness = Harness::new(map);
-    assert_eq!(harness.rehydrator.rehydrate_event(&frame), frame);
+    let out = harness.rehydrator.rehydrate_event(&restored);
+    assert_ne!(out, restored);
+    let line = out.lines().find(|line| line.starts_with("data: ")).expect("data line");
+    let parsed: Value = serde_json::from_str(line.strip_prefix("data: ").unwrap()).unwrap();
+    let args = arg_for(&parsed, 0, 0).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(args).unwrap()["v"], "scan-token");
+    assert_eq!(harness.report().restored, 1);
 }
