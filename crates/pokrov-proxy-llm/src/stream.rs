@@ -3,12 +3,16 @@ use pokrov_core::{
         event_boundary_end, EventRehydrator, RehydrateReport, RehydrationMap,
         MAX_EVENT_BUFFER_BYTES,
     },
-    types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
+    types::PolicyAction,
     SanitizationEngine,
 };
 use serde_json::Value;
 
 use crate::errors::LLMProxyError;
+
+mod chat;
+
+pub(crate) use chat::{rehydrate_chat_sse_stream, sanitize_chat_sse_stream, ChatPolicyBody};
 
 #[derive(Debug, Clone)]
 pub struct StreamSanitizationResult {
@@ -46,46 +50,14 @@ pub fn sanitize_sse_stream(
                     continue;
                 };
 
-                let result = evaluator
-                    .evaluate(EvaluateRequest {
-                        request_id: request_id.to_string(),
-                        profile_id: profile_id.to_string(),
-                        mode: EvaluationMode::Enforce,
-                        payload: event_json,
-                        path_class: PathClass::Llm,
-                        effective_language: "en".to_string(),
-                        entity_scope_filters: Vec::new(),
-                        recognizer_family_filters: Vec::new(),
-                        allowlist_additions: Vec::new(),
-                    })
-                    .map_err(|error| {
-                        LLMProxyError::invalid_request(
-                            request_id,
-                            format!("failed to sanitize stream event: {error}"),
-                        )
-                    })?;
-
-                total_hits = total_hits.saturating_add(result.decision.rule_hits_total);
-                if result.decision.final_action.strictness_rank() > final_action.strictness_rank() {
-                    final_action = result.decision.final_action;
+                let outcome =
+                    chat::evaluate_policy_payload(request_id, profile_id, event_json, evaluator)?;
+                total_hits = total_hits.saturating_add(outcome.rule_hits_total);
+                if outcome.final_action.strictness_rank() > final_action.strictness_rank() {
+                    final_action = outcome.final_action;
                 }
 
-                let sanitized = result.transform.sanitized_payload.ok_or_else(|| {
-                    LLMProxyError::policy_blocked(
-                        request_id,
-                        "stream output blocked by active profile policy",
-                    )
-                })?;
-
-                let encoded = serde_json::to_string(&sanitized).map_err(|error| {
-                    LLMProxyError::upstream_error(
-                        request_id,
-                        None,
-                        format!("failed to serialize sanitized stream event: {error}"),
-                    )
-                })?;
-
-                lines.push(format!("data: {encoded}"));
+                lines.push(format!("data: {}", outcome.encoded));
                 continue;
             }
 
@@ -269,20 +241,11 @@ impl ResponsesChunkConverter {
         // Resume at the start of the trailing EOL run — it may grow into a
         // boundary once the next chunk arrives (`\r\n\r` + `\n`).
         self.scanned = self.pending_bytes.len()
-            - self
-                .pending_bytes
-                .iter()
-                .rev()
-                .take_while(|b| matches!(b, b'\r' | b'\n'))
-                .count();
+            - self.pending_bytes.iter().rev().take_while(|b| matches!(b, b'\r' | b'\n')).count();
         out.extend_from_slice(converted.as_bytes());
         if self.pending_bytes.len() > MAX_EVENT_BUFFER_BYTES {
-            let keep = self
-                .pending_bytes
-                .iter()
-                .rev()
-                .take_while(|b| matches!(b, b'\r' | b'\n'))
-                .count();
+            let keep =
+                self.pending_bytes.iter().rev().take_while(|b| matches!(b, b'\r' | b'\n')).count();
             let flush_end = self.pending_bytes.len() - keep;
             out.extend(self.pending_bytes.drain(..flush_end));
             self.scanned = 0;
@@ -380,9 +343,7 @@ mod tests {
 
     use pokrov_core::rehydrate::MAX_EVENT_BUFFER_BYTES;
 
-    use super::{
-        convert_chat_sse_to_responses_sse, sanitize_sse_stream, ResponsesChunkConverter,
-    };
+    use super::{convert_chat_sse_to_responses_sse, sanitize_sse_stream, ResponsesChunkConverter};
 
     fn engine() -> SanitizationEngine {
         let strict = PolicyProfile {
@@ -463,8 +424,7 @@ mod tests {
     #[test]
     fn converts_responses_stream_chunk_by_chunk_across_boundaries() {
         let mut converter = ResponsesChunkConverter::new("req-3");
-        let first =
-            converter.feed(br#"data: {"choices":[{"delta":{"content":"he"}}]"#);
+        let first = converter.feed(br#"data: {"choices":[{"delta":{"content":"he"}}]"#);
         assert!(first.is_empty());
 
         let second = converter.feed(b"}\n\ndata: [DONE]\n\n");

@@ -1,20 +1,18 @@
-use std::{sync::Arc, time::Instant};
+use std::{ops::Range, sync::Arc, time::Instant};
 
 use futures_util::StreamExt;
 use pokrov_config::UpstreamAuthMode;
 use pokrov_core::{
-    rehydrate::{RehydrateReport, RehydrationMap, SseStreamRehydrator},
+    rehydrate::{RehydrateReport, RehydrationMap},
     types::PolicyAction,
 };
-use pokrov_metrics::hooks::SharedRuntimeMetricsHooks;
 use serde_json::Value;
 
 use crate::{
-    audit::LLMAuditEvent,
     errors::LLMProxyError,
     stream::{
-        convert_chat_sse_to_responses_sse, rehydrate_sse_stream, sanitize_sse_stream,
-        ResponsesChunkConverter,
+        convert_chat_sse_to_responses_sse, rehydrate_chat_sse_stream, rehydrate_sse_stream,
+        sanitize_chat_sse_stream, sanitize_sse_stream, ChatPolicyBody, ResponsesChunkConverter,
     },
     types::{
         LLMProxyBody, LLMProxyResponse, RouteResolution, SseBodyStream, UpstreamCredentialOrigin,
@@ -26,6 +24,27 @@ use super::{
     support::{max_action, mode_as_str, TerminalEvent},
     ErrorEventContext, LLMProxyHandler,
 };
+
+/// Endpoint that carries modern Chat Completions tool calls. The Responses
+/// compatibility endpoint reuses this handler but must keep the default
+/// buffered restoration shape.
+const CHAT_COMPLETIONS_ENDPOINT: &str = "/v1/chat/completions";
+
+/// Post-policy buffered body plus the out-of-band source barrier that the
+/// Chat restorer must forward through `bypass_complete_event`.
+struct BufferedPolicyOutcome {
+    body: String,
+    first_source_barrier: Option<Range<usize>>,
+    rule_hits_total: u32,
+    final_action: PolicyAction,
+}
+
+/// Live passthrough rehydration and the deferred terminal audit it reports
+/// through.
+mod passthrough;
+
+#[cfg(all(test, feature = "llm_payload_trace"))]
+mod trace_tests;
 
 impl LLMProxyHandler {
     #[allow(clippy::too_many_arguments)]
@@ -115,98 +134,137 @@ impl LLMProxyHandler {
                 }
             };
 
+            let chat_buffered =
+                endpoint == CHAT_COMPLETIONS_ENDPOINT && !rehydration_map.is_empty();
             let mut stream_body = body;
-            if route.output_sanitization {
-                if let Some(evaluator) = self.evaluator.as_ref() {
-                    let evaluator = Arc::clone(evaluator);
-                    let request_id_for_task = request_id.clone();
-                    let profile_id_for_task = profile_id.clone();
-                    let body_for_task = stream_body.clone();
-                    let sanitized = match tokio::task::spawn_blocking(move || {
+            let mut first_source_barrier = None;
+            if let Some(evaluator) = self.evaluator.as_ref() {
+                let evaluator = Arc::clone(evaluator);
+                let request_id_for_task = request_id.clone();
+                let profile_id_for_task = profile_id.clone();
+                let body_for_task = stream_body.clone();
+                let sanitized = match tokio::task::spawn_blocking(move || {
+                    if chat_buffered {
+                        sanitize_chat_sse_stream(
+                            &request_id_for_task,
+                            &profile_id_for_task,
+                            &body_for_task,
+                            evaluator.as_ref(),
+                        )
+                        .map(|sanitized| BufferedPolicyOutcome {
+                            body: sanitized.body,
+                            first_source_barrier: sanitized.first_source_barrier,
+                            rule_hits_total: sanitized.rule_hits_total,
+                            final_action: sanitized.final_action,
+                        })
+                    } else {
                         sanitize_sse_stream(
                             &request_id_for_task,
                             &profile_id_for_task,
                             &body_for_task,
                             evaluator.as_ref(),
                         )
-                    })
-                    .await
-                    {
-                        Ok(Ok(sanitized)) => sanitized,
-                        Ok(Err(error)) => {
-                            self.emit_error_event(
-                                ErrorEventContext {
-                                    started,
-                                    endpoint,
-                                    request_id: &request_id,
-                                    profile_id: &profile_id,
-                                    provider_id: Some(route.provider_id.clone()),
-                                    model: &model,
-                                    stream: true,
-                                    final_action,
-                                    total_hits,
-                                    upstream_status: Some(status.as_u16()),
-                                    auth_mode: mode_as_str(auth_mode),
-                                    credential_origin,
-                                    tokenized_spans_total,
-                                    rehydrated_tokens_total: 0,
-                                    unrestored_tokens_total: 0,
-                                },
-                                &error,
-                            );
-                            return Err(error);
-                        }
-                        Err(join_error) => {
-                            let error = LLMProxyError::upstream_error(
-                                request_id.clone(),
-                                Some(route.provider_id.clone()),
-                                format!("failed to execute stream sanitization task: {join_error}"),
-                            );
-                            self.emit_error_event(
-                                ErrorEventContext {
-                                    started,
-                                    endpoint,
-                                    request_id: &request_id,
-                                    profile_id: &profile_id,
-                                    provider_id: Some(route.provider_id.clone()),
-                                    model: &model,
-                                    stream: true,
-                                    final_action,
-                                    total_hits,
-                                    upstream_status: Some(status.as_u16()),
-                                    auth_mode: mode_as_str(auth_mode),
-                                    credential_origin,
-                                    tokenized_spans_total,
-                                    rehydrated_tokens_total: 0,
-                                    unrestored_tokens_total: 0,
-                                },
-                                &error,
-                            );
-                            return Err(error);
-                        }
-                    };
-                    total_hits = total_hits.saturating_add(sanitized.rule_hits_total);
-                    final_action = max_action(final_action, sanitized.final_action);
-                    stream_body = sanitized.body;
-                }
+                        .map(|sanitized| BufferedPolicyOutcome {
+                            body: sanitized.body,
+                            first_source_barrier: None,
+                            rule_hits_total: sanitized.rule_hits_total,
+                            final_action: sanitized.final_action,
+                        })
+                    }
+                })
+                .await
+                {
+                    Ok(Ok(sanitized)) => sanitized,
+                    Ok(Err(error)) => {
+                        self.emit_error_event(
+                            ErrorEventContext {
+                                started,
+                                endpoint,
+                                request_id: &request_id,
+                                profile_id: &profile_id,
+                                provider_id: Some(route.provider_id.clone()),
+                                model: &model,
+                                stream: true,
+                                final_action,
+                                total_hits,
+                                upstream_status: Some(status.as_u16()),
+                                auth_mode: mode_as_str(auth_mode),
+                                credential_origin,
+                                tokenized_spans_total,
+                                rehydrated_tokens_total: 0,
+                                unrestored_tokens_total: 0,
+                            },
+                            &error,
+                        );
+                        return Err(error);
+                    }
+                    Err(join_error) => {
+                        let error = LLMProxyError::upstream_error(
+                            request_id.clone(),
+                            Some(route.provider_id.clone()),
+                            format!("failed to execute stream sanitization task: {join_error}"),
+                        );
+                        self.emit_error_event(
+                            ErrorEventContext {
+                                started,
+                                endpoint,
+                                request_id: &request_id,
+                                profile_id: &profile_id,
+                                provider_id: Some(route.provider_id.clone()),
+                                model: &model,
+                                stream: true,
+                                final_action,
+                                total_hits,
+                                upstream_status: Some(status.as_u16()),
+                                auth_mode: mode_as_str(auth_mode),
+                                credential_origin,
+                                tokenized_spans_total,
+                                rehydrated_tokens_total: 0,
+                                unrestored_tokens_total: 0,
+                            },
+                            &error,
+                        );
+                        return Err(error);
+                    }
+                };
+                total_hits = total_hits.saturating_add(sanitized.rule_hits_total);
+                final_action = max_action(final_action, sanitized.final_action);
+                stream_body = sanitized.body;
+                first_source_barrier = sanitized.first_source_barrier;
             }
 
             if endpoint == RESPONSES_ENDPOINT {
                 stream_body = convert_chat_sse_to_responses_sse(&request_id, &stream_body)?;
             }
 
-            #[cfg(feature = "llm_payload_trace")]
-            self.upstream.emit_response_trace(
-                &request_id,
-                &route,
-                endpoint,
-                &Value::String(stream_body.clone()),
-            );
-
-            // Rehydration runs strictly after output policy evaluation, endpoint
+            // Restoration runs strictly after output policy evaluation, endpoint
             // conversion, and payload tracing so restored originals are never
             // re-scanned or traced.
-            let (restored_body, report) = rehydrate_sse_stream(&stream_body, &rehydration_map);
+            let (restored_body, report) = if chat_buffered {
+                let map = rehydration_map;
+                let barrier = first_source_barrier;
+                self.finalize_buffered_sse(
+                    &request_id,
+                    &route,
+                    endpoint,
+                    stream_body,
+                    move |body| {
+                        rehydrate_chat_sse_stream(
+                            ChatPolicyBody {
+                                body,
+                                first_source_barrier: barrier,
+                                rule_hits_total: 0,
+                                final_action: PolicyAction::Allow,
+                            },
+                            map,
+                        )
+                    },
+                )
+            } else {
+                self.finalize_buffered_sse(&request_id, &route, endpoint, stream_body, |body| {
+                    rehydrate_sse_stream(&body, &rehydration_map)
+                })
+            };
             stream_body = restored_body;
             if report.restored > 0 {
                 self.metrics.on_rehydrated_tokens(report.restored);
@@ -262,8 +320,7 @@ impl LLMProxyHandler {
                     tokenized_spans_total,
                 ),
             );
-            let converted_stream =
-                converting_responses_stream(restored_stream, request_id.clone());
+            let converted_stream = converting_responses_stream(restored_stream, request_id.clone());
 
             return Ok(LLMProxyResponse {
                 request_id,
@@ -295,220 +352,33 @@ impl LLMProxyHandler {
         Ok(LLMProxyResponse { request_id, status, body: LLMProxyBody::SseStream(restored_stream) })
     }
 
-    /// Builds the deferred terminal-audit context carried inside a passthrough
-    /// stream; restoration happens per event during the body, so real
-    /// restored/unrestored totals exist only once the stream drains or fails.
-    #[allow(clippy::too_many_arguments)]
-    fn stream_audit(
+    /// Emits the configured response payload trace for a post-policy buffered
+    /// SSE body, then runs the endpoint's restoration pass. Trace emission
+    /// stays ahead of restoration so restored originals never reach a
+    /// diagnostic sink.
+    fn finalize_buffered_sse<F>(
         &self,
-        endpoint: &'static str,
         request_id: &str,
-        profile_id: &str,
-        model: &str,
         route: &RouteResolution,
-        final_action: PolicyAction,
-        total_hits: u32,
-        upstream_status: u16,
-        started: Instant,
-        estimated_token_units: u32,
-        auth_mode: UpstreamAuthMode,
-        credential_origin: UpstreamCredentialOrigin,
-        tokenized_spans_total: u32,
-    ) -> StreamAuditContext {
-        StreamAuditContext {
-            request_id: request_id.to_string(),
+        endpoint: &str,
+        body: String,
+        restore: F,
+    ) -> (String, RehydrateReport)
+    where
+        F: FnOnce(String) -> (String, RehydrateReport),
+    {
+        #[cfg(feature = "llm_payload_trace")]
+        self.upstream.emit_response_trace(
+            request_id,
+            route,
             endpoint,
-            profile_id: profile_id.to_string(),
-            provider_id: Some(route.provider_id.clone()),
-            model: model.to_string(),
-            final_action,
-            rule_hits_total: total_hits,
-            upstream_status: Some(upstream_status),
-            started,
-            estimated_token_units,
-            auth_mode: mode_as_str(auth_mode),
-            credential_origin,
-            tokenized_spans_total,
-            metrics: self.metrics.clone(),
-            last_report: RehydrateReport::default(),
-            emitted: false,
-        }
-    }
+            &Value::String(body.clone()),
+        );
 
-    /// Wraps a passthrough byte stream with SSE-aware `[PKV_TOKEN]`
-    /// restoration: events are buffered to their blank-line terminator so
-    /// `data:` JSON stays valid under leaf-wise restore and tokens split
-    /// across chunks or delta events still resolve. The terminal audit event
-    /// is emitted from inside the stream once it drains, errors, or is
-    /// dropped, carrying the real restored/unrestored totals (FR-010).
-    fn rehydrating_byte_stream(
-        &self,
-        stream: SseBodyStream,
-        map: RehydrationMap,
-        audit: StreamAuditContext,
-    ) -> SseBodyStream {
-        if map.is_empty() {
-            // Nothing can be restored; dropping `audit` emits the terminal
-            // event synchronously with correct zero totals.
-            return stream;
-        }
+        #[cfg(not(feature = "llm_payload_trace"))]
+        let _ = (request_id, route, endpoint);
 
-        struct State {
-            stream: SseBodyStream,
-            rehydrator: SseStreamRehydrator,
-            audit: StreamAuditContext,
-            pending_error: Option<reqwest::Error>,
-            done: bool,
-            reported_restored: u32,
-            reported_unrestored: u32,
-        }
-
-        impl State {
-            // Totals are cumulative; only the delta since the previous chunk
-            // is reported to keep metrics additive. The latest report is also
-            // snapshot into the audit context for deferred emission.
-            fn report(&mut self) {
-                let report = self.rehydrator.report();
-                if report.restored > self.reported_restored {
-                    self.audit
-                        .metrics
-                        .on_rehydrated_tokens(report.restored - self.reported_restored);
-                    self.reported_restored = report.restored;
-                }
-                if report.unrestored > self.reported_unrestored {
-                    self.audit
-                        .metrics
-                        .on_unrestored_tokens(report.unrestored - self.reported_unrestored);
-                    self.reported_unrestored = report.unrestored;
-                }
-                self.audit.last_report = report;
-            }
-        }
-
-        futures_util::stream::unfold(
-            State {
-                stream,
-                rehydrator: SseStreamRehydrator::new(map),
-                audit,
-                pending_error: None,
-                done: false,
-                reported_restored: 0,
-                reported_unrestored: 0,
-            },
-            move |mut state| async move {
-                if let Some(error) = state.pending_error.take() {
-                    // Brief yield so the transport can flush the just-emitted
-                    // buffered tail before the error aborts the connection.
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                    state.audit.emit();
-                    return Some((Err(error), state));
-                }
-                if state.done {
-                    return None;
-                }
-                match state.stream.next().await {
-                    Some(Ok(chunk)) => {
-                        let emitted = state.rehydrator.feed(&chunk);
-                        state.report();
-                        Some((Ok(bytes::Bytes::from(emitted)), state))
-                    }
-                    Some(Err(error)) => {
-                        // Buffered bytes and pending token-prefix carries must
-                        // reach the client before the error propagates.
-                        let tail = state.rehydrator.drain();
-                        state.report();
-                        if tail.is_empty() {
-                            state.audit.emit();
-                            Some((Err(error), state))
-                        } else {
-                            state.pending_error = Some(error);
-                            Some((Ok(bytes::Bytes::from(tail)), state))
-                        }
-                    }
-                    None => {
-                        let tail = state.rehydrator.finish();
-                        state.report();
-                        state.audit.emit();
-                        if tail.is_empty() {
-                            None
-                        } else {
-                            state.done = true;
-                            Some((Ok(bytes::Bytes::from(tail)), state))
-                        }
-                    }
-                }
-            },
-        )
-        .filter(|item| {
-            std::future::ready(match item {
-                Ok(bytes) => !bytes.is_empty(),
-                Err(_) => true,
-            })
-        })
-        .boxed()
-    }
-}
-
-/// Terminal audit fields captured for deferred emission inside a passthrough
-/// stream. `Drop` emits best-effort with the last observed totals so a
-/// client-disconnected body never vanishes from the audit trail.
-struct StreamAuditContext {
-    request_id: String,
-    endpoint: &'static str,
-    profile_id: String,
-    provider_id: Option<String>,
-    model: String,
-    final_action: PolicyAction,
-    rule_hits_total: u32,
-    upstream_status: Option<u16>,
-    started: Instant,
-    estimated_token_units: u32,
-    auth_mode: &'static str,
-    credential_origin: UpstreamCredentialOrigin,
-    tokenized_spans_total: u32,
-    metrics: SharedRuntimeMetricsHooks,
-    last_report: RehydrateReport,
-    emitted: bool,
-}
-
-impl StreamAuditContext {
-    fn emit(&mut self) {
-        if self.emitted {
-            return;
-        }
-        self.emitted = true;
-        let duration_ms = self.started.elapsed().as_millis() as u64;
-        LLMAuditEvent {
-            request_id: self.request_id.clone(),
-            endpoint: self.endpoint.to_string(),
-            profile_id: self.profile_id.clone(),
-            provider_id: self.provider_id.clone(),
-            model: self.model.clone(),
-            stream: true,
-            final_action: self.final_action,
-            rule_hits_total: self.rule_hits_total,
-            blocked: false,
-            upstream_status: self.upstream_status,
-            duration_ms,
-            estimated_token_units: self.estimated_token_units,
-            auth_mode: self.auth_mode.to_string(),
-            credential_origin: self.credential_origin,
-            tokenized_spans_total: self.tokenized_spans_total,
-            rehydrated_tokens_total: self.last_report.restored,
-            unrestored_tokens_total: self.last_report.unrestored,
-        }
-        .emit();
-        self.metrics.on_llm_final_action(self.final_action);
-        if let Some(status) = self.upstream_status {
-            self.metrics.on_llm_upstream_status(status);
-        }
-        self.metrics.on_llm_request_duration_ms(duration_ms);
-    }
-}
-
-impl Drop for StreamAuditContext {
-    fn drop(&mut self) {
-        self.emit();
+        restore(body)
     }
 }
 

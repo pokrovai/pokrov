@@ -348,9 +348,30 @@ Notes:
   resolvable `rehydration_key` is a config error.
 - A fragment the client never sent is never restored: values first observed
   in upstream output stay governed by the output policy.
-- Token-mutating model output (case changes, split tokens) stays visible as
-  `__PKV_...__`; fuzzy restore is out of scope. Such leftover markers are
-  counted by the `unrestored_tokens_total` metric and audit field.
+- Restoration is literal-only: only an exact known token byte sequence is
+  replaced. In streaming Chat Completions tool arguments
+  (`choices[].delta.tool_calls[].function.arguments`), a known token split
+  across any number of deltas is restored in both buffered
+  (`output_sanitization: true`) and raw SSE passthrough modes, after output
+  policy evaluation and any configured payload trace. Only string values of
+  the inner argument JSON are eligible; keys and structural bytes stay
+  literal.
+- Model-mutated tokens (for example case changes or extra characters),
+  incomplete markers, and markers inside opaque or bypassed SSE frames stay
+  visible as `__PKV_...__`; fuzzy restoration is out of scope. The
+  `unrestored_tokens_total` metric and audit field count recognizable literal
+  `__PKV_` markers, not every case-mutated token; markers split across raw
+  segments are counted best-effort. Restoration state is bounded: when a
+  frame exceeds the event budget or can no longer be associated safely,
+  received bytes pass through unchanged and later fragments are not joined
+  across the gap.
+- Buffered output policy evaluates parseable `data:` lines before restoration
+  decides whether a frame is opaque. A frame later forwarded opaquely for
+  ambiguity, multiple data lines, or size may therefore already reflect
+  policy rewrites even though its arguments were not restored.
+- Output policy and payload tracing run before restoration, so a token
+  transformed or blocked by policy is not restored. Configuration keys and
+  defaults are unchanged.
 - NER-derived hits do not participate in reversible tokenization in v1.
 
 ### deterministic_recognizers
