@@ -182,7 +182,11 @@ pub enum PromptInjectionSourceSetting {
     /// `source: true|false` shorthand; `true` inherits the global threshold.
     Flag(bool),
     /// Detailed form with an optional per-source threshold override.
-    Detailed { enabled: bool, #[serde(default)] threshold: Option<f32> },
+    Detailed {
+        enabled: bool,
+        #[serde(default)]
+        threshold: Option<f32>,
+    },
 }
 
 impl Default for PromptInjectionSourceSetting {

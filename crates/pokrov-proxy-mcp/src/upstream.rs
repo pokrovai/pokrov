@@ -117,12 +117,7 @@ fn normalize_result(payload: Value) -> Result<McpToolResultEnvelope, String> {
             let truncated = object.get("truncated").and_then(Value::as_bool).unwrap_or(false);
             let structured_content = object.get("structuredContent").cloned();
 
-            Ok(McpToolResultEnvelope {
-                content,
-                content_type,
-                truncated,
-                structured_content,
-            })
+            Ok(McpToolResultEnvelope { content, content_type, truncated, structured_content })
         }
         _ => Ok(McpToolResultEnvelope {
             content: payload,

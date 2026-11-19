@@ -37,7 +37,8 @@ pub fn render_dataset_detector_gap_report(report_date: &str) -> String {
     let unsupported_labels = known_unsupported_dataset_labels();
     let replay_coverage = replay_coverage_entries();
     let replay_assertable = replay_assertable_dataset_labels();
-    let replay_expansion = replay_expansion_candidates(&stats, &supported_mapping, &replay_assertable);
+    let replay_expansion =
+        replay_expansion_candidates(&stats, &supported_mapping, &replay_assertable);
     let runtime_covered_rows =
         format_runtime_covered_rows(&stats, &supported_mapping, &replay_assertable);
 
@@ -124,7 +125,8 @@ pub fn render_dataset_detector_gap_report(report_date: &str) -> String {
         .join("\n");
 
     let limitations = if replay_expansion.is_empty() {
-        "- All currently mapped dataset labels are covered by explicit runtime replay assertions.".to_string()
+        "- All currently mapped dataset labels are covered by explicit runtime replay assertions."
+            .to_string()
     } else {
         "- The report includes a dedicated detector-gap priority section for mapped labels that still lack current runtime recognizers or stable exact-output replay assertions.".to_string()
     };
@@ -262,10 +264,9 @@ fn collect_label_stats() -> BTreeMap<String, LabelStats> {
         for entry in rows {
             let row = entry.get("row").unwrap_or(entry);
             for annotation in collect_annotations_direct(row) {
-                let entry = stats.entry(annotation.label).or_insert_with(|| LabelStats {
-                    hits: 0,
-                    datasets: BTreeSet::new(),
-                });
+                let entry = stats
+                    .entry(annotation.label)
+                    .or_insert_with(|| LabelStats { hits: 0, datasets: BTreeSet::new() });
                 entry.hits += 1;
                 entry.datasets.insert(file_name.to_string());
             }
@@ -285,10 +286,7 @@ fn collect_annotations_direct(
             let Some(label) = item.get("label").and_then(serde_json::Value::as_str) else {
                 continue;
             };
-            let value = item
-                .get("value")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
+            let value = item.get("value").and_then(serde_json::Value::as_str).unwrap_or_default();
             annotations.push(crate::sanitization_dataset_test_support::DatasetAnnotation {
                 label: label.to_string(),
                 value: value.to_string(),
@@ -327,10 +325,8 @@ fn collect_annotations_direct(
                 let Some(label) = item.get("label").and_then(serde_yaml::Value::as_str) else {
                     continue;
                 };
-                let value = item
-                    .get("text")
-                    .and_then(serde_yaml::Value::as_str)
-                    .unwrap_or_default();
+                let value =
+                    item.get("text").and_then(serde_yaml::Value::as_str).unwrap_or_default();
                 annotations.push(crate::sanitization_dataset_test_support::DatasetAnnotation {
                     label: label.to_string(),
                     value: value.to_string(),
@@ -446,10 +442,7 @@ fn replay_expansion_candidates(
     }
 
     candidates.sort_by(|left, right| {
-        right
-            .hits
-            .cmp(&left.hits)
-            .then_with(|| left.label.cmp(&right.label))
+        right.hits.cmp(&left.hits).then_with(|| left.label.cmp(&right.label))
     });
     candidates
 }
@@ -487,10 +480,7 @@ fn first_row_for_label(label: &str) -> Option<(String, usize)> {
 
         for entry in rows {
             let row = entry.get("row").unwrap_or(entry);
-            if collect_annotations_direct(row)
-                .iter()
-                .any(|annotation| annotation.label == label)
-            {
+            if collect_annotations_direct(row).iter().any(|annotation| annotation.label == label) {
                 let row_idx = entry
                     .get("row_idx")
                     .and_then(serde_json::Value::as_u64)
@@ -526,7 +516,9 @@ where
 {
     let rows = stats
         .iter()
-        .filter(|(label, stats)| unsupported_labels.contains(label.as_str()) && predicate(stats.hits))
+        .filter(|(label, stats)| {
+            unsupported_labels.contains(label.as_str()) && predicate(stats.hits)
+        })
         .map(|(label, stats)| {
             let datasets = format_datasets(Some(&stats.datasets));
             format!(

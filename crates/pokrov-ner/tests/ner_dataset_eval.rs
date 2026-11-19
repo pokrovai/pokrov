@@ -50,7 +50,8 @@ fn engine_for_languages(required_languages: &[&str]) -> Option<(NerEngine, Vec<N
     let mut selected_models: Vec<NerModelBinding> = Vec::new();
 
     for &language in required_languages {
-        let Some(binding) = default_config.models.iter().find(|binding| binding.language == language)
+        let Some(binding) =
+            default_config.models.iter().find(|binding| binding.language == language)
         else {
             eprintln!("Skipping NER dataset evaluation: language '{language}' is not configured");
             return None;
@@ -324,13 +325,7 @@ fn ner_dataset_evaluation() {
     println!("=== NER Dataset Evaluation ===");
     let model_list = models
         .iter()
-        .map(|binding| {
-            format!(
-                "{}:{}",
-                binding.language,
-                binding.model_path.display()
-            )
-        })
+        .map(|binding| format!("{}:{}", binding.language, binding.model_path.display()))
         .collect::<Vec<_>>()
         .join(", ");
     println!("Models: {model_list}");

@@ -45,7 +45,10 @@ fn resolve_relative_observability_paths(config: &mut RuntimeConfig, config_path:
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::load_runtime_config;
 

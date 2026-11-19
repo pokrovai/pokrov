@@ -8,8 +8,8 @@ use pokrov_core::types::{
     DatasetExecutionScope, DatasetRepositoryStatus, DetectionMetrics, EvaluationCase,
     EvaluationCaseMode, EvaluationCaseSource, EvaluationMetricGroups, EvaluationMode,
     EvaluationReport, EvaluationResult, ParityMetrics, ParityReport, PolicyAction,
-    ReadinessScoreboard, ReportOutputKind, RuntimeMetrics, SecurityMetrics,
-    StarterCorpusCaseGroup, TransformationMetrics,
+    ReadinessScoreboard, ReportOutputKind, RuntimeMetrics, SecurityMetrics, StarterCorpusCaseGroup,
+    TransformationMetrics,
 };
 
 use crate::sanitization_analyzer_contract_test_support::{
@@ -74,7 +74,8 @@ fn sample_metric_groups() -> EvaluationMetricGroups {
 }
 
 fn phase_one_a_dataset_fixture_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval/datasets/phase_1a_starter.jsonl")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/eval/datasets/phase_1a_starter.jsonl")
 }
 
 fn load_phase_one_a_dataset_cases() -> Vec<EvaluationCase> {
@@ -130,10 +131,7 @@ fn evaluation_case_schema_exposes_required_fields_and_modes() {
 fn evaluation_result_reuses_runtime_contract_sections_without_adapters() {
     let engine = analyzer_contract_engine();
     let runtime = engine
-        .evaluate(analyzer_contract_request(
-            "eval-lab-runtime-compat",
-            EvaluationMode::Enforce,
-        ))
+        .evaluate(analyzer_contract_request("eval-lab-runtime-compat", EvaluationMode::Enforce))
         .expect("runtime evaluation should succeed");
     let case = sample_case(EvaluationCaseMode::Text, EvaluationCaseSource::Synthetic);
     let result = EvaluationResult::from_runtime_contract(&case, &runtime);
@@ -181,10 +179,7 @@ fn report_and_scoreboard_schema_are_stable_and_gate_driven() {
     assert_eq!(parity.baseline, "presidio");
     assert!(scoreboard.gate_levels.iter().any(|gate| !gate.blocking));
     assert!(scoreboard.gate_levels.iter().any(|gate| gate.blocking));
-    assert!(scoreboard
-        .gate_levels
-        .iter()
-        .all(|gate| !gate.required_outputs.is_empty()));
+    assert!(scoreboard.gate_levels.iter().all(|gate| !gate.required_outputs.is_empty()));
 }
 
 #[test]
@@ -210,24 +205,16 @@ fn dataset_inventory_records_are_complete_and_boundary_safe() {
 
     assert_eq!(inventory.len(), 8);
     assert!(missing.is_empty(), "missing metadata fields: {missing:?}");
-    assert!(inventory
-        .iter()
-        .any(|entry| entry.dataset_id == "ai4privacy_pii_masking_200k"));
-    assert!(inventory
-        .iter()
-        .any(|entry| entry.dataset_id == "nvidia_nemotron_pii"));
-    assert!(inventory
-        .iter()
-        .any(|entry| entry.dataset_id == "gretel_pii_masking_en_v1"));
+    assert!(inventory.iter().any(|entry| entry.dataset_id == "ai4privacy_pii_masking_200k"));
+    assert!(inventory.iter().any(|entry| entry.dataset_id == "nvidia_nemotron_pii"));
+    assert!(inventory.iter().any(|entry| entry.dataset_id == "gretel_pii_masking_en_v1"));
     assert!(inventory
         .iter()
         .any(|entry| entry.repository_status == DatasetRepositoryStatus::RepoSafe));
     assert!(inventory
         .iter()
         .any(|entry| entry.repository_status == DatasetRepositoryStatus::RestrictedOnly));
-    assert!(inventory
-        .iter()
-        .any(|entry| entry.execution_scope == DatasetExecutionScope::CiSafe));
+    assert!(inventory.iter().any(|entry| entry.execution_scope == DatasetExecutionScope::CiSafe));
     assert!(inventory
         .iter()
         .any(|entry| entry.execution_scope == DatasetExecutionScope::LocalOnly));
@@ -240,15 +227,9 @@ fn phase_one_a_starter_corpus_is_concrete_for_first_parity_runs() {
 
     assert_eq!(starter.corpus_id, "phase_1a_starter_corpus");
     assert!(missing.is_empty(), "missing starter groups: {missing:?}");
-    assert!(starter
-        .required_groups
-        .contains(&StarterCorpusCaseGroup::DeterministicPositives));
-    assert!(starter
-        .required_groups
-        .contains(&StarterCorpusCaseGroup::StructuredJsonCases));
-    assert!(starter
-        .required_groups
-        .contains(&StarterCorpusCaseGroup::AdversarialSmokeCases));
+    assert!(starter.required_groups.contains(&StarterCorpusCaseGroup::DeterministicPositives));
+    assert!(starter.required_groups.contains(&StarterCorpusCaseGroup::StructuredJsonCases));
+    assert!(starter.required_groups.contains(&StarterCorpusCaseGroup::AdversarialSmokeCases));
     assert_eq!(starter.target_volume.per_priority_family_min, 25);
     assert_eq!(starter.target_volume.per_priority_family_max, 40);
     assert_eq!(starter.target_volume.shared_hard_negatives, 100);
@@ -261,33 +242,19 @@ fn baseline_run_matrix_is_reproducible_and_scope_aware() {
     let systems = foundation_baseline_systems();
     let runs = foundation_baseline_run_matrix();
 
-    assert!(systems
-        .iter()
-        .any(|system| system.system == BaselineSystem::VanillaPresidio));
-    assert!(systems
-        .iter()
-        .any(|system| system.system == BaselineSystem::TunedPresidio));
-    assert!(systems
-        .iter()
-        .any(|system| system.system == BaselineSystem::PokrovCurrentNative));
-    assert!(systems
-        .iter()
-        .any(|system| system.system == BaselineSystem::PokrovUpdatedNative));
-    assert!(systems
-        .iter()
-        .any(|system| system.system == BaselineSystem::NlmScrubber));
+    assert!(systems.iter().any(|system| system.system == BaselineSystem::VanillaPresidio));
+    assert!(systems.iter().any(|system| system.system == BaselineSystem::TunedPresidio));
+    assert!(systems.iter().any(|system| system.system == BaselineSystem::PokrovCurrentNative));
+    assert!(systems.iter().any(|system| system.system == BaselineSystem::PokrovUpdatedNative));
+    assert!(systems.iter().any(|system| system.system == BaselineSystem::NlmScrubber));
 
     let mandatory_runs = runs
         .iter()
         .filter(|run| run.tier == BaselineRequirementTier::MandatoryDeterministic)
         .count();
     assert_eq!(mandatory_runs, 4);
-    assert!(runs
-        .iter()
-        .any(|run| run.tier == BaselineRequirementTier::OptionalFutureWorkstreams));
-    assert!(runs
-        .iter()
-        .all(|run| run.corpus_id == "phase_1a_starter_corpus"));
+    assert!(runs.iter().any(|run| run.tier == BaselineRequirementTier::OptionalFutureWorkstreams));
+    assert!(runs.iter().all(|run| run.corpus_id == "phase_1a_starter_corpus"));
     assert!(runs.iter().all(|run| {
         run.required_metadata.contains(&"run_id".to_string())
             && run.required_metadata.contains(&"git_revision".to_string())
@@ -304,14 +271,14 @@ fn starter_dataset_fixture_replays_through_runtime_engine() {
     assert!(!cases.is_empty(), "starter dataset fixture should contain cases");
 
     for case in cases {
-        let mut request =
-            analyzer_contract_request(&format!("fixture-{}", case.case_id), EvaluationMode::Enforce);
+        let mut request = analyzer_contract_request(
+            &format!("fixture-{}", case.case_id),
+            EvaluationMode::Enforce,
+        );
         request.payload = case.input.clone();
         request.effective_language = case.language.clone();
 
-        let runtime = engine
-            .evaluate(request)
-            .expect("dataset fixture case should evaluate");
+        let runtime = engine.evaluate(request).expect("dataset fixture case should evaluate");
         let projection = EvaluationResult::from_runtime_contract(&case, &runtime);
 
         assert_eq!(
@@ -324,12 +291,11 @@ fn starter_dataset_fixture_replays_through_runtime_engine() {
             "policy outcome mismatch for {}",
             case.case_id
         );
-        let expected_payload = expected_payloads
-            .get(case.case_id.as_str())
-            .unwrap_or_else(|| panic!("missing starter sanitized payload expectation for {}", case.case_id));
+        let expected_payload = expected_payloads.get(case.case_id.as_str()).unwrap_or_else(|| {
+            panic!("missing starter sanitized payload expectation for {}", case.case_id)
+        });
         assert_eq!(
-            runtime.transform.sanitized_payload,
-            *expected_payload,
+            runtime.transform.sanitized_payload, *expected_payload,
             "sanitized payload mismatch for {}",
             case.case_id
         );
@@ -378,14 +344,8 @@ fn restricted_dataset_manifest_is_valid_when_provided() {
 
         assert!(!dataset_id.trim().is_empty(), "dataset_id must not be empty");
         assert!(!access_model.trim().is_empty(), "access_model must not be empty");
-        assert!(
-            !local_path.trim().is_empty(),
-            "local_path must not be empty"
-        );
-        assert!(
-            !license_constraints.trim().is_empty(),
-            "license_constraints must not be empty"
-        );
+        assert!(!local_path.trim().is_empty(), "local_path must not be empty");
+        assert!(!license_constraints.trim().is_empty(), "license_constraints must not be empty");
         assert!(!ci_safe, "restricted manifest entries must remain local-only");
     }
 }

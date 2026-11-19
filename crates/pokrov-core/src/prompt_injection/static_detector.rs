@@ -38,10 +38,7 @@ impl PromptInjectionDetector for StaticPromptInjectionDetector {
         &self.descriptor
     }
 
-    fn detect(
-        &self,
-        text: &str,
-    ) -> Result<PromptInjectionDetection, PromptInjectionDetectorError> {
+    fn detect(&self, text: &str) -> Result<PromptInjectionDetection, PromptInjectionDetectorError> {
         let normalized = text.to_lowercase();
         let matched = self
             .markers

@@ -62,8 +62,7 @@ impl PromptInjectionScanner {
         source: PromptInjectionSource,
         text: &str,
     ) -> Option<PromptInjectionOutcome> {
-        let source_policy =
-            self.policy.sources.get(&source).filter(|policy| policy.enabled)?;
+        let source_policy = self.policy.sources.get(&source).filter(|policy| policy.enabled)?;
         let threshold = source_policy.threshold.unwrap_or(self.policy.threshold);
         let started = Instant::now();
 
@@ -251,11 +250,11 @@ fn detect_with_timeout(
         Err(mpsc::RecvTimeoutError::Timeout) => {
             Err(PromptInjectionDetectorError::Timeout(timeout_ms))
         }
-        Err(mpsc::RecvTimeoutError::Disconnected) => Err(
-            PromptInjectionDetectorError::InferenceFailed(
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(PromptInjectionDetectorError::InferenceFailed(
                 "detector worker disconnected".to_string(),
-            ),
-        ),
+            ))
+        }
     }
 }
 

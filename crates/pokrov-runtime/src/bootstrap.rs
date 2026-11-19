@@ -19,6 +19,8 @@ use pokrov_config::{
         LlmConfig, PromptInjectionConfig, PromptInjectionProviderConfig, RuntimeConfig, SecretRef,
     },
 };
+#[cfg(feature = "prompt-injection")]
+use pokrov_core::prompt_injection::{PromptInjectionFailMode, PromptInjectionMode};
 use pokrov_core::{
     prompt_injection::{
         PromptInjectionDetector, PromptInjectionScanner, StaticPromptInjectionDetector,
@@ -26,14 +28,12 @@ use pokrov_core::{
     types::EvaluateError,
     SanitizationEngine,
 };
-#[cfg(feature = "prompt-injection")]
-use pokrov_core::prompt_injection::{PromptInjectionFailMode, PromptInjectionMode};
-#[cfg(feature = "prompt-injection")]
-use pokrov_prompt_injection::{ChunkingLimits, LocalOnnxPromptInjectionDetector};
 use pokrov_metrics::{
     hooks::{LifecycleEvent, RuntimeMetricsHooks},
     registry::RuntimeMetricsRegistry,
 };
+#[cfg(feature = "prompt-injection")]
+use pokrov_prompt_injection::{ChunkingLimits, LocalOnnxPromptInjectionDetector};
 use pokrov_proxy_llm::{handler::LLMProxyHandler, routing::ProviderRouteTable};
 use pokrov_proxy_mcp::handler::McpProxyHandler;
 use rustls::{

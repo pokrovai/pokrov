@@ -714,17 +714,12 @@ fn validate_prompt_injection(config: &PromptInjectionConfig, issues: &mut Vec<Va
     }
 
     if !(0.0 < config.threshold && config.threshold <= 1.0) {
-        issues.push(ValidationIssue::new(
-            "prompt_injection.threshold",
-            "must be in range (0, 1]",
-        ));
+        issues.push(ValidationIssue::new("prompt_injection.threshold", "must be in range (0, 1]"));
     }
 
     if config.timeout_ms == 0 {
-        issues.push(ValidationIssue::new(
-            "prompt_injection.timeout_ms",
-            "must be greater than zero",
-        ));
+        issues
+            .push(ValidationIssue::new("prompt_injection.timeout_ms", "must be greater than zero"));
     }
 
     match &config.provider {
@@ -820,8 +815,7 @@ fn validate_prompt_injection(config: &PromptInjectionConfig, issues: &mut Vec<Va
         ("mcp_prompt", &config.sources.mcp_prompt),
         ("rag", &config.sources.rag),
     ] {
-        if let PromptInjectionSourceSetting::Detailed { threshold: Some(threshold), .. } = setting
-        {
+        if let PromptInjectionSourceSetting::Detailed { threshold: Some(threshold), .. } = setting {
             if !(0.0 < *threshold && *threshold <= 1.0) {
                 issues.push(ValidationIssue::new(
                     format!("prompt_injection.sources.{name}.threshold"),

@@ -38,10 +38,7 @@ fn run_open_dataset_download_script() -> Vec<PathBuf> {
         .expect("download script should be executable");
     assert!(status.success(), "download script should succeed");
 
-    OPEN_SNAPSHOT_FILES
-        .iter()
-        .map(|file| cache_dir.join(file))
-        .collect()
+    OPEN_SNAPSHOT_FILES.iter().map(|file| cache_dir.join(file)).collect()
 }
 
 #[test]
@@ -53,11 +50,7 @@ fn open_dataset_pipeline_autoloads_snapshots_for_all_sources() {
     for path in snapshot_paths {
         assert!(path.exists(), "snapshot should exist: {}", path.display());
         let metadata = fs::metadata(&path).expect("snapshot metadata should be readable");
-        assert!(
-            metadata.len() > 20,
-            "snapshot should contain meaningful JSON: {}",
-            path.display()
-        );
+        assert!(metadata.len() > 20, "snapshot should contain meaningful JSON: {}", path.display());
         let payload = fs::read_to_string(&path).expect("snapshot payload should be readable");
         assert!(
             payload.contains("\"source_id\""),
@@ -104,21 +97,13 @@ fn open_dataset_pipeline_replays_samples_through_runtime_engine() {
                     }
                 ]
             });
-            let result = engine
-                .evaluate(request)
-                .expect("open dataset sample should evaluate");
-            assert!(
-                !result.audit.request_id.is_empty(),
-                "audit metadata should remain populated"
-            );
+            let result = engine.evaluate(request).expect("open dataset sample should evaluate");
+            assert!(!result.audit.request_id.is_empty(), "audit metadata should remain populated");
             replayed_cases += 1;
         }
     }
 
-    assert!(
-        replayed_cases >= 3,
-        "expected at least one replay sample per huggingface dataset"
-    );
+    assert!(replayed_cases >= 3, "expected at least one replay sample per huggingface dataset");
 }
 
 #[test]
@@ -142,14 +127,13 @@ fn open_dataset_labels_are_explicitly_partitioned_into_supported_or_backlog() {
     let unsupported = known_unsupported_dataset_labels();
     let unmapped = discovered
         .iter()
-        .filter(|label| !supported.contains_key(label.as_str()) && !unsupported.contains(label.as_str()))
+        .filter(|label| {
+            !supported.contains_key(label.as_str()) && !unsupported.contains(label.as_str())
+        })
         .cloned()
         .collect::<Vec<_>>();
-    let conflicting = supported
-        .keys()
-        .filter(|label| unsupported.contains(**label))
-        .copied()
-        .collect::<Vec<_>>();
+    let conflicting =
+        supported.keys().filter(|label| unsupported.contains(**label)).copied().collect::<Vec<_>>();
 
     assert!(
         unmapped.is_empty(),
@@ -170,7 +154,11 @@ fn open_dataset_ai4privacy_rows_match_expected_block_and_email_redaction() {
     let block_row = row_by_idx(&snapshot, 15);
     let block_text = row_text(block_row);
     let block_annotations = replay_assertable_annotations(block_row);
-    assert_eq!(block_annotations.len(), 1, "ai4privacy block row should expose one assertable annotation");
+    assert_eq!(
+        block_annotations.len(),
+        1,
+        "ai4privacy block row should expose one assertable annotation"
+    );
     assert_eq!(block_annotations[0].label, "CREDITCARDNUMBER");
     assert!(block_text.contains(block_annotations[0].value.as_str()));
 
@@ -183,20 +171,27 @@ fn open_dataset_ai4privacy_rows_match_expected_block_and_email_redaction() {
             }
         ]
     });
-    let block_result = engine
-        .evaluate(block_request)
-        .expect("ai4privacy block row should evaluate");
+    let block_result =
+        engine.evaluate(block_request).expect("ai4privacy block row should evaluate");
     assert_eq!(block_result.decision.final_action, PolicyAction::Block);
-    assert!(block_result.transform.sanitized_payload.is_none(), "blocked ai4privacy row must not expose sanitized payload");
+    assert!(
+        block_result.transform.sanitized_payload.is_none(),
+        "blocked ai4privacy row must not expose sanitized payload"
+    );
 
     let redact_row = row_by_idx(&snapshot, 20);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "ai4privacy redact row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "ai4privacy redact row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "EMAIL");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
-    let mut redact_request = analyzer_contract_request("ai4privacy-row-20", EvaluationMode::Enforce);
+    let mut redact_request =
+        analyzer_contract_request("ai4privacy-row-20", EvaluationMode::Enforce);
     redact_request.payload = serde_json::json!({
         "messages": [
             {
@@ -205,11 +200,12 @@ fn open_dataset_ai4privacy_rows_match_expected_block_and_email_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("ai4privacy redact row should evaluate");
+    let redact_result =
+        engine.evaluate(redact_request).expect("ai4privacy redact row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -241,11 +237,12 @@ fn open_dataset_nvidia_rows_match_expected_block_and_email_redaction() {
             }
         ]
     });
-    let block_result = engine
-        .evaluate(block_request)
-        .expect("nvidia block row should evaluate");
+    let block_result = engine.evaluate(block_request).expect("nvidia block row should evaluate");
     assert_eq!(block_result.decision.final_action, PolicyAction::Block);
-    assert!(block_result.transform.sanitized_payload.is_none(), "blocked nvidia row must not expose sanitized payload");
+    assert!(
+        block_result.transform.sanitized_payload.is_none(),
+        "blocked nvidia row must not expose sanitized payload"
+    );
 
     let redact_row = row_by_idx(&snapshot, 23);
     let redact_text = row_text(redact_row);
@@ -265,11 +262,11 @@ fn open_dataset_nvidia_rows_match_expected_block_and_email_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("nvidia redact row should evaluate");
+    let redact_result = engine.evaluate(redact_request).expect("nvidia redact row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -303,16 +300,21 @@ fn open_dataset_gretel_rows_match_expected_block_and_email_redaction() {
             }
         ]
     });
-    let block_result = engine
-        .evaluate(block_request)
-        .expect("gretel block row should evaluate");
+    let block_result = engine.evaluate(block_request).expect("gretel block row should evaluate");
     assert_eq!(block_result.decision.final_action, PolicyAction::Block);
-    assert!(block_result.transform.sanitized_payload.is_none(), "blocked gretel row must not expose sanitized payload");
+    assert!(
+        block_result.transform.sanitized_payload.is_none(),
+        "blocked gretel row must not expose sanitized payload"
+    );
 
     let redact_row = row_by_idx(&snapshot, 3);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "gretel redact row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "gretel redact row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "email");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
@@ -325,11 +327,11 @@ fn open_dataset_gretel_rows_match_expected_block_and_email_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("gretel redact row should evaluate");
+    let redact_result = engine.evaluate(redact_request).expect("gretel redact row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -347,11 +349,16 @@ fn open_dataset_ai4privacy_row_match_expected_ipv4_redaction() {
     let redact_row = row_by_idx(&snapshot, 19);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "ai4privacy ipv4 row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "ai4privacy ipv4 row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "IPV4");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
-    let mut redact_request = analyzer_contract_request("ai4privacy-row-19-ipv4", EvaluationMode::Enforce);
+    let mut redact_request =
+        analyzer_contract_request("ai4privacy-row-19-ipv4", EvaluationMode::Enforce);
     redact_request.payload = serde_json::json!({
         "messages": [
             {
@@ -360,11 +367,12 @@ fn open_dataset_ai4privacy_row_match_expected_ipv4_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("ai4privacy ipv4 row should evaluate");
+    let redact_result =
+        engine.evaluate(redact_request).expect("ai4privacy ipv4 row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -382,7 +390,11 @@ fn open_dataset_nvidia_row_match_expected_url_redaction() {
     let redact_row = row_by_idx(&snapshot, 2);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "nvidia url row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "nvidia url row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "url");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
@@ -395,11 +407,11 @@ fn open_dataset_nvidia_row_match_expected_url_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("nvidia url row should evaluate");
+    let redact_result = engine.evaluate(redact_request).expect("nvidia url row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -417,11 +429,16 @@ fn open_dataset_nvidia_row_match_expected_phone_redaction() {
     let redact_row = row_by_idx(&snapshot, 3);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "nvidia phone row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "nvidia phone row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "phone_number");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
-    let mut redact_request = analyzer_contract_request("nvidia-row-3-phone", EvaluationMode::Enforce);
+    let mut redact_request =
+        analyzer_contract_request("nvidia-row-3-phone", EvaluationMode::Enforce);
     redact_request.payload = serde_json::json!({
         "messages": [
             {
@@ -430,11 +447,11 @@ fn open_dataset_nvidia_row_match_expected_phone_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("nvidia phone row should evaluate");
+    let redact_result = engine.evaluate(redact_request).expect("nvidia phone row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -452,11 +469,16 @@ fn open_dataset_nvidia_row_match_expected_license_plate_redaction() {
     let redact_row = row_by_idx(&snapshot, 18);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "nvidia license plate row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "nvidia license plate row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "license_plate");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
-    let mut redact_request = analyzer_contract_request("nvidia-row-18-license-plate", EvaluationMode::Enforce);
+    let mut redact_request =
+        analyzer_contract_request("nvidia-row-18-license-plate", EvaluationMode::Enforce);
     redact_request.payload = serde_json::json!({
         "messages": [
             {
@@ -465,11 +487,12 @@ fn open_dataset_nvidia_row_match_expected_license_plate_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("nvidia license plate row should evaluate");
+    let redact_result =
+        engine.evaluate(redact_request).expect("nvidia license plate row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -487,11 +510,16 @@ fn open_dataset_gretel_row_match_expected_medical_record_redaction() {
     let redact_row = row_by_idx(&snapshot, 14);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "gretel medical record row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "gretel medical record row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "medical_record_number");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
-    let mut redact_request = analyzer_contract_request("gretel-row-14-medical-record", EvaluationMode::Enforce);
+    let mut redact_request =
+        analyzer_contract_request("gretel-row-14-medical-record", EvaluationMode::Enforce);
     redact_request.payload = serde_json::json!({
         "messages": [
             {
@@ -500,11 +528,12 @@ fn open_dataset_gretel_row_match_expected_medical_record_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("gretel medical record row should evaluate");
+    let redact_result =
+        engine.evaluate(redact_request).expect("gretel medical record row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -522,11 +551,16 @@ fn open_dataset_nvidia_row_match_expected_street_address_redaction() {
     let redact_row = row_by_idx(&snapshot, 0);
     let redact_text = row_text(redact_row);
     let redact_annotations = replay_assertable_annotations(redact_row);
-    assert_eq!(redact_annotations.len(), 1, "nvidia street row should expose one assertable annotation");
+    assert_eq!(
+        redact_annotations.len(),
+        1,
+        "nvidia street row should expose one assertable annotation"
+    );
     assert_eq!(redact_annotations[0].label, "street_address");
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
-    let mut redact_request = analyzer_contract_request("nvidia-row-0-street", EvaluationMode::Enforce);
+    let mut redact_request =
+        analyzer_contract_request("nvidia-row-0-street", EvaluationMode::Enforce);
     redact_request.payload = serde_json::json!({
         "messages": [
             {
@@ -535,11 +569,11 @@ fn open_dataset_nvidia_row_match_expected_street_address_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("nvidia street row should evaluate");
+    let redact_result = engine.evaluate(redact_request).expect("nvidia street row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -563,7 +597,8 @@ fn open_dataset_ai4privacy_row_match_expected_street_redaction() {
     );
     let expected_text = expected_redacted_text(&redact_text, &redact_annotations);
 
-    let mut redact_request = analyzer_contract_request("ai4privacy-row-12-street", EvaluationMode::Enforce);
+    let mut redact_request =
+        analyzer_contract_request("ai4privacy-row-12-street", EvaluationMode::Enforce);
     redact_request.payload = serde_json::json!({
         "messages": [
             {
@@ -572,11 +607,12 @@ fn open_dataset_ai4privacy_row_match_expected_street_redaction() {
             }
         ]
     });
-    let redact_result = engine
-        .evaluate(redact_request)
-        .expect("ai4privacy street row should evaluate");
+    let redact_result =
+        engine.evaluate(redact_request).expect("ai4privacy street row should evaluate");
     assert_eq!(redact_result.decision.final_action, PolicyAction::Redact);
-    let actual_text = redact_result.transform.sanitized_payload
+    let actual_text = redact_result
+        .transform
+        .sanitized_payload
         .as_ref()
         .and_then(|payload| payload.pointer("/messages/0/content"))
         .and_then(Value::as_str)
@@ -590,9 +626,11 @@ fn open_dataset_ai4privacy_row_match_expected_street_redaction() {
 #[test]
 #[ignore = "local cached open snapshots only"]
 fn dataset_detector_gap_report_is_up_to_date_for_cached_snapshots() {
-    let report_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DATASET_DETECTOR_GAP_REPORT_PATH);
-    let current = fs::read_to_string(&report_path)
-        .unwrap_or_else(|error| panic!("report {} should be readable: {error}", report_path.display()));
+    let report_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DATASET_DETECTOR_GAP_REPORT_PATH);
+    let current = fs::read_to_string(&report_path).unwrap_or_else(|error| {
+        panic!("report {} should be readable: {error}", report_path.display())
+    });
     let report_date = current
         .lines()
         .find_map(|line| line.strip_prefix("Date: "))
@@ -600,7 +638,8 @@ fn dataset_detector_gap_report_is_up_to_date_for_cached_snapshots() {
     let expected = render_dataset_detector_gap_report(report_date);
 
     assert_eq!(
-        current, expected,
+        current,
+        expected,
         "dataset detector gap report is stale, regenerate {}",
         report_path.display()
     );
@@ -615,8 +654,10 @@ fn dataset_detector_gap_report_can_be_regenerated_when_requested() {
 
     let report_date = std::env::var("POKROV_DATASET_DETECTOR_GAP_REPORT_DATE")
         .unwrap_or_else(|_| "2026-04-06".to_string());
-    let report_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DATASET_DETECTOR_GAP_REPORT_PATH);
+    let report_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DATASET_DETECTOR_GAP_REPORT_PATH);
     let rendered = render_dataset_detector_gap_report(&report_date);
-    fs::write(&report_path, rendered)
-        .unwrap_or_else(|error| panic!("report {} should be writable: {error}", report_path.display()));
+    fs::write(&report_path, rendered).unwrap_or_else(|error| {
+        panic!("report {} should be writable: {error}", report_path.display())
+    });
 }

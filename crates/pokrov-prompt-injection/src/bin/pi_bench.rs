@@ -165,9 +165,9 @@ fn parse_args() -> Result<Args, String> {
                         value
                             .split(',')
                             .map(|part| {
-                                part.trim().parse::<usize>().map_err(|_| {
-                                    "invalid --scaling-chunks list".to_string()
-                                })
+                                part.trim()
+                                    .parse::<usize>()
+                                    .map_err(|_| "invalid --scaling-chunks list".to_string())
                             })
                             .collect::<Result<Vec<_>, _>>()?,
                     )
@@ -245,14 +245,12 @@ fn text_for_chunks(
         detector.count_windows(&text).ok()
     };
     match probe(1) {
-        Some(count) if count >= target_chunks as u32 => {
-            return Some((base.to_string(), count))
-        }
+        Some(count) if count >= target_chunks as u32 => return Some((base.to_string(), count)),
         Some(_) => {}
         None => return None,
     }
     let mut lo = 1usize; // below target
-    // First repeat count that reached or overshot the target band.
+                         // First repeat count that reached or overshot the target band.
     let mut hi;
     let mut repeats = 2usize;
     loop {
@@ -330,7 +328,12 @@ fn main() -> ExitCode {
                 entries.push(entry)
             }
             Ok(entry) => {
-                eprintln!("{}:{} invalid expected value '{}'", args.corpus.display(), line_no + 1, entry.expected);
+                eprintln!(
+                    "{}:{} invalid expected value '{}'",
+                    args.corpus.display(),
+                    line_no + 1,
+                    entry.expected
+                );
                 return ExitCode::from(2);
             }
             Err(e) => {
@@ -369,19 +372,26 @@ fn main() -> ExitCode {
         let expected = entry.expected == "injection";
         confusion.record(expected, predicted);
         per_language
-            .entry(if entry.language.is_empty() { "unknown".to_string() } else { entry.language.clone() })
+            .entry(if entry.language.is_empty() {
+                "unknown".to_string()
+            } else {
+                entry.language.clone()
+            })
             .or_default()
             .record(expected, predicted);
         per_category
-            .entry(if entry.category.is_empty() { "unknown".to_string() } else { entry.category.clone() })
+            .entry(if entry.category.is_empty() {
+                "unknown".to_string()
+            } else {
+                entry.category.clone()
+            })
             .or_default()
             .record(expected, predicted);
     }
 
     let wall_secs = wall_start.elapsed().as_secs_f64();
     let cpu_secs = process_cpu_secs() - cpu_start;
-    let model_size_bytes =
-        std::fs::metadata(&args.model_path).map(|m| m.len()).unwrap_or(0);
+    let model_size_bytes = std::fs::metadata(&args.model_path).map(|m| m.len()).unwrap_or(0);
     let peak_rss_mib = peak_rss_bytes() as f64 / (1024.0 * 1024.0);
     let throughput_eps = entries.len() as f64 / wall_secs.max(f64::EPSILON);
     let cpu_util_pct = cpu_secs / wall_secs.max(f64::EPSILON) * 100.0;
@@ -459,9 +469,7 @@ fn main() -> ExitCode {
                         let _ = detector.detect(&text);
                         times.push(started.elapsed().as_secs_f64() * 1_000.0);
                     }
-                    times.sort_by(|a, b| {
-                        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                     let median = times[times.len() / 2];
                     println!(
                         "scaling: target_chunks={target} actual_chunks={actual_chunks} median_ms={median:.1}"

@@ -23,8 +23,7 @@ pub fn resolve_injection_index(
         return Ok(index as usize);
     }
 
-    let config_path =
-        model_path.parent().unwrap_or_else(|| Path::new(".")).join("config.json");
+    let config_path = model_path.parent().unwrap_or_else(|| Path::new(".")).join("config.json");
     let labels = std::fs::read_to_string(&config_path)
         .ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
@@ -32,9 +31,7 @@ pub fn resolve_injection_index(
         .map(|object| {
             object
                 .iter()
-                .filter_map(|(k, v)| {
-                    k.parse::<usize>().ok().zip(v.as_str().map(String::from))
-                })
+                .filter_map(|(k, v)| k.parse::<usize>().ok().zip(v.as_str().map(String::from)))
                 .collect::<Vec<(usize, String)>>()
         });
 

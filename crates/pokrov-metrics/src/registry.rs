@@ -626,7 +626,11 @@ fn constrain_error_class(error_class: &str) -> &str {
 
 fn constrain_pi_source(source: &str) -> &str {
     match source {
-        "mcp_tool_output" | "mcp_tool_description" | "mcp_resource" | "mcp_prompt" | "rag"
+        "mcp_tool_output"
+        | "mcp_tool_description"
+        | "mcp_resource"
+        | "mcp_prompt"
+        | "rag"
         | "external" => source,
         _ => "other",
     }
@@ -659,9 +663,7 @@ fn constrain_pi_fail_mode(fail_mode: &str) -> &str {
 fn constrain_pi_model(model: &str) -> &str {
     let valid = !model.is_empty()
         && model.len() <= 128
-        && model
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'));
+        && model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'));
     if valid {
         model
     } else {
