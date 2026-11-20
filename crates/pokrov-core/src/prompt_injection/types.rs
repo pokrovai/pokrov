@@ -99,10 +99,7 @@ pub trait PromptInjectionDetector: Send + Sync {
     /// Classifies `text` and returns the maximum fragment score together with
     /// the number of fragments evaluated. Thresholds are intentionally absent:
     /// score-to-classification mapping is a policy concern.
-    fn detect(
-        &self,
-        text: &str,
-    ) -> Result<PromptInjectionDetection, PromptInjectionDetectorError>;
+    fn detect(&self, text: &str) -> Result<PromptInjectionDetection, PromptInjectionDetectorError>;
 }
 
 /// What the policy applies to content classified as injection.

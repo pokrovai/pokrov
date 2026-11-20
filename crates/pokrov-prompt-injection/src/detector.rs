@@ -103,7 +103,9 @@ impl LocalOnnxPromptInjectionDetector {
             .map_err(|e| PromptInjectionProviderError::TokenizationFailed(e.to_string()))?;
         let special_ids = specials.get_ids();
         let (prefix_ids, suffix_ids) = match special_ids.split_first() {
-            Some((first, rest)) => (vec![*first as i64], rest.iter().map(|&id| id as i64).collect()),
+            Some((first, rest)) => {
+                (vec![*first as i64], rest.iter().map(|&id| id as i64).collect())
+            }
             None => (Vec::new(), Vec::new()),
         };
 
@@ -165,8 +167,7 @@ impl LocalOnnxPromptInjectionDetector {
         let encoding = self.tokenizer.encode(text, false).map_err(|e| {
             PromptInjectionDetectorError::InferenceFailed(format!("tokenization failed: {e}"))
         })?;
-        let content_window =
-            self.limits.max_tokens - self.prefix_ids.len() - self.suffix_ids.len();
+        let content_window = self.limits.max_tokens - self.prefix_ids.len() - self.suffix_ids.len();
         let (windows, truncated) = window_ranges(
             encoding.get_ids().len(),
             content_window,
@@ -181,10 +182,7 @@ impl LocalOnnxPromptInjectionDetector {
 
     /// Runs one context window through the session and returns the injection
     /// softmax probability.
-    fn infer_window(
-        &self,
-        content_ids: &[u32],
-    ) -> Result<f32, PromptInjectionDetectorError> {
+    fn infer_window(&self, content_ids: &[u32]) -> Result<f32, PromptInjectionDetectorError> {
         let seq_len = self.prefix_ids.len() + content_ids.len() + self.suffix_ids.len();
         let mut ids = Vec::with_capacity(seq_len);
         ids.extend_from_slice(&self.prefix_ids);
@@ -192,9 +190,8 @@ impl LocalOnnxPromptInjectionDetector {
         ids.extend_from_slice(&self.suffix_ids);
 
         let to_tensor = |data: Vec<i64>| -> Result<Tensor<i64>, PromptInjectionDetectorError> {
-            Tensor::from_array(([1usize, seq_len], data)).map_err(|e| {
-                PromptInjectionDetectorError::InferenceFailed(e.to_string())
-            })
+            Tensor::from_array(([1usize, seq_len], data))
+                .map_err(|e| PromptInjectionDetectorError::InferenceFailed(e.to_string()))
         };
 
         // Feed only inputs the session declares; foreign inputs would abort
@@ -245,10 +242,7 @@ impl PromptInjectionDetector for LocalOnnxPromptInjectionDetector {
         &self.descriptor
     }
 
-    fn detect(
-        &self,
-        text: &str,
-    ) -> Result<PromptInjectionDetection, PromptInjectionDetectorError> {
+    fn detect(&self, text: &str) -> Result<PromptInjectionDetection, PromptInjectionDetectorError> {
         // Tokenize once without specials; window boundaries are then pure
         // slicing, which keeps per-window token id sequences exact (re-encoding
         // each window would shift subword boundaries).
@@ -260,8 +254,7 @@ impl PromptInjectionDetector for LocalOnnxPromptInjectionDetector {
             return Ok(PromptInjectionDetection { score: 0.0, chunks_processed: 0 });
         }
 
-        let content_window =
-            self.limits.max_tokens - self.prefix_ids.len() - self.suffix_ids.len();
+        let content_window = self.limits.max_tokens - self.prefix_ids.len() - self.suffix_ids.len();
         let (windows, truncated) = window_ranges(
             ids.len(),
             content_window,

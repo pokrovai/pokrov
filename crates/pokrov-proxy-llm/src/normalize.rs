@@ -93,9 +93,8 @@ pub fn resolve_profile_id(
         }
     }
 
-    if let Some(provider_profile) = provider_profile
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
+    if let Some(provider_profile) =
+        provider_profile.map(str::trim).filter(|value| !value.is_empty())
     {
         if is_known_profile(provider_profile) {
             return provider_profile.to_string();

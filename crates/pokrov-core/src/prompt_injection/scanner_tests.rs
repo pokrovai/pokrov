@@ -27,12 +27,11 @@ struct FailingDetector;
 
 impl PromptInjectionDetector for FailingDetector {
     fn descriptor(&self) -> &PromptInjectionDetectorDescriptor {
-        static DESCRIPTOR: PromptInjectionDetectorDescriptor =
-            PromptInjectionDetectorDescriptor {
-                detector_id: String::new(),
-                provider: String::new(),
-                model_id: String::new(),
-            };
+        static DESCRIPTOR: PromptInjectionDetectorDescriptor = PromptInjectionDetectorDescriptor {
+            detector_id: String::new(),
+            provider: String::new(),
+            model_id: String::new(),
+        };
         &DESCRIPTOR
     }
 
@@ -54,12 +53,11 @@ struct BlockingDetector {
 
 impl PromptInjectionDetector for BlockingDetector {
     fn descriptor(&self) -> &PromptInjectionDetectorDescriptor {
-        static DESCRIPTOR: PromptInjectionDetectorDescriptor =
-            PromptInjectionDetectorDescriptor {
-                detector_id: String::new(),
-                provider: String::new(),
-                model_id: String::new(),
-            };
+        static DESCRIPTOR: PromptInjectionDetectorDescriptor = PromptInjectionDetectorDescriptor {
+            detector_id: String::new(),
+            provider: String::new(),
+            model_id: String::new(),
+        };
         &DESCRIPTOR
     }
 
@@ -100,10 +98,7 @@ fn policy(
     }
 }
 
-fn scanner_with_score(
-    score: f32,
-    policy: PromptInjectionPolicy,
-) -> PromptInjectionScanner {
+fn scanner_with_score(score: f32, policy: PromptInjectionPolicy) -> PromptInjectionScanner {
     PromptInjectionScanner::new(
         policy,
         Some(Arc::new(FixedDetector { descriptor: descriptor(), score })),
@@ -288,12 +283,10 @@ fn missing_detector_respects_fail_mode() {
         None,
     );
 
-    let blocked = closed
-        .scan(PromptInjectionSource::McpToolOutput, "payload")
-        .expect("outcome expected");
-    let allowed = open
-        .scan(PromptInjectionSource::McpToolOutput, "payload")
-        .expect("outcome expected");
+    let blocked =
+        closed.scan(PromptInjectionSource::McpToolOutput, "payload").expect("outcome expected");
+    let allowed =
+        open.scan(PromptInjectionSource::McpToolOutput, "payload").expect("outcome expected");
 
     assert_eq!(blocked.decision, PromptInjectionDecision::Block);
     assert_eq!(blocked.degraded_reason.as_deref(), Some("detector_unavailable"));
@@ -333,9 +326,8 @@ fn per_source_threshold_overrides_default() {
     );
     let scanner = scanner_with_score(0.85, policy);
 
-    let outcome = scanner
-        .scan(PromptInjectionSource::McpToolOutput, "payload")
-        .expect("outcome expected");
+    let outcome =
+        scanner.scan(PromptInjectionSource::McpToolOutput, "payload").expect("outcome expected");
 
     assert_eq!(outcome.classification, Some(PromptInjectionClassification::Injection));
     assert_eq!(outcome.decision, PromptInjectionDecision::Block);
@@ -352,9 +344,8 @@ fn empty_text_is_benign_without_inference() {
         ),
     );
 
-    let outcome = scanner
-        .scan(PromptInjectionSource::McpToolOutput, "   \n  ")
-        .expect("outcome expected");
+    let outcome =
+        scanner.scan(PromptInjectionSource::McpToolOutput, "   \n  ").expect("outcome expected");
 
     assert_eq!(outcome.classification, Some(PromptInjectionClassification::Benign));
     assert_eq!(outcome.chunks_processed, 0);
@@ -367,12 +358,11 @@ struct TruncatingDetector;
 
 impl PromptInjectionDetector for TruncatingDetector {
     fn descriptor(&self) -> &PromptInjectionDetectorDescriptor {
-        static DESCRIPTOR: PromptInjectionDetectorDescriptor =
-            PromptInjectionDetectorDescriptor {
-                detector_id: String::new(),
-                provider: String::new(),
-                model_id: String::new(),
-            };
+        static DESCRIPTOR: PromptInjectionDetectorDescriptor = PromptInjectionDetectorDescriptor {
+            detector_id: String::new(),
+            provider: String::new(),
+            model_id: String::new(),
+        };
         &DESCRIPTOR
     }
 
@@ -436,23 +426,16 @@ fn concurrent_scan_degrades_as_busy_while_inference_in_flight() {
             PromptInjectionMode::Enforce,
             PromptInjectionFailMode::FailClosed,
         ),
-        Some(Arc::new(BlockingDetector {
-            entered: entered_tx,
-            release: Arc::clone(&release),
-        })),
+        Some(Arc::new(BlockingDetector { entered: entered_tx, release: Arc::clone(&release) })),
     ));
 
     let first_scanner = Arc::clone(&scanner);
-    let first = thread::spawn(move || {
-        first_scanner.scan(PromptInjectionSource::McpToolOutput, "payload")
-    });
-    entered_rx
-        .recv_timeout(Duration::from_secs(5))
-        .expect("detector should be entered");
+    let first =
+        thread::spawn(move || first_scanner.scan(PromptInjectionSource::McpToolOutput, "payload"));
+    entered_rx.recv_timeout(Duration::from_secs(5)).expect("detector should be entered");
 
-    let second = scanner
-        .scan(PromptInjectionSource::McpToolOutput, "payload")
-        .expect("outcome expected");
+    let second =
+        scanner.scan(PromptInjectionSource::McpToolOutput, "payload").expect("outcome expected");
     assert_eq!(second.degraded_reason.as_deref(), Some("detector_busy"));
     assert_eq!(second.decision, PromptInjectionDecision::Block);
 

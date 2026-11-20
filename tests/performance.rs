@@ -8,6 +8,8 @@ pub mod hardening_test_support;
 mod llm_proxy_overhead_budget;
 #[path = "common/llm_proxy_test_support.rs"]
 pub mod llm_proxy_test_support;
+#[path = "performance/llm_sse_tool_argument_overhead.rs"]
+mod llm_sse_tool_argument_overhead;
 #[path = "performance/mcp_mediation_overhead_budget.rs"]
 mod mcp_mediation_overhead_budget;
 #[path = "common/mcp_test_support.rs"]
@@ -24,3 +26,5 @@ mod sanitization_evaluate_latency;
 mod sanitization_foundation_contract_overhead;
 #[path = "common/sanitization_foundation_test_support.rs"]
 pub mod sanitization_foundation_test_support;
+#[path = "common/sse_tool_argument_test_support.rs"]
+pub mod sse_tool_argument_test_support;

@@ -54,6 +54,10 @@ mod llm_proxy_streaming_path;
 pub mod llm_proxy_test_support;
 #[path = "integration/llm_proxy_upstream_error_path.rs"]
 mod llm_proxy_upstream_error_path;
+#[path = "integration/llm_sse_tool_argument_policy_path.rs"]
+mod llm_sse_tool_argument_policy_path;
+#[path = "integration/llm_sse_tool_arguments_path.rs"]
+mod llm_sse_tool_arguments_path;
 #[path = "integration/mcp_allowed_tool_path.rs"]
 mod mcp_allowed_tool_path;
 #[path = "integration/mcp_argument_validation_path.rs"]
@@ -72,10 +76,10 @@ pub mod mcp_test_support;
 mod mcp_upstream_unavailable_path;
 #[path = "integration/mcp_validation_recovery_path.rs"]
 mod mcp_validation_recovery_path;
-#[path = "integration/prompt_injection_mcp_path.rs"]
-mod prompt_injection_mcp_path;
 #[path = "integration/mesh_mtls_gateway_auth_path.rs"]
 mod mesh_mtls_gateway_auth_path;
+#[path = "integration/prompt_injection_mcp_path.rs"]
+mod prompt_injection_mcp_path;
 #[path = "integration/rate_limit_request_budget_path.rs"]
 mod rate_limit_request_budget_path;
 #[path = "integration/rate_limit_token_budget_path.rs"]
@@ -118,5 +122,7 @@ mod sanitization_foundation_stage_boundaries;
 pub mod sanitization_foundation_test_support;
 #[path = "integration/sanitization_transform_flow.rs"]
 mod sanitization_transform_flow;
+#[path = "common/sse_tool_argument_test_support.rs"]
+pub mod sse_tool_argument_test_support;
 #[path = "integration/startup_config_flow.rs"]
 mod startup_config_flow;

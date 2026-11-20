@@ -8,9 +8,14 @@ use super::mcp_test_support::{
 
 /// Marker set matched by the deterministic `static` prompt-injection provider
 /// used throughout these tests. Markers mirror realistic EN/RU attack text.
-const STATIC_MARKERS: &str = r#"["Ignore all previous instructions", "игнорируй все предыдущие инструкции"]"#;
+const STATIC_MARKERS: &str =
+    r#"["Ignore all previous instructions", "игнорируй все предыдущие инструкции"]"#;
 
-fn config_yaml(upstream_base: &str, runtime_key: &std::path::Path, prompt_injection: &str) -> String {
+fn config_yaml(
+    upstream_base: &str,
+    runtime_key: &std::path::Path,
+    prompt_injection: &str,
+) -> String {
     format!(
         r#"
 server:
@@ -111,8 +116,11 @@ async fn mcp_tool_output_benign_russian_content_is_allowed() {
     .await;
 
     let runtime_key_path = write_key_file("mcp-test-key");
-    let config_path =
-        write_runtime_config(&config_yaml(&upstream.base_url, &runtime_key_path, &static_pi_block("")));
+    let config_path = write_runtime_config(&config_yaml(
+        &upstream.base_url,
+        &runtime_key_path,
+        &static_pi_block(""),
+    ));
 
     let runtime = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
@@ -122,7 +130,10 @@ async fn mcp_tool_output_benign_russian_content_is_allowed() {
     assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert_eq!(body["allowed"], serde_json::json!(true));
-    assert_eq!(body["result"]["content"]["text"], serde_json::json!("Файл src/lib.rs содержит 42 строки. Основная функция: main."));
+    assert_eq!(
+        body["result"]["content"]["text"],
+        serde_json::json!("Файл src/lib.rs содержит 42 строки. Основная функция: main.")
+    );
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     upstream.shutdown().await;
@@ -143,8 +154,11 @@ async fn mcp_tool_output_russian_injection_is_blocked() {
     .await;
 
     let runtime_key_path = write_key_file("mcp-test-key");
-    let config_path =
-        write_runtime_config(&config_yaml(&upstream.base_url, &runtime_key_path, &static_pi_block("")));
+    let config_path = write_runtime_config(&config_yaml(
+        &upstream.base_url,
+        &runtime_key_path,
+        &static_pi_block(""),
+    ));
 
     let runtime = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
@@ -154,14 +168,8 @@ async fn mcp_tool_output_russian_injection_is_blocked() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert_eq!(body["error"]["code"], serde_json::json!("prompt_injection_detected"));
-    assert_eq!(
-        body["error"]["details"]["source"],
-        serde_json::json!("mcp_tool_output")
-    );
-    assert_eq!(
-        body["error"]["details"]["reason"],
-        serde_json::json!("injection_detected")
-    );
+    assert_eq!(body["error"]["details"]["source"], serde_json::json!("mcp_tool_output"));
+    assert_eq!(body["error"]["details"]["reason"], serde_json::json!("injection_detected"));
     // Metadata-only contract: the attack text must not leak into the error.
     let serialized = serde_json::to_string(&body).expect("body serializes");
     assert!(!serialized.contains("предыдущие инструкции"));
@@ -187,8 +195,11 @@ async fn mcp_tool_output_english_injection_is_blocked() {
     .await;
 
     let runtime_key_path = write_key_file("mcp-test-key");
-    let config_path =
-        write_runtime_config(&config_yaml(&upstream.base_url, &runtime_key_path, &static_pi_block("")));
+    let config_path = write_runtime_config(&config_yaml(
+        &upstream.base_url,
+        &runtime_key_path,
+        &static_pi_block(""),
+    ));
 
     let runtime = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
@@ -223,8 +234,11 @@ async fn mcp_tool_output_mixed_language_injection_in_structured_content_is_block
     .await;
 
     let runtime_key_path = write_key_file("mcp-test-key");
-    let config_path =
-        write_runtime_config(&config_yaml(&upstream.base_url, &runtime_key_path, &static_pi_block("")));
+    let config_path = write_runtime_config(&config_yaml(
+        &upstream.base_url,
+        &runtime_key_path,
+        &static_pi_block(""),
+    ));
 
     let runtime = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
@@ -234,10 +248,7 @@ async fn mcp_tool_output_mixed_language_injection_in_structured_content_is_block
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert_eq!(body["error"]["code"], serde_json::json!("prompt_injection_detected"));
-    assert_eq!(
-        body["error"]["details"]["source"],
-        serde_json::json!("mcp_tool_output")
-    );
+    assert_eq!(body["error"]["details"]["source"], serde_json::json!("mcp_tool_output"));
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     upstream.shutdown().await;
@@ -264,8 +275,11 @@ async fn mcp_tool_output_injection_in_structured_content_is_blocked() {
     .await;
 
     let runtime_key_path = write_key_file("mcp-test-key");
-    let config_path =
-        write_runtime_config(&config_yaml(&upstream.base_url, &runtime_key_path, &static_pi_block("")));
+    let config_path = write_runtime_config(&config_yaml(
+        &upstream.base_url,
+        &runtime_key_path,
+        &static_pi_block(""),
+    ));
 
     let runtime = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
@@ -301,8 +315,11 @@ async fn mcp_tool_output_large_benign_content_within_limits_is_allowed() {
     .await;
 
     let runtime_key_path = write_key_file("mcp-test-key");
-    let config_path =
-        write_runtime_config(&config_yaml(&upstream.base_url, &runtime_key_path, &static_pi_block("")));
+    let config_path = write_runtime_config(&config_yaml(
+        &upstream.base_url,
+        &runtime_key_path,
+        &static_pi_block(""),
+    ));
 
     let runtime = pokrov_runtime::bootstrap::spawn_runtime_for_tests(config_path)
         .await
@@ -323,15 +340,18 @@ async fn mcp_tool_output_large_benign_content_within_limits_is_allowed() {
         .text()
         .await
         .expect("metrics body should parse");
-    assert!(metrics.lines().any(|line| {
-        line.starts_with("pokrov_prompt_injection_chunks_total{")
-            && line.contains("source=\"mcp_tool_output\"")
-            && line
-                .rsplit(' ')
-                .next()
-                .and_then(|v| v.parse::<u64>().ok())
-                .is_some_and(|v| v > 1)
-    }), "metrics payload: {metrics}");
+    assert!(
+        metrics.lines().any(|line| {
+            line.starts_with("pokrov_prompt_injection_chunks_total{")
+                && line.contains("source=\"mcp_tool_output\"")
+                && line
+                    .rsplit(' ')
+                    .next()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .is_some_and(|v| v > 1)
+        }),
+        "metrics payload: {metrics}"
+    );
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     upstream.shutdown().await;
@@ -365,10 +385,7 @@ async fn mcp_tool_output_over_max_content_bytes_blocks_under_fail_closed() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body: serde_json::Value = response.json().await.expect("json body expected");
     assert_eq!(body["error"]["code"], serde_json::json!("prompt_injection_detected"));
-    assert_eq!(
-        body["error"]["details"]["reason"],
-        serde_json::json!("content_exceeds_max_bytes")
-    );
+    assert_eq!(body["error"]["details"]["reason"], serde_json::json!("content_exceeds_max_bytes"));
 
     // Degraded evaluation under fail_closed must surface in metrics.
     let metrics = reqwest::Client::new()
@@ -379,18 +396,24 @@ async fn mcp_tool_output_over_max_content_bytes_blocks_under_fail_closed() {
         .text()
         .await
         .expect("metrics body should parse");
-    assert!(metrics.lines().any(|line| {
-        line.starts_with("pokrov_prompt_injection_detector_errors_total{")
-            && line.contains("source=\"mcp_tool_output\"")
-            && line.contains("fail_mode=\"fail_closed\"")
-            && !line.ends_with(" 0")
-    }), "metrics payload: {metrics}");
-    assert!(metrics.lines().any(|line| {
-        line.starts_with("pokrov_prompt_injection_evaluations_total{")
-            && line.contains("source=\"mcp_tool_output\"")
-            && line.contains("decision=\"block\"")
-            && !line.ends_with(" 0")
-    }), "metrics payload: {metrics}");
+    assert!(
+        metrics.lines().any(|line| {
+            line.starts_with("pokrov_prompt_injection_detector_errors_total{")
+                && line.contains("source=\"mcp_tool_output\"")
+                && line.contains("fail_mode=\"fail_closed\"")
+                && !line.ends_with(" 0")
+        }),
+        "metrics payload: {metrics}"
+    );
+    assert!(
+        metrics.lines().any(|line| {
+            line.starts_with("pokrov_prompt_injection_evaluations_total{")
+                && line.contains("source=\"mcp_tool_output\"")
+                && line.contains("decision=\"block\"")
+                && !line.ends_with(" 0")
+        }),
+        "metrics payload: {metrics}"
+    );
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     upstream.shutdown().await;
@@ -434,12 +457,15 @@ async fn mcp_tool_output_over_max_content_bytes_passes_degraded_under_fail_open(
         .text()
         .await
         .expect("metrics body should parse");
-    assert!(metrics.lines().any(|line| {
-        line.starts_with("pokrov_prompt_injection_detector_errors_total{")
-            && line.contains("source=\"mcp_tool_output\"")
-            && line.contains("fail_mode=\"fail_open\"")
-            && !line.ends_with(" 0")
-    }), "metrics payload: {metrics}");
+    assert!(
+        metrics.lines().any(|line| {
+            line.starts_with("pokrov_prompt_injection_detector_errors_total{")
+                && line.contains("source=\"mcp_tool_output\"")
+                && line.contains("fail_mode=\"fail_open\"")
+                && !line.ends_with(" 0")
+        }),
+        "metrics payload: {metrics}"
+    );
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     upstream.shutdown().await;
@@ -482,11 +508,14 @@ async fn mcp_tool_output_dry_run_does_not_block_detected_injection() {
         .text()
         .await
         .expect("metrics body should parse");
-    assert!(metrics.lines().any(|line| {
-        line.starts_with("pokrov_prompt_injection_detected_total{")
-            && line.contains("source=\"mcp_tool_output\"")
-            && !line.ends_with(" 0")
-    }), "metrics payload: {metrics}");
+    assert!(
+        metrics.lines().any(|line| {
+            line.starts_with("pokrov_prompt_injection_detected_total{")
+                && line.contains("source=\"mcp_tool_output\"")
+                && !line.ends_with(" 0")
+        }),
+        "metrics payload: {metrics}"
+    );
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     upstream.shutdown().await;
@@ -540,12 +569,15 @@ async fn mcp_tool_output_detector_unavailable_passes_degraded_under_fail_open() 
         .text()
         .await
         .expect("metrics body should parse");
-    assert!(metrics.lines().any(|line| {
-        line.starts_with("pokrov_prompt_injection_detector_errors_total{")
-            && line.contains("source=\"mcp_tool_output\"")
-            && line.contains("fail_mode=\"fail_open\"")
-            && !line.ends_with(" 0")
-    }), "metrics payload: {metrics}");
+    assert!(
+        metrics.lines().any(|line| {
+            line.starts_with("pokrov_prompt_injection_detector_errors_total{")
+                && line.contains("source=\"mcp_tool_output\"")
+                && line.contains("fail_mode=\"fail_open\"")
+                && !line.ends_with(" 0")
+        }),
+        "metrics payload: {metrics}"
+    );
 
     runtime.shutdown().await.expect("runtime should stop cleanly");
     upstream.shutdown().await;

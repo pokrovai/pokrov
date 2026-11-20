@@ -4,12 +4,12 @@ use http::StatusCode;
 use serde_json::Value;
 use tokio::time::sleep;
 
+#[cfg(feature = "llm_payload_trace")]
+use crate::trace::LlmPayloadTraceSink;
 use crate::{
     errors::LLMProxyError,
     types::{RouteResolution, UpstreamJsonResponse, UpstreamStreamResponse},
 };
-#[cfg(feature = "llm_payload_trace")]
-use crate::trace::LlmPayloadTraceSink;
 
 #[derive(Debug, Clone)]
 pub struct UpstreamClient {
@@ -44,7 +44,10 @@ impl UpstreamClient {
     }
 
     #[cfg(feature = "llm_payload_trace")]
-    pub fn with_payload_trace_sink(mut self, payload_trace_sink: Option<LlmPayloadTraceSink>) -> Self {
+    pub fn with_payload_trace_sink(
+        mut self,
+        payload_trace_sink: Option<LlmPayloadTraceSink>,
+    ) -> Self {
         self.payload_trace_sink = payload_trace_sink;
         self
     }
@@ -67,11 +70,8 @@ impl UpstreamClient {
             if let Some(token) = bearer {
                 request = request.bearer_auth(token);
             }
-            let response = request
-                .timeout(Duration::from_millis(route.timeout_ms))
-                .json(payload)
-                .send()
-                .await;
+            let response =
+                request.timeout(Duration::from_millis(route.timeout_ms)).json(payload).send().await;
 
             match response {
                 Ok(response) => {
@@ -210,11 +210,8 @@ impl UpstreamClient {
             if let Some(token) = bearer {
                 request = request.bearer_auth(token);
             }
-            let response = request
-                .timeout(Duration::from_millis(route.timeout_ms))
-                .json(payload)
-                .send()
-                .await;
+            let response =
+                request.timeout(Duration::from_millis(route.timeout_ms)).json(payload).send().await;
 
             match response {
                 Ok(response) => {
@@ -377,9 +374,8 @@ fn apply_standard_tls_env(
     }
 
     for certificate_pem in &certificates {
-        let certificate = reqwest::Certificate::from_pem(certificate_pem.as_bytes()).map_err(
-            |error| format!("invalid certificate in SSL_CERT_FILE '{}': {error}", path),
-        )?;
+        let certificate = reqwest::Certificate::from_pem(certificate_pem.as_bytes())
+            .map_err(|error| format!("invalid certificate in SSL_CERT_FILE '{}': {error}", path))?;
         builder = builder.add_root_certificate(certificate);
     }
 

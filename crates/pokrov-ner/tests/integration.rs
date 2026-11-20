@@ -5,7 +5,8 @@ fn engine_for_languages(required_languages: &[&str]) -> Option<NerEngine> {
     let mut selected_models: Vec<NerModelBinding> = Vec::new();
 
     for &language in required_languages {
-        let Some(binding) = default_config.models.iter().find(|binding| binding.language == language)
+        let Some(binding) =
+            default_config.models.iter().find(|binding| binding.language == language)
         else {
             eprintln!("Skipping NER test: language '{language}' is not configured");
             return None;

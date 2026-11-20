@@ -1,4 +1,7 @@
-use std::{collections::{BTreeMap, BTreeSet}, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use serde_json::Value;
 
@@ -24,8 +27,9 @@ pub fn read_open_snapshot(file_name: &str) -> Value {
     let path = dataset_cache_dir().join(file_name);
     let snapshot_raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("snapshot {} should be readable: {error}", path.display()));
-    serde_json::from_str(&snapshot_raw)
-        .unwrap_or_else(|error| panic!("snapshot {} should decode to JSON: {error}", path.display()))
+    serde_json::from_str(&snapshot_raw).unwrap_or_else(|error| {
+        panic!("snapshot {} should decode to JSON: {error}", path.display())
+    })
 }
 
 pub fn starter_expected_sanitized_payloads() -> BTreeMap<&'static str, Option<Value>> {
@@ -286,10 +290,7 @@ fn row_annotations(row: &Value) -> Vec<DatasetAnnotation> {
             .filter_map(|item| {
                 let label = item.get("label").and_then(Value::as_str)?;
                 let value = item.get("value").and_then(Value::as_str)?;
-                Some(DatasetAnnotation {
-                    label: label.to_string(),
-                    value: value.to_string(),
-                })
+                Some(DatasetAnnotation { label: label.to_string(), value: value.to_string() })
             })
             .collect();
     }
@@ -306,27 +307,27 @@ fn row_annotations(row: &Value) -> Vec<DatasetAnnotation> {
 }
 
 fn parse_yaml_annotations(raw: &str, value_key: &str, label_key: &str) -> Vec<DatasetAnnotation> {
-    let parsed: serde_yaml::Value = serde_yaml::from_str(raw)
-        .unwrap_or_else(|error| panic!("annotation payload should parse as yaml flow sequence: {error}"));
+    let parsed: serde_yaml::Value = serde_yaml::from_str(raw).unwrap_or_else(|error| {
+        panic!("annotation payload should parse as yaml flow sequence: {error}")
+    });
     let Some(items) = parsed.as_sequence() else {
         return Vec::new();
     };
 
-    items.iter()
+    items
+        .iter()
         .filter_map(|item| {
             let label = item.get(label_key)?.as_str()?;
             let value = item.get(value_key)?.as_str()?;
-            Some(DatasetAnnotation {
-                label: label.to_string(),
-                value: value.to_string(),
-            })
+            Some(DatasetAnnotation { label: label.to_string(), value: value.to_string() })
         })
         .collect()
 }
 
 fn parse_entity_annotations(raw: &str) -> Vec<DatasetAnnotation> {
-    let parsed: serde_yaml::Value = serde_yaml::from_str(raw)
-        .unwrap_or_else(|error| panic!("entity payload should parse as yaml flow sequence: {error}"));
+    let parsed: serde_yaml::Value = serde_yaml::from_str(raw).unwrap_or_else(|error| {
+        panic!("entity payload should parse as yaml flow sequence: {error}")
+    });
     let Some(items) = parsed.as_sequence() else {
         return Vec::new();
     };
@@ -340,10 +341,8 @@ fn parse_entity_annotations(raw: &str) -> Vec<DatasetAnnotation> {
             continue;
         };
         for label in types.iter().filter_map(serde_yaml::Value::as_str) {
-            annotations.push(DatasetAnnotation {
-                label: label.to_string(),
-                value: value.to_string(),
-            });
+            annotations
+                .push(DatasetAnnotation { label: label.to_string(), value: value.to_string() });
         }
     }
 

@@ -2,9 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use pokrov_config::model::McpConfig;
 use pokrov_core::{
-    prompt_injection::{
-        PromptInjectionDecision, PromptInjectionScanner, PromptInjectionSource,
-    },
+    prompt_injection::{PromptInjectionDecision, PromptInjectionScanner, PromptInjectionSource},
     rehydrate::{rehydrate_value, RehydrationMap},
     traversal::collect_string_leaves_text,
     types::{EvaluateRequest, EvaluationMode, PathClass, PolicyAction},
@@ -235,13 +233,8 @@ impl McpProxyHandler {
         // Prompt-injection classification runs on the raw upstream result:
         // destructive DLP transforms could alter attack payloads and skew the
         // classifier, so this stage must precede `sanitize_output`.
-        self.evaluate_prompt_injection(
-            &request_id,
-            &request.server,
-            &request.tool,
-            &result,
-        )
-        .await?;
+        self.evaluate_prompt_injection(&request_id, &request.server, &request.tool, &result)
+            .await?;
 
         let sanitization = self.sanitize_output(
             &request_id,
@@ -364,10 +357,8 @@ impl McpProxyHandler {
         .emit();
 
         if outcome.decision == PromptInjectionDecision::Block {
-            let reason = outcome
-                .degraded_reason
-                .clone()
-                .unwrap_or_else(|| "injection_detected".to_string());
+            let reason =
+                outcome.degraded_reason.clone().unwrap_or_else(|| "injection_detected".to_string());
             return Err(McpProxyError::prompt_injection_detected(
                 request_id,
                 server,
@@ -715,9 +706,8 @@ mod tests {
                 tools: BTreeMap::new(),
             }],
         };
-        let handler =
-            McpProxyHandler::new(None, Arc::new(NoopRuntimeMetricsHooks), config, None)
-                .expect("handler should build");
+        let handler = McpProxyHandler::new(None, Arc::new(NoopRuntimeMetricsHooks), config, None)
+            .expect("handler should build");
 
         let request = crate::types::McpToolCallRequest {
             server: "repo-tools".to_string(),
